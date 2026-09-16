@@ -1,6 +1,6 @@
 # Threadmoth CLI
 
-Threadmoth 1.9.1 uses one structured command grammar for parsing, help, validation, completion, and manpage generation.
+Threadmoth 1.10.0 uses one structured command grammar for parsing, help, validation, completion, and manpage generation.
 
 ## Discover before editing
 
@@ -134,7 +134,7 @@ The summary shows outcome, provider, effect size, preservation facts, hashes and
 }
 ```
 
-Threadmoth 1.9.1 continues to accept the older request spelling `"provider":"file"` as a compatibility alias. When serialized or described by Threadmoth, the provider is canonicalized to `filesystem`.
+Threadmoth 1.10.0 continues to accept the older request spelling `"provider":"file"` as a compatibility alias. When serialized or described by Threadmoth, the provider is canonicalized to `filesystem`.
 
 ## Safe shorthands
 
@@ -275,7 +275,7 @@ threadmoth doctor --json
 
 ## Compatibility policy
 
-Threadmoth 1.9.1 keeps important pre-1.3 command/provider spellings as compatibility routes, including `apply`, `dry-run`, positional benchmark profiles, `torture`, `transaction-preview`, and request provider alias `file`. It accepts protocol 1.1.0, 1.2.0 and 1.3.0 requests with their promised semantics while advertising protocol 1.3.1 as current.
+Threadmoth 1.10.0 keeps important pre-1.3 command/provider spellings as compatibility routes, including `apply`, `dry-run`, positional benchmark profiles, `torture`, `transaction-preview`, and request provider alias `file`. It accepts protocol 1.1.0, 1.2.0 and 1.3.0 requests with their promised semantics while advertising protocol 1.3.1 as current.
 
 ## Plan review
 

@@ -4,11 +4,17 @@ This is the durable record for Threadmoth discovery and distribution work. It re
 
 ## Snapshot
 
-Date: 2026-09-09  
+Date: 2026-09-16  
 Repository: [matthewjameswatkins1978-cyber/Threadmoth](https://github.com/matthewjameswatkins1978-cyber/Threadmoth)  
+Current release candidate on `feature/threadmoth-1.10-context-economy`: **Threadmoth 1.10.0**  
+Draft candidate PR: [#51](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/pull/51), final candidate head pending CI  
 Current source line on `main`: **Threadmoth 1.9.1**
 Current `main` merge for the 1.9.1 consistency release: `97f8a1c74fefa6003ddf493a93186dcd51f26a33`  
 Stable published release: [Threadmoth 1.9.1](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/releases/tag/v1.9.1)
+
+The 1.10.0 candidate adds bounded context-economy views to the existing
+inspect surface. It remains draft and unreleased until the repaired final head
+passes local and Ubuntu/Windows CI gates.
 
 Threadmoth 1.9.1 is merged to `main` at `97f8a1c74fefa6003ddf493a93186dcd51f26a33` and **v1.9.1 is tagged and published**. The [release workflow](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/actions/runs/34352262906) completed the source, six-platform/flavour build, package, runtime and publish jobs successfully.
 
@@ -49,9 +55,9 @@ Portable remains the compatibility default; the Windows/Linux `x86-64-v3` artifa
 
 | Target | Artifact | Status | Validation |
 |---|---|---|---|
-| Portable Agent Skills | [`skills/threadmoth/SKILL.md`](../skills/threadmoth/SKILL.md) | Shipped | Shared skill is versioned for 1.9 source and discovers the installed runtime before use |
+| Portable Agent Skills | [`skills/threadmoth/SKILL.md`](../skills/threadmoth/SKILL.md) | Candidate | Shared skill is versioned for the 1.10.0 candidate and discovers the installed runtime before use |
 | Claude Code | [`.claude-plugin/plugin.json`](../.claude-plugin/plugin.json) plus shared skill | Shipped | Standard plugin layout; still depends on user-installed `threadmoth` executable |
-| Gemini CLI | [`gemini-extension.json`](../gemini-extension.json), [`GEMINI.md`](../GEMINI.md), shared skill | Shipped | Root manifest/context/skill layout present; runtime capabilities are discovered locally |
+| Gemini CLI | [`gemini-extension.json`](../gemini-extension.json), [`GEMINI.md`](../GEMINI.md), shared skill | Candidate | Root manifest/context/skill layout present; runtime capabilities are discovered locally |
 | Antigravity | [`plugin.json`](../plugin.json) plus shared skill | Packaged; field validation still incomplete | Authentication and skill discovery were verified locally; treat end-to-end mutation/refusal recovery as unverified until a clean reproducible field run completes |
 
 ## OpenAI surface status
@@ -77,7 +83,7 @@ Threadmoth 1.7 added important distribution foundations that remain relevant:
 - release automation added macOS Apple Silicon and Intel alongside Windows/Linux;
 - release workflow refused to publish a version tag whose commit was not already contained in `main`.
 
-These are historical milestones, not the current capability list. Use [Coverage](coverage.md) and runtime `capabilities` for 1.9.
+These are historical milestones, not the current capability list. Use [Coverage](coverage.md) and runtime `capabilities` for 1.10.0.
 
 ## Existing outreach
 

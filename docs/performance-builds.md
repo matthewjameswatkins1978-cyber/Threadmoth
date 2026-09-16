@@ -1,6 +1,6 @@
 # Performance builds
 
-Threadmoth 1.9 defines several build flavours, but all of them compile the same Core and provider set. Only code generation differs. A faster binary does not get a weaker safety path or a smaller capability contract.
+Threadmoth 1.10.0 defines several build flavours, but all of them compile the same Core and provider set. Only code generation differs. A faster binary does not get a weaker safety path or a smaller capability contract.
 
 | Flavour | Intended use | CPU baseline |
 | --- | --- | --- |

@@ -148,3 +148,88 @@ fn unsupported_outline_is_honest_and_malformed_source_fails_closed() {
     .unwrap_err();
     assert!(error.contains("outline unavailable"));
 }
+
+#[test]
+fn escaped_and_unicode_paths_round_trip_observation_handles() {
+    let directory = tempdir().unwrap();
+    let source = "fn selected() {\n    let marker = 7;\n}\n";
+    let paths = [
+        "normal.rs",
+        "dir with space/sample.rs",
+        "percent%name.rs",
+        "café.rs",
+        "nested_(punctuation)-sample.rs",
+    ];
+    for path in paths {
+        let full_path = directory.path().join(path);
+        if let Some(parent) = full_path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(full_path, source).unwrap();
+    }
+    let workspace = Workspace::new(directory.path()).unwrap();
+    for path in paths {
+        let value = outline(&workspace, path);
+        let entry = value["outline"]["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["kind"] == "function_item")
+            .unwrap();
+        let handle = entry["handle"].as_str().unwrap();
+        let start = entry["start_byte"].as_u64().unwrap() as usize;
+        let end = entry["end_byte"].as_u64().unwrap() as usize;
+        let expanded = inspect_view(
+            &workspace,
+            path,
+            Some("expand"),
+            Some(handle),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(expanded["expansion"]["source"], &source[start..end]);
+    }
+}
+
+#[test]
+fn observation_handle_tampering_always_refuses_without_mutation() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("dir with space/percent%name.rs");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let source = "fn selected() {}\n";
+    fs::write(&path, source).unwrap();
+    let workspace = Workspace::new(directory.path()).unwrap();
+    let value = outline(&workspace, "dir with space/percent%name.rs");
+    let handle = value["outline"]["entries"][0]["handle"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut tampered = Vec::new();
+    for (index, replacement) in [
+        (1, "0".repeat(64)),
+        (2, "other.rs".into()),
+        (5, "1".into()),
+        (6, "2".into()),
+        (7, "struct_item".into()),
+        (8, "0".repeat(64)),
+    ] {
+        let mut parts = handle.split('|').map(str::to_owned).collect::<Vec<_>>();
+        parts[index] = replacement;
+        tampered.push(parts.join("|"));
+    }
+    for candidate in tampered {
+        let result = inspect_view(
+            &workspace,
+            "dir with space/percent%name.rs",
+            Some("expand"),
+            Some(&candidate),
+            None,
+            None,
+            None,
+        );
+        assert!(result.is_err(), "tampered handle unexpectedly succeeded");
+    }
+    assert_eq!(fs::read(&path).unwrap(), source.as_bytes());
+}

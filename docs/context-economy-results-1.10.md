@@ -2,8 +2,8 @@
 
 This document records the first implementation-gate measurements against the
 retained [Threadmoth 1.9.1 baseline](context-economy-baseline-1.9.1.md). The
-working package version remains `1.9.1` until the release gate is accepted;
-this branch does not publish or tag `1.10.0`.
+working package version is now `1.10.0`; this branch does not merge, publish or
+tag the release.
 
 ## Measured outline exposure
 
@@ -33,7 +33,9 @@ reliable token counter, so no token saving is claimed.
 - F1 large source: passed. Outline is capped at 32 in the measurement, marks
   truncation, and one exact handle expands to a bounded region.
 - F2 repeated unchanged fact: passed. One long-lived MCP process reports
-  `derived` then `cache_hit` while re-reading the current source identity.
+  `derived` then `cache_hit` while re-reading the current source identity. The
+  bounded cache is deterministic least-recently-used: hits move to the back
+  and eviction removes the least recently used entry from the front.
 - F3 stale handle: passed. A changed source returns a stale observation refusal
   and leaves the changed bytes untouched.
 - F4 ambiguous structure: passed. The outline reports multiple exact entries;

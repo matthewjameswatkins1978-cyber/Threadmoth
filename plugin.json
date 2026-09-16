@@ -2,5 +2,5 @@
   "$schema": "https://antigravity.google/schemas/v1/plugin.json",
   "name": "threadmoth",
   "description": "A bounded, source-preserving file mutation skill for Antigravity.",
-  "version": "1.9.1"
+  "version": "1.10.0"
 }

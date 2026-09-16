@@ -1,6 +1,6 @@
 # Target registry
 
-`src/target_registry.rs` is the canonical classification authority in Threadmoth 1.9.1. Runtime discovery, inspect, capabilities, suggest, CLI shorthand provider selection and MCP shorthand provider selection all use it to answer a simple question before mutation:
+`src/target_registry.rs` is the canonical classification authority in Threadmoth 1.10.0. Runtime discovery, inspect, capabilities, suggest, CLI shorthand provider selection and MCP shorthand provider selection all use it to answer a simple question before mutation:
 
 > What does Threadmoth know about this file, and what level of mutation can it safely offer?
 

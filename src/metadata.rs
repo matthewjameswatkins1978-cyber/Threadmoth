@@ -1170,7 +1170,7 @@ struct CachedOutline {
 ///
 /// The cache never supplies identity facts: callers re-read and hash the
 /// current file before looking up an outline. It is deliberately not persisted
-/// and has deterministic FIFO/LRU eviction.
+/// and has deterministic least-recently-used eviction.
 #[derive(Debug)]
 pub struct ObservationCache {
     entries: VecDeque<CachedOutline>,
@@ -1555,21 +1555,31 @@ fn make_handle(
 ) -> String {
     let path = PathNormalizer::normalize(path, &PathNamespace::Native);
     let sha256 = compute_sha256(bytes);
-    let payload = format!(
-        "{OBSERVATION_PREFIX}|{}|{}|{}|{}|{}|{}",
-        sha256, path, provider, detection.target_kind, node.start_byte, node.end_byte
-    );
-    let payload = format!("{payload}|{}", node.kind);
+    let serialized_path = escape_handle_part(&path);
+    let serialized_provider = escape_handle_part(provider);
+    let serialized_language = escape_handle_part(&detection.target_kind);
+    let serialized_kind = escape_handle_part(&node.kind);
+    let payload = [
+        OBSERVATION_PREFIX,
+        &sha256,
+        &serialized_path,
+        &serialized_provider,
+        &serialized_language,
+        &node.start_byte.to_string(),
+        &node.end_byte.to_string(),
+        &serialized_kind,
+    ]
+    .join("|");
     let digest = compute_sha256(payload.as_bytes());
     [
         OBSERVATION_PREFIX,
         &sha256,
-        &escape_handle_part(&path),
-        &escape_handle_part(provider),
-        &escape_handle_part(&detection.target_kind),
+        &serialized_path,
+        &serialized_provider,
+        &serialized_language,
         &node.start_byte.to_string(),
         &node.end_byte.to_string(),
-        &escape_handle_part(&node.kind),
+        &serialized_kind,
         &digest,
     ]
     .join("|")
@@ -1590,10 +1600,10 @@ fn parse_handle(handle: &str) -> Result<Observation, String> {
     let end = parts[6]
         .parse::<usize>()
         .map_err(|_| "invalid observation handle range".to_string())?;
-    let payload = format!(
-        "{}|{}|{}|{}|{}|{}|{}|{}",
-        OBSERVATION_PREFIX, parts[1], parts[2], parts[3], parts[4], start, end, parts[7]
-    );
+    if start.to_string() != parts[5] || end.to_string() != parts[6] {
+        return Err("invalid observation handle range encoding".into());
+    }
+    let payload = parts[..8].join("|");
     if compute_sha256(payload.as_bytes()) != parts[8] {
         return Err("invalid observation handle digest".into());
     }

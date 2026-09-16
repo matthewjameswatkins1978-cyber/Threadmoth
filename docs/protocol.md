@@ -1,6 +1,6 @@
 # Protocol v1.3
 
-Threadmoth 1.9.1 advertises protocol **1.3.1**. Requests using protocol `1.3.0`, `1.2.0`, and `1.1.0` remain accepted with their promised semantics.
+Threadmoth 1.10.0 advertises protocol **1.3.1**. Requests using protocol `1.3.0`, `1.2.0`, and `1.1.0` remain accepted with their promised semantics.
 
 A request is JSON with a stable `request_id`, workspace-relative `file_path`, optional namespace and source-identity guards, explicit cardinality, an optional hard effect budget, and one typed provider operation. Unknown fields are rejected.
 
