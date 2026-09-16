@@ -46,6 +46,16 @@ pub struct SyntaxPlan {
     pub targeting: StructuralTargeting,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OutlineNode {
+    pub kind: String,
+    pub label: String,
+    pub start_byte: usize,
+    pub end_byte: usize,
+    pub start_line: usize,
+    pub end_line: usize,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum SyntaxError {
     Refused(RefusalReason),
@@ -455,6 +465,128 @@ pub fn validate(content: &[u8], language_name: &str) -> Result<(), SyntaxError> 
     parse(content, spec).map(|_| ())
 }
 
+/// Return deterministic, bounded structural observations using the existing
+/// Tree-sitter registry and parser. This is read-only; mutation still requires
+/// a normal request, cardinality check and certificate.
+pub fn outline(
+    content: &[u8],
+    language_name: &str,
+    family: LanguageFamily,
+) -> Result<Vec<OutlineNode>, SyntaxError> {
+    let Some(spec) = lookup(language_name) else {
+        return Err(SyntaxError::Refused(
+            RefusalReason::ProviderCapabilityMissing {
+                provider: "syntax".into(),
+                capability: format!("language grammar: {language_name}"),
+            },
+        ));
+    };
+    if spec.family != family {
+        return Err(SyntaxError::Refused(
+            RefusalReason::ProviderCapabilityMissing {
+                provider: match family {
+                    LanguageFamily::Code => "code",
+                    LanguageFamily::Web => "web",
+                }
+                .into(),
+                capability: spec.id.into(),
+            },
+        ));
+    }
+    let tree = parse(content, spec)?;
+    let mut found = Vec::new();
+    collect_outline_nodes(tree.root_node(), content, family, &mut found);
+    found.sort_unstable_by_key(|node| (node.start_byte, node.end_byte, node.kind.clone()));
+    found.dedup_by(|left, right| {
+        left.start_byte == right.start_byte
+            && left.end_byte == right.end_byte
+            && left.kind == right.kind
+    });
+    Ok(found)
+}
+
+fn collect_outline_nodes(
+    node: tree_sitter::Node<'_>,
+    content: &[u8],
+    family: LanguageFamily,
+    out: &mut Vec<OutlineNode>,
+) {
+    if is_outline_kind(node.kind(), family) {
+        let start_byte = node.start_byte();
+        let end_byte = node.end_byte();
+        out.push(OutlineNode {
+            kind: node.kind().into(),
+            label: bounded_label(content, start_byte, end_byte),
+            start_byte,
+            end_byte,
+            start_line: node.start_position().row + 1,
+            end_line: node.end_position().row + 1,
+        });
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_outline_nodes(child, content, family, out);
+    }
+}
+
+fn bounded_label(content: &[u8], start_byte: usize, end_byte: usize) -> String {
+    const MAX_LABEL_BYTES: usize = 96;
+    let preview_end = (start_byte + MAX_LABEL_BYTES).min(end_byte);
+    let mut label = String::from_utf8_lossy(&content[start_byte..preview_end])
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if preview_end < end_byte {
+        label.push_str(" ...");
+    }
+    label
+}
+
+fn is_outline_kind(kind: &str, family: LanguageFamily) -> bool {
+    match family {
+        LanguageFamily::Code => matches!(
+            kind,
+            "function_item"
+                | "struct_item"
+                | "enum_item"
+                | "trait_item"
+                | "impl_item"
+                | "mod_item"
+                | "type_item"
+                | "const_item"
+                | "static_item"
+                | "function_definition"
+                | "async_function_definition"
+                | "class_definition"
+                | "function_declaration"
+                | "generator_function_declaration"
+                | "class_declaration"
+                | "method_definition"
+                | "method_declaration"
+                | "interface_declaration"
+                | "type_alias_declaration"
+                | "enum_declaration"
+                | "namespace_declaration"
+                | "type_declaration"
+                | "struct_specifier"
+                | "create_function_statement"
+                | "create_table_statement"
+        ),
+        LanguageFamily::Web => matches!(
+            kind,
+            "element"
+                | "script_element"
+                | "style_element"
+                | "style_rule"
+                | "media_statement"
+                | "keyframes_statement"
+                | "rule_set"
+                | "qualified_rule"
+                | "template_element"
+        ),
+    }
+}
+
 fn parse(content: &[u8], spec: &LanguageSpec) -> Result<tree_sitter::Tree, SyntaxError> {
     let language = (spec.grammar)();
     let mut parser = Parser::new();
@@ -619,6 +751,21 @@ mod tests {
         assert_eq!(suggest_extension("main.tf"), Some("hcl"));
         assert_eq!(suggest_extension("index.html"), Some("html"));
         assert_eq!(suggest_extension("unknown"), None);
+    }
+
+    #[test]
+    fn outlines_are_deterministic_and_include_bounded_code_items() {
+        let source = b"fn load() {}\n\nstruct Service {\n    name: String,\n}\n";
+        let first = outline(source, "rust", LanguageFamily::Code).unwrap();
+        let second = outline(source, "rust", LanguageFamily::Code).unwrap();
+        assert_eq!(first, second);
+        assert!(first.iter().any(|node| node.kind == "function_item"));
+        assert!(first.iter().any(|node| node.kind == "struct_item"));
+        assert!(first.iter().all(|node| node.label.len() <= 100));
+        assert!(first
+            .windows(2)
+            .all(|nodes| (nodes[0].start_byte, nodes[0].end_byte)
+                <= (nodes[1].start_byte, nodes[1].end_byte)));
     }
 
     #[test]

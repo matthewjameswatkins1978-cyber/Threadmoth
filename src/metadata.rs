@@ -28,6 +28,7 @@ use crate::workspace::Workspace;
 use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::VecDeque;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct OperationMetadata {
@@ -1154,9 +1155,139 @@ pub fn capabilities_for(path: &str, bytes: Option<&[u8]>) -> Value {
     value
 }
 
+pub const DEFAULT_EXPANSION_MAX_BYTES: usize = 8 * 1024;
+pub const DEFAULT_OUTLINE_MAX_ENTRIES: usize = 64;
+const MAX_OUTLINE_ENTRIES: usize = 128;
+const OBSERVATION_PREFIX: &str = "threadmoth:observation:v1";
+
+#[derive(Debug)]
+struct CachedOutline {
+    key: String,
+    nodes: Vec<syntax::OutlineNode>,
+}
+
+/// Bounded, process-local reuse for a long-lived MCP process.
+///
+/// The cache never supplies identity facts: callers re-read and hash the
+/// current file before looking up an outline. It is deliberately not persisted
+/// and has deterministic FIFO/LRU eviction.
+#[derive(Debug)]
+pub struct ObservationCache {
+    entries: VecDeque<CachedOutline>,
+    max_entries: usize,
+    max_bytes: usize,
+    bytes: usize,
+    hits: usize,
+    misses: usize,
+}
+
+impl Default for ObservationCache {
+    fn default() -> Self {
+        Self::new(16, 256 * 1024)
+    }
+}
+
+impl ObservationCache {
+    pub fn new(max_entries: usize, max_bytes: usize) -> Self {
+        Self {
+            entries: VecDeque::new(),
+            max_entries: max_entries.max(1),
+            max_bytes: max_bytes.max(1),
+            bytes: 0,
+            hits: 0,
+            misses: 0,
+        }
+    }
+
+    pub fn hits(&self) -> usize {
+        self.hits
+    }
+
+    pub fn misses(&self) -> usize {
+        self.misses
+    }
+
+    fn get(&mut self, key: &str) -> Option<Vec<syntax::OutlineNode>> {
+        let index = self.entries.iter().position(|entry| entry.key == key);
+        let Some(index) = index else {
+            self.misses += 1;
+            return None;
+        };
+        let entry = self.entries.remove(index).expect("cache index exists");
+        let nodes = entry.nodes.clone();
+        self.entries.push_back(entry);
+        self.hits += 1;
+        Some(nodes)
+    }
+
+    fn insert(&mut self, key: String, nodes: Vec<syntax::OutlineNode>) {
+        let size = nodes
+            .iter()
+            .map(|node| node.label.len() + node.kind.len() + 48)
+            .sum::<usize>();
+        if size > self.max_bytes {
+            return;
+        }
+        if let Some(index) = self.entries.iter().position(|entry| entry.key == key) {
+            if let Some(old) = self.entries.remove(index) {
+                self.bytes = self.bytes.saturating_sub(outline_size(&old.nodes));
+            }
+        }
+        while self.entries.len() >= self.max_entries || self.bytes + size > self.max_bytes {
+            let Some(old) = self.entries.pop_front() else {
+                break;
+            };
+            self.bytes = self.bytes.saturating_sub(outline_size(&old.nodes));
+        }
+        self.bytes += size;
+        self.entries.push_back(CachedOutline { key, nodes });
+    }
+}
+
+fn outline_size(nodes: &[syntax::OutlineNode]) -> usize {
+    nodes
+        .iter()
+        .map(|node| node.label.len() + node.kind.len() + 48)
+        .sum()
+}
+
 /// Return the canonical read-only identity facts used by both the CLI and
-/// MCP discovery surfaces.
+/// MCP discovery surfaces. Its shape is intentionally unchanged.
 pub fn inspect(workspace: &Workspace, path: &str) -> Result<Value, String> {
+    let (_, value) = read_identity(workspace, path)?;
+    Ok(value)
+}
+
+/// Inspect identity, a compact structural outline, or one exact observation.
+/// Handles are observations only; they never authorize mutation.
+pub fn inspect_view(
+    workspace: &Workspace,
+    path: &str,
+    view: Option<&str>,
+    handle: Option<&str>,
+    max_bytes: Option<usize>,
+    max_entries: Option<usize>,
+    cache: Option<&mut ObservationCache>,
+) -> Result<Value, String> {
+    match view.unwrap_or("identity") {
+        "identity" => {
+            if handle.is_some() {
+                return Err("identity view does not accept an observation handle".into());
+            }
+            inspect(workspace, path)
+        }
+        "outline" => {
+            if handle.is_some() {
+                return Err("outline view does not accept an observation handle".into());
+            }
+            outline_view(workspace, path, max_entries, cache)
+        }
+        "expand" => expand_view(workspace, path, handle, max_bytes),
+        other => Err(format!("unsupported inspect view: {other}")),
+    }
+}
+
+fn read_identity(workspace: &Workspace, path: &str) -> Result<(Vec<u8>, Value), String> {
     let normalized = PathNormalizer::normalize(path, &PathNamespace::Native);
     let resolved = workspace
         .resolve_namespaced_path(path, &PathNamespace::Native)
@@ -1173,19 +1304,308 @@ pub fn inspect(workspace: &Workspace, path: &str) -> Result<Value, String> {
         "none"
     };
     let detection_value = serde_json::to_value(&detection).expect("detection serializes");
-    Ok(json!({
-        "protocol_version": PROTOCOL_VERSION,
-        "file_path": normalized,
-        "bytes": bytes.len(),
-        "sha256": compute_sha256(&bytes),
-        "encoding": if bytes.starts_with(&[0xef, 0xbb, 0xbf]) { "utf8_bom" } else { "utf8" },
-        "newline_profile": newline,
-        "final_newline": bytes.ends_with(b"\n")
-        ,"detection": detection_value
-        ,"understanding_level": detection.understanding_level
-        ,"preservation_level": detection.preservation_level
-        ,"fallback_routes": detection.fallback_routes
-    }))
+    let byte_count = bytes.len();
+    let hash = compute_sha256(&bytes);
+    let encoding = if bytes.starts_with(&[0xef, 0xbb, 0xbf]) {
+        "utf8_bom"
+    } else {
+        "utf8"
+    };
+    let final_newline = bytes.ends_with(b"\n");
+    Ok((
+        bytes,
+        json!({
+            "protocol_version": PROTOCOL_VERSION,
+            "file_path": normalized,
+            "bytes": byte_count,
+            "sha256": hash,
+            "encoding": encoding,
+            "newline_profile": newline,
+            "final_newline": final_newline
+            ,"detection": detection_value
+            ,"understanding_level": detection.understanding_level
+            ,"preservation_level": detection.preservation_level
+            ,"fallback_routes": detection.fallback_routes
+        }),
+    ))
+}
+
+fn outline_view(
+    workspace: &Workspace,
+    path: &str,
+    max_entries: Option<usize>,
+    mut cache: Option<&mut ObservationCache>,
+) -> Result<Value, String> {
+    let (bytes, identity) = read_identity(workspace, path)?;
+    let detection = target_registry::detect(path, Some(&bytes));
+    let Some(provider) = detection.provider.as_deref() else {
+        return Ok(with_view(
+            identity,
+            "outline",
+            json!({
+                "available": false,
+                "reason": "unsupported_provider"
+            }),
+        ));
+    };
+    let family = match provider {
+        "code" => LanguageFamily::Code,
+        "web" => LanguageFamily::Web,
+        _ => {
+            return Ok(with_view(
+                identity,
+                "outline",
+                json!({
+                    "available": false,
+                    "reason": "unsupported_provider"
+                }),
+            ));
+        }
+    };
+    let limit = max_entries
+        .unwrap_or(DEFAULT_OUTLINE_MAX_ENTRIES)
+        .clamp(1, MAX_OUTLINE_ENTRIES);
+    let key = format!(
+        "{}|{}|{}|{}|{}",
+        PathNormalizer::normalize(path, &PathNamespace::Native),
+        compute_sha256(&bytes),
+        provider,
+        detection.target_kind,
+        limit
+    );
+    let (nodes, reuse) = if let Some(ref mut observed_cache) = cache {
+        if let Some(nodes) = observed_cache.get(&key) {
+            (nodes, "cache_hit")
+        } else {
+            let nodes = syntax::outline(&bytes, &detection.target_kind, family)
+                .map_err(|error| format!("outline unavailable: {error:?}"))?;
+            observed_cache.insert(key, nodes.clone());
+            (nodes, "derived")
+        }
+    } else {
+        (
+            syntax::outline(&bytes, &detection.target_kind, family)
+                .map_err(|error| format!("outline unavailable: {error:?}"))?,
+            "derived",
+        )
+    };
+    let truncated = nodes.len() > limit;
+    let entries = nodes
+        .iter()
+        .take(limit)
+        .map(|node| {
+            json!({
+                "handle": make_handle(path, &detection, provider, &bytes, node),
+                "kind": node.kind,
+                "label": node.label,
+                "start_byte": node.start_byte,
+                "end_byte": node.end_byte,
+                "start_line": node.start_line,
+                "end_line": node.end_line
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(with_view(
+        identity,
+        "outline",
+        json!({
+            "available": true,
+            "entries": entries,
+            "truncated": truncated,
+            "max_entries": limit,
+            "reuse": reuse
+        }),
+    ))
+}
+
+fn expand_view(
+    workspace: &Workspace,
+    path: &str,
+    handle: Option<&str>,
+    max_bytes: Option<usize>,
+) -> Result<Value, String> {
+    let handle = handle.ok_or_else(|| "expand view requires an observation handle".to_string())?;
+    let observation = parse_handle(handle)?;
+    let (bytes, identity) = read_identity(workspace, path)?;
+    let normalized = PathNormalizer::normalize(path, &PathNamespace::Native);
+    if observation.path != normalized {
+        return Err("observation handle is bound to a different path".into());
+    }
+    let current_hash = identity["sha256"]
+        .as_str()
+        .ok_or_else(|| "identity hash is unavailable".to_string())?;
+    if observation.sha256 != current_hash {
+        return Err("stale observation handle: source identity changed".into());
+    }
+    if observation.start > observation.end || observation.end > bytes.len() {
+        return Err("observation handle range is outside the current file".into());
+    }
+    let detection = target_registry::detect(path, Some(&bytes));
+    let provider = detection.provider.as_deref().unwrap_or("opaque");
+    if provider != observation.provider || detection.target_kind != observation.language {
+        return Err("stale observation handle: provider or language changed".into());
+    }
+    let family = match provider {
+        "code" => LanguageFamily::Code,
+        "web" => LanguageFamily::Web,
+        _ => return Err("observation handle has no supported structural provider".into()),
+    };
+    let nodes = syntax::outline(&bytes, &detection.target_kind, family)
+        .map_err(|error| format!("observation expansion unavailable: {error:?}"))?;
+    let node = nodes
+        .iter()
+        .find(|node| {
+            node.kind == observation.kind
+                && node.start_byte == observation.start
+                && node.end_byte == observation.end
+        })
+        .ok_or_else(|| "stale observation handle: syntax region changed".to_string())?;
+    let region = &bytes[node.start_byte..node.end_byte];
+    let limit = max_bytes.unwrap_or(DEFAULT_EXPANSION_MAX_BYTES);
+    if region.len() > limit {
+        return Err(format!(
+            "observation expansion exceeds max_bytes ({}, actual {})",
+            limit,
+            region.len()
+        ));
+    }
+    let source = String::from_utf8(region.to_vec())
+        .map_err(|_| "observation expansion is not valid UTF-8".to_string())?;
+    let mut result = identity;
+    result["view"] = Value::String("expand".into());
+    result["expansion"] = json!({
+        "available": true,
+        "handle": handle,
+        "kind": node.kind,
+        "start_byte": node.start_byte,
+        "end_byte": node.end_byte,
+        "start_line": node.start_line,
+        "end_line": node.end_line,
+        "bytes": region.len(),
+        "source": source
+    });
+    Ok(result)
+}
+
+fn with_view(mut identity: Value, view: &str, value: Value) -> Value {
+    identity["view"] = Value::String(view.into());
+    identity[view] = value;
+    identity
+}
+
+struct Observation {
+    sha256: String,
+    path: String,
+    provider: String,
+    language: String,
+    start: usize,
+    end: usize,
+    kind: String,
+}
+
+fn escape_handle_part(value: &str) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut escaped = String::new();
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b'/') {
+            escaped.push(byte as char);
+        } else {
+            escaped.push('%');
+            escaped.push(HEX[(byte >> 4) as usize] as char);
+            escaped.push(HEX[(byte & 0x0f) as usize] as char);
+        }
+    }
+    escaped
+}
+
+fn unescape_handle_part(value: &str) -> Result<String, String> {
+    let mut output = Vec::new();
+    let bytes = value.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            if index + 2 >= bytes.len() {
+                return Err("invalid observation handle escaping".into());
+            }
+            let high = (bytes[index + 1] as char)
+                .to_digit(16)
+                .ok_or_else(|| "invalid observation handle escaping".to_string())?;
+            let low = (bytes[index + 2] as char)
+                .to_digit(16)
+                .ok_or_else(|| "invalid observation handle escaping".to_string())?;
+            output.push(((high << 4) | low) as u8);
+            index += 3;
+        } else {
+            if bytes[index] == b'|' {
+                return Err("invalid observation handle escaping".into());
+            }
+            output.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(output).map_err(|_| "invalid observation handle UTF-8".into())
+}
+
+fn make_handle(
+    path: &str,
+    detection: &target_registry::Detection,
+    provider: &str,
+    bytes: &[u8],
+    node: &syntax::OutlineNode,
+) -> String {
+    let path = PathNormalizer::normalize(path, &PathNamespace::Native);
+    let sha256 = compute_sha256(bytes);
+    let payload = format!(
+        "{OBSERVATION_PREFIX}|{}|{}|{}|{}|{}|{}",
+        sha256, path, provider, detection.target_kind, node.start_byte, node.end_byte
+    );
+    let payload = format!("{payload}|{}", node.kind);
+    let digest = compute_sha256(payload.as_bytes());
+    [
+        OBSERVATION_PREFIX,
+        &sha256,
+        &escape_handle_part(&path),
+        &escape_handle_part(provider),
+        &escape_handle_part(&detection.target_kind),
+        &node.start_byte.to_string(),
+        &node.end_byte.to_string(),
+        &escape_handle_part(&node.kind),
+        &digest,
+    ]
+    .join("|")
+}
+
+fn parse_handle(handle: &str) -> Result<Observation, String> {
+    let parts = handle.split('|').collect::<Vec<_>>();
+    if parts.len() != 9 || parts[0] != OBSERVATION_PREFIX {
+        return Err("invalid observation handle".into());
+    }
+    let path = unescape_handle_part(parts[2])?;
+    let provider = unescape_handle_part(parts[3])?;
+    let language = unescape_handle_part(parts[4])?;
+    let kind = unescape_handle_part(parts[7])?;
+    let start = parts[5]
+        .parse::<usize>()
+        .map_err(|_| "invalid observation handle range".to_string())?;
+    let end = parts[6]
+        .parse::<usize>()
+        .map_err(|_| "invalid observation handle range".to_string())?;
+    let payload = format!(
+        "{}|{}|{}|{}|{}|{}|{}|{}",
+        OBSERVATION_PREFIX, parts[1], parts[2], parts[3], parts[4], start, end, parts[7]
+    );
+    if compute_sha256(payload.as_bytes()) != parts[8] {
+        return Err("invalid observation handle digest".into());
+    }
+    Ok(Observation {
+        sha256: parts[1].into(),
+        path,
+        provider,
+        language,
+        start,
+        end,
+        kind,
+    })
 }
 
 fn digest_without_id(value: &Value) -> String {
@@ -1497,7 +1917,7 @@ pub fn commands() -> Vec<(&'static str, &'static str)> {
         ),
         (
             "inspect",
-            "Read target identity and preservation facts without mutation.",
+            "Read identity facts, a bounded structural outline or one exact expansion without mutation.",
         ),
         ("preview", "Prepare and certify a mutation without writing."),
         (
@@ -1529,7 +1949,7 @@ pub fn command_help(command: &str) -> Option<String> {
         "schema" => "Use schema [request|response|PROVIDER|OPERATION] [--json] [--pretty] to inspect the local contract and schema_id.",
         "explain" => "Use explain REASON_CODE [--json] to get meaning, evidence interpretation and safe recovery guidance.",
         "suggest" => "Use suggest PATH [--goal GOAL] [--at SELECTOR] [--mode minimal|safe|full], or suggest --from-refusal CERTIFICATE.",
-        "inspect" => "Read a workspace-relative target's identity, encoding and newline profile; it never mutates.",
+        "inspect" => "Read a workspace-relative target's identity, encoding and newline profile, or use --outline/--expand for bounded structural observations; it never mutates.",
         "transact" => "Reads a TransactionRequest and stages every member before commit; transaction-preview prepares without writing.",
         "recover" => "Inspect local recovery journals and complete or restore interrupted transactions with evidence.",
         "benchmark" => "Use benchmark [quick|standard|tough] [--json] for correctness-checked dry-run performance measurements. The tough profile adds large files, long lines, many lines and repeated small-file workloads.",

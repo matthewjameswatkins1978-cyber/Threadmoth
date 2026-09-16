@@ -92,6 +92,69 @@ fn tools_list_exposes_preview_and_notification_has_no_response() {
         .unwrap()
         .iter()
         .any(|tool| tool["name"] == "threadmoth_update"));
+    assert_eq!(output[0]["result"]["tools"].as_array().unwrap().len(), 12);
+    let inspect = output[0]["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == "threadmoth_inspect")
+        .unwrap();
+    for property in ["path", "view", "handle", "max_bytes", "max_entries"] {
+        assert!(inspect["inputSchema"]["properties"][property].is_object());
+    }
+}
+
+#[test]
+fn inspect_outline_reuses_only_unchanged_source_in_one_mcp_session() {
+    let workspace = TempDir::new().unwrap();
+    fs::write(workspace.path().join("sample.rs"), b"fn first() {}\n").unwrap();
+    let output = call_mcp(
+        &workspace,
+        &[
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"threadmoth_inspect","arguments":{"path":"sample.rs","view":"outline"}}}),
+            json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"threadmoth_inspect","arguments":{"path":"sample.rs","view":"outline"}}}),
+        ],
+    );
+    assert_eq!(
+        output[0]["result"]["structuredContent"]["outline"]["reuse"],
+        "derived"
+    );
+    assert_eq!(
+        output[1]["result"]["structuredContent"]["outline"]["reuse"],
+        "cache_hit"
+    );
+}
+
+#[test]
+fn inspect_expansion_refuses_a_stale_handle() {
+    let workspace = TempDir::new().unwrap();
+    fs::write(workspace.path().join("sample.rs"), b"fn first() {}\n").unwrap();
+    let outline = call_mcp(
+        &workspace,
+        &[
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"threadmoth_inspect","arguments":{"path":"sample.rs","view":"outline"}}}),
+        ],
+    );
+    let handle = outline[0]["result"]["structuredContent"]["outline"]["entries"][0]["handle"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    fs::write(workspace.path().join("sample.rs"), b"fn changed() {}\n").unwrap();
+    let result = call_mcp(
+        &workspace,
+        &[
+            json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"threadmoth_inspect","arguments":{"path":"sample.rs","view":"expand","handle":handle}}}),
+        ],
+    );
+    assert_eq!(result[0]["result"]["isError"], true);
+    assert!(result[0]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("stale observation handle"));
+    assert_eq!(
+        fs::read(workspace.path().join("sample.rs")).unwrap(),
+        b"fn changed() {}\n"
+    );
 }
 
 #[test]

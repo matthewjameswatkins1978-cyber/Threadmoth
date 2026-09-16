@@ -20,6 +20,14 @@ use crate::cli::THREADMOTH_VERSION;
 #[serde(deny_unknown_fields)]
 struct InspectToolArgs {
     path: String,
+    #[serde(default)]
+    view: Option<String>,
+    #[serde(default)]
+    handle: Option<String>,
+    #[serde(default)]
+    max_bytes: Option<usize>,
+    #[serde(default)]
+    max_entries: Option<usize>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -111,6 +119,7 @@ pub fn run_mcp() {
             return;
         }
     };
+    let mut observation_cache = threadmoth::metadata::ObservationCache::default();
     let mut input = io::stdin().lock();
     loop {
         let line = match read_mcp_line(&mut input) {
@@ -142,13 +151,17 @@ pub fn run_mcp() {
                 continue;
             }
         };
-        if let Some(response) = handle_mcp_message(&workspace, request) {
+        if let Some(response) = handle_mcp_message(&workspace, request, &mut observation_cache) {
             println!("{}", response);
         }
     }
 }
 
-fn handle_mcp_message(workspace: &Workspace, request: Value) -> Option<Value> {
+fn handle_mcp_message(
+    workspace: &Workspace,
+    request: Value,
+    observation_cache: &mut threadmoth::metadata::ObservationCache,
+) -> Option<Value> {
     let Some(object) = request.as_object() else {
         return Some(json_rpc_error(
             Value::Null,
@@ -175,7 +188,7 @@ fn handle_mcp_message(workspace: &Workspace, request: Value) -> Option<Value> {
                     {"name": "threadmoth_preview", "description": "Preview one typed Threadmoth mutation without writing; do not invent target specificity", "inputSchema": schema_for!(Request)},
                     {"name": "threadmoth_plan", "description": "Prepare a deterministic guarded plan without writing; preserve unresolved target ambiguity", "inputSchema": schema_for!(Request)},
                     {"name": "threadmoth_apply_plan", "description": "Apply an exact prepared plan after rechecking identity and assertions", "inputSchema": schema_for!(PreparedPlan)},
-                    {"name": "threadmoth_inspect", "description": "Read target identity, encoding and newline facts without mutation; expose evidence for caller selection", "inputSchema": schema_for!(InspectToolArgs)},
+                    {"name": "threadmoth_inspect", "description": "Read unchanged identity facts or a bounded deterministic outline/expansion; observation handles are stale-safe read identities and never mutation authority", "inputSchema": schema_for!(InspectToolArgs)},
                     {"name": "threadmoth_suggest", "description": "Return deterministic request suggestions and candidate evidence; never choose among unresolved candidates", "inputSchema": schema_for!(SuggestToolArgs)},
                     {"name": "threadmoth_explain", "description": "Return stable metadata for a refusal or failure reason", "inputSchema": schema_for!(ExplainToolArgs)},
                     {"name": "threadmoth_capabilities", "description": "Return Threadmoth capabilities, optionally scoped to a provider or path", "inputSchema": schema_for!(CapabilitiesToolArgs)},
@@ -212,7 +225,7 @@ fn handle_mcp_message(workspace: &Workspace, request: Value) -> Option<Value> {
                     .get("arguments")
                     .cloned()
                     .unwrap_or_else(|| json!({}));
-                let value = call_tool(workspace, name, arguments);
+                let value = call_tool(workspace, name, arguments, observation_cache);
                 let result = match value {
                     Ok(value) => {
                         json!({"content": [{"type": "text", "text": serde_json::to_string(&value).unwrap()}], "structuredContent": value})
@@ -234,7 +247,12 @@ fn handle_mcp_message(workspace: &Workspace, request: Value) -> Option<Value> {
     }
 }
 
-fn call_tool(workspace: &Workspace, name: &str, arguments: Value) -> Result<Value, String> {
+fn call_tool(
+    workspace: &Workspace,
+    name: &str,
+    arguments: Value,
+    observation_cache: &mut threadmoth::metadata::ObservationCache,
+) -> Result<Value, String> {
     match name {
         "threadmoth_exact_replace" => {
             let args =
@@ -276,7 +294,15 @@ fn call_tool(workspace: &Workspace, name: &str, arguments: Value) -> Result<Valu
         "threadmoth_inspect" => {
             let args =
                 serde_json::from_value::<InspectToolArgs>(arguments).map_err(schema_error)?;
-            threadmoth::metadata::inspect(workspace, &args.path)
+            threadmoth::metadata::inspect_view(
+                workspace,
+                &args.path,
+                args.view.as_deref(),
+                args.handle.as_deref(),
+                args.max_bytes,
+                args.max_entries,
+                Some(observation_cache),
+            )
         }
         "threadmoth_suggest" => {
             let args =
