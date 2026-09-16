@@ -22,9 +22,9 @@ for every request; the outline cache never replaced that identity check.
 
 For the large-file F1 path, the 1.9.1 baseline broad-read exposure was
 141,692 source bytes and 3,780 lines. The bounded outline exposed 17,125 JSON
-bytes, then one selected expansion exposed 1,970 JSON bytes containing a
+bytes, then one selected expansion exposed 2,011 JSON bytes containing a
 754-byte syntax region. The outline-plus-expansion response payload was
-19,095 bytes: an 86.5% reduction against the baseline broad source payload.
+19,136 bytes: an 86.5% reduction against the baseline broad source payload.
 This is payload measurement, not a token estimate; the host did not expose a
 reliable token counter, so no token saving is claimed.
 
