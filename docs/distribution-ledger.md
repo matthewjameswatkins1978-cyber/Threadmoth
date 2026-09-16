@@ -6,15 +6,16 @@ This is the durable record for Threadmoth discovery and distribution work. It re
 
 Date: 2026-09-16  
 Repository: [matthewjameswatkins1978-cyber/Threadmoth](https://github.com/matthewjameswatkins1978-cyber/Threadmoth)  
-Current release candidate on `feature/threadmoth-1.10-context-economy`: **Threadmoth 1.10.0**  
-Draft candidate PR: [#51](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/pull/51), final candidate head pending CI  
-Current source line on `main`: **Threadmoth 1.9.1**
+Current stable release on `main`: **Threadmoth 1.10.0**
+Merged release commit: `80169354bb66b5670f6294b4482c52cd3a22a598`
+Current release tag: **v1.10.0**
 Current `main` merge for the 1.9.1 consistency release: `97f8a1c74fefa6003ddf493a93186dcd51f26a33`  
-Stable published release: [Threadmoth 1.9.1](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/releases/tag/v1.9.1)
+Stable published release: [Threadmoth 1.10.0](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/releases/tag/v1.10.0)
 
-The 1.10.0 candidate adds bounded context-economy views to the existing
-inspect surface. It remains draft and unreleased until the repaired final head
-passes local and Ubuntu/Windows CI gates.
+Threadmoth 1.10.0 adds bounded context-economy views to the existing inspect
+surface. The published release includes per-archive SHA-256 files and a release
+manifest; the Windows portable archive was downloaded and its SHA-256 matched
+both published sources.
 
 Threadmoth 1.9.1 is merged to `main` at `97f8a1c74fefa6003ddf493a93186dcd51f26a33` and **v1.9.1 is tagged and published**. The [release workflow](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/actions/runs/34352262906) completed the source, six-platform/flavour build, package, runtime and publish jobs successfully.
 
@@ -39,7 +40,7 @@ The release remains correctness-gated. Local 1.9 performance smoke evidence reco
 
 ## Current published artifacts
 
-The latest published release at this snapshot is 1.9.1, with release artifacts for:
+The latest published release at this snapshot is 1.10.0, with release artifacts for:
 
 - Windows x86-64;
 - Windows x86-64-v3;
@@ -105,7 +106,7 @@ The following entries are operational history. Their state should not be interpr
 
 | Target | Fit | Gate |
 |---|---|---|
-| Threadmoth v1.9.0 GitHub release | Highest | Published and verified; PGO remains follow-up work |
+| Threadmoth v1.10.0 GitHub release | Highest | Published and verified; PGO remains follow-up work |
 | Claude Code official directory | High | Authenticated submission plus live integration validation |
 | Gemini CLI gallery | High | Manifest review and live install validation before gallery submission |
 | skills.sh | High | Public skill can be installed by users; do not infer telemetry before observed use |
