@@ -17,7 +17,7 @@ Add `--json` for machine-readable output. The compatibility forms `threadmoth be
 
 The tough profile includes large text, long-line refinement, many-line input and repeated small-file work. Torture adds deterministic safety regressions, transaction/recovery checks, containment cases where the host supports them, and FOOTGUN-100.
 
-## Current 1.9 local performance evidence
+## Retained 1.9 local performance evidence
 
 The current checked-in [performance results](performance-results.md) record Windows x86-64 smoke measurements from Rust 1.98.1. Each build ran the built-in tough profile and every run reported `wrong_applied: 0`.
 

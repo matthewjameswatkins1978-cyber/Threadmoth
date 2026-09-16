@@ -1,6 +1,6 @@
 # Threadmoth CLI
 
-Threadmoth 1.9.1 uses one structured command grammar for parsing, help, validation, completion, and manpage generation.
+Threadmoth 1.10.0 uses one structured command grammar for parsing, help, validation, completion, and manpage generation.
 
 ## Discover before editing
 
@@ -8,13 +8,32 @@ For an unfamiliar target, start with:
 
 ```text
 threadmoth capabilities --for PATH --json
-threadmoth inspect PATH --json
+threadmoth inspect PATH
 threadmoth suggest PATH --goal GOAL --at SELECTOR
 ```
 
 Path-scoped discovery reports the detected target kind, provider, detection basis, confidence class, alternatives, understanding level, preservation level and explicit fallback routes. A fallback being reported does not authorize Threadmoth to silently downgrade a structured/syntax request.
 
 The 1.9 understanding levels are `structured`, `syntax`, `region`, `exact` and `opaque`. See [Coverage](coverage.md).
+
+## Context-economy inspection
+
+The default inspect response is the unchanged identity-only JSON contract. For
+large source files, request a deterministic bounded outline and expand only a
+selected exact observation:
+
+```text
+threadmoth inspect PATH --outline
+threadmoth inspect PATH --outline --max-entries 32
+threadmoth inspect PATH --expand HANDLE --max-bytes 8192
+```
+
+Outline entries contain a bounded label, exact byte/line range, syntax kind and
+an observation handle. Handles are read identities bound to the current file
+hash, path, provider, language and exact range. They are not mutation
+authorization; a changed file causes expansion to refuse rather than relocate
+the observation. Unsupported providers return an honest unavailable outline,
+and malformed syntax fails closed.
 
 ## Plans, assertions, and updates
 
@@ -115,7 +134,7 @@ The summary shows outcome, provider, effect size, preservation facts, hashes and
 }
 ```
 
-Threadmoth 1.9.1 continues to accept the older request spelling `"provider":"file"` as a compatibility alias. When serialized or described by Threadmoth, the provider is canonicalized to `filesystem`.
+Threadmoth 1.10.0 continues to accept the older request spelling `"provider":"file"` as a compatibility alias. When serialized or described by Threadmoth, the provider is canonicalized to `filesystem`.
 
 ## Safe shorthands
 
@@ -256,7 +275,7 @@ threadmoth doctor --json
 
 ## Compatibility policy
 
-Threadmoth 1.9.1 keeps important pre-1.3 command/provider spellings as compatibility routes, including `apply`, `dry-run`, positional benchmark profiles, `torture`, `transaction-preview`, and request provider alias `file`. It accepts protocol 1.1.0, 1.2.0 and 1.3.0 requests with their promised semantics while advertising protocol 1.3.1 as current.
+Threadmoth 1.10.0 keeps important pre-1.3 command/provider spellings as compatibility routes, including `apply`, `dry-run`, positional benchmark profiles, `torture`, `transaction-preview`, and request provider alias `file`. It accepts protocol 1.1.0, 1.2.0 and 1.3.0 requests with their promised semantics while advertising protocol 1.3.1 as current.
 
 ## Plan review
 

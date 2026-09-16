@@ -10,6 +10,6 @@ threadmoth capabilities --for PATH --json
 threadmoth suggest PATH
 ```
 
-Threadmoth 1.9 can classify files as structured, syntax-aware, bounded regions, exact text or opaque. Prefer the strongest advertised route, preview uncertain edits, treat `REFUSED` as a deliberate safety result, and preserve the returned certificate.
+Threadmoth 1.10.0 can classify files as structured, syntax-aware, bounded regions, exact text or opaque. For large syntax-aware files, the existing inspect surface can provide a deterministic bounded outline and stale-safe bounded expansion. Prefer the strongest advertised route, preview uncertain edits, treat `REFUSED` as a deliberate safety result, and preserve the returned certificate.
 
 Do not silently downgrade a refused structured/syntax operation to a broader raw edit. Do not use Threadmoth for Git, builds, tests, formatter execution, package-manager semantics, Terraform semantics or general network work. The explicit CLI-only `threadmoth update` command is the maintenance exception.

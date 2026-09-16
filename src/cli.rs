@@ -118,12 +118,11 @@ pub enum Command {
     )]
     Suggest(SuggestArgs),
 
-    /// Inspect file identity, encoding and newline facts.
-    Inspect {
-        /// Workspace-relative file path.
-        #[arg(value_hint = ValueHint::FilePath)]
-        path: std::path::PathBuf,
-    },
+    /// Inspect identity, a compact structural outline, or one bounded region.
+    #[command(
+        after_help = "Examples:\n  threadmoth inspect PATH\n  threadmoth inspect PATH --outline\n  threadmoth inspect PATH --expand HANDLE"
+    )]
+    Inspect(InspectArgs),
 
     /// Print protocol or request schemas.
     Schema(SchemaArgs),
@@ -164,6 +163,29 @@ pub struct DoctorArgs {
     /// Emit stable machine-readable health data without network access.
     #[arg(long)]
     pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct InspectArgs {
+    /// Workspace-relative file path.
+    #[arg(value_hint = ValueHint::FilePath)]
+    pub path: std::path::PathBuf,
+
+    /// Return a bounded deterministic structural outline.
+    #[arg(long, conflicts_with = "expand")]
+    pub outline: bool,
+
+    /// Expand one exact handle returned by --outline.
+    #[arg(long, value_name = "HANDLE", conflicts_with = "outline")]
+    pub expand: Option<String>,
+
+    /// Maximum bytes returned by an expansion.
+    #[arg(long, default_value_t = 8192)]
+    pub max_bytes: usize,
+
+    /// Maximum outline entries returned.
+    #[arg(long, default_value_t = 64)]
+    pub max_entries: usize,
 }
 
 #[derive(Args, Debug)]

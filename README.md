@@ -237,7 +237,7 @@ PHP includes PHP source and embedded PHP parsing. HCL support is source syntax o
 
 Unsupported languages do not make an ordinary UTF-8 text file unusable. Threadmoth can still offer explicit exact text, strict patch, bounded pattern or desired-state routes where applicable. It never silently downgrades a structured request to a weaker route.
 
-See [Coverage](docs/coverage.md) for the full 1.9 model and current refusal boundaries.
+See [Coverage](docs/coverage.md) for the full 1.10.0 model and current refusal boundaries.
 
 Providers locate candidates.
 
@@ -256,6 +256,8 @@ threadmoth capabilities
 threadmoth capabilities --for PATH --json
 threadmoth suggest PATH
 threadmoth inspect PATH
+threadmoth inspect PATH --outline
+threadmoth inspect PATH --expand HANDLE
 ```
 
 Then:
@@ -385,7 +387,7 @@ It does one job:
 
 Download the appropriate standalone binary from the **[latest GitHub release](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/releases/latest)** and put `threadmoth` on your `PATH`.
 
-The repository source is version **1.9.1**. The latest-release page is authoritative for which version and artifacts have actually been published; source can be ahead of the most recent release while a release is being prepared.
+Threadmoth **1.10.0** adds bounded structural inspection: identity inspection, compact structural outlines, and one exact hash-bound expansion. The latest-release page remains authoritative for published artifacts, including the `v1.10.0` archive checksums and release manifest.
 
 Check the installation:
 
@@ -402,7 +404,7 @@ threadmoth update --check
 threadmoth update
 ```
 
-The 1.9 release pipeline supports portable Windows x86-64, Linux x86-64, macOS Apple Silicon and macOS x86-64 archives, with checksums and a release manifest. Windows and Linux also have explicit `-v3` modern artifacts built for the `x86-64-v3` CPU baseline. Portable remains the compatibility default.
+The 1.10 release pipeline supports portable Windows x86-64, Linux x86-64, macOS Apple Silicon and macOS x86-64 archives, with checksums and a release manifest. Windows and Linux also have explicit `-v3` modern artifacts built for the `x86-64-v3` CPU baseline. Portable remains the compatibility default.
 
 Local maximum-performance builds can use `target-cpu=native` through the checked-in build scripts. Native builds are tuned to the machine that compiles them and are never presented as universal downloads. See [Performance builds](docs/performance-builds.md) and [Performance results](docs/performance-results.md).
 
@@ -421,7 +423,7 @@ threadmoth doctor --json
 
 Shorthands authorize one file, one target and one changed region. They refuse ambiguity and stale state. When a refusal includes deterministic `recovery` remedies, `threadmoth suggest --from-refusal refusal.json` emits complete guarded next-request templates; the caller still chooses among candidates.
 
-Before choosing an edit route, agents can inspect Threadmoth's coverage model with `threadmoth capabilities --for PATH --json` or `threadmoth inspect PATH --json`. Files are classified as structured, syntax-aware, bounded regions, exact text, or opaque/refused. Unknown valid UTF-8 remains available through explicit exact mutation; binary and unsupported encodings do not silently fall back.
+Before choosing an edit route, agents can inspect Threadmoth's coverage model with `threadmoth capabilities --for PATH --json` or `threadmoth inspect PATH`. For large syntax-aware files, `inspect --outline` returns a compact deterministic map and `inspect --expand HANDLE` returns one bounded exact region after rechecking the source hash. Files are classified as structured, syntax-aware, bounded regions, exact text, or opaque/refused. Unknown valid UTF-8 remains available through explicit exact mutation; binary and unsupported encodings do not silently fall back.
 
 The current protocol is **1.3.1** and remains compatible with 1.3.0, 1.2.0 and 1.1.0 requests. Mutation, plan application, transaction, filesystem lifecycle and recovery writes use a bounded cooperating-process workspace lock and refuse with `WORKSPACE_BUSY` rather than waiting indefinitely. Unrelated external writers remain covered by stale-state and landed-byte verification, but are not controlled by that lock.
 

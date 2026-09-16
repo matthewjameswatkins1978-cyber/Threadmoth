@@ -23,9 +23,9 @@ use threadmoth::{
 
 use cli::{
     ApplyPlanArgs, BenchmarkArgs, BenchmarkProfile, CapabilitiesArgs, Cli, Command,
-    CompletionShell, CreateFileArgs, DoctorArgs, ExplainFormat, HelpArgs, PlanArgs, RecoverArgs,
-    ReplaceExactArgs, SchemaArgs, SetStringArgs, SetValueArgs, SuggestArgs, UpdateArgs,
-    THREADMOTH_VERSION,
+    CompletionShell, CreateFileArgs, DoctorArgs, ExplainFormat, HelpArgs, InspectArgs, PlanArgs,
+    RecoverArgs, ReplaceExactArgs, SchemaArgs, SetStringArgs, SetValueArgs, SuggestArgs,
+    UpdateArgs, THREADMOTH_VERSION,
 };
 
 fn main() {
@@ -64,7 +64,7 @@ fn main() {
             }
         }
         Command::Suggest(args) => run_suggest(args),
-        Command::Inspect { path } => run_inspect(&path),
+        Command::Inspect(args) => run_inspect(args),
         Command::Schema(args) => run_schema(args),
         Command::Doctor(args) => run_doctor(args),
         Command::Update(args) => run_update(args),
@@ -1054,8 +1054,8 @@ fn run_suggest(args: SuggestArgs) {
     println!("{}", serde_json::to_string_pretty(&suggestion).unwrap());
 }
 
-fn run_inspect(path: &Path) {
-    let path = path.to_string_lossy();
+fn run_inspect(args: InspectArgs) {
+    let path = args.path.to_string_lossy();
     let root = env::current_dir().unwrap_or_else(|_| ".".into());
     let ws = match Workspace::new(root) {
         Ok(w) => w,
@@ -1064,7 +1064,22 @@ fn run_inspect(path: &Path) {
             std::process::exit(3)
         }
     };
-    match threadmoth::metadata::inspect(&ws, path.as_ref()) {
+    let view = if args.expand.is_some() {
+        Some("expand")
+    } else if args.outline {
+        Some("outline")
+    } else {
+        None
+    };
+    match threadmoth::metadata::inspect_view(
+        &ws,
+        path.as_ref(),
+        view,
+        args.expand.as_deref(),
+        Some(args.max_bytes),
+        Some(args.max_entries),
+        None,
+    ) {
         Ok(output) => println!("{}", serde_json::to_string_pretty(&output).unwrap()),
         Err(error) => {
             eprintln!("inspect failed: {error}");

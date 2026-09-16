@@ -1,6 +1,6 @@
 # Coverage model
 
-Threadmoth 1.9.1 classifies a discovered file before mutation. The Target
+Threadmoth 1.10.0 classifies a discovered file before mutation. The Target
 Registry is the single classification authority used by discovery, inspect,
 capabilities, suggest, CLI shorthands and MCP shorthands. The level is an
 honest description of what the selected provider can prove, not a promise to
@@ -53,7 +53,7 @@ INI and other structured providers.
 
 ## Syntax-aware source
 
-Programming and declarative syntax targets in 1.9 are:
+Programming and declarative syntax targets in 1.10.0 are:
 
 - JavaScript and TypeScript
 - Python

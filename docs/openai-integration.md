@@ -69,7 +69,7 @@ selection needs:
 
 | Phase | Tools | Writes? | Result |
 |---|---|---:|---|
-| Discover | `threadmoth_capabilities`, `threadmoth_inspect`, `threadmoth_suggest`, `threadmoth_explain` | No | Capabilities, identity facts, request suggestions, or reason metadata |
+| Discover | `threadmoth_capabilities`, `threadmoth_inspect`, `threadmoth_suggest`, `threadmoth_explain` | No | Capabilities, identity/outline/expansion facts, request suggestions, or reason metadata |
 | Prepare | `threadmoth_preview`, `threadmoth_plan`, `threadmoth_transact_preview` | No | Prospective certificate, guarded plan, or refusal |
 | Commit | `threadmoth_mutate`, `threadmoth_apply_plan`, `threadmoth_transact`, `threadmoth_exact_replace`, `threadmoth_set_value` | Yes, guarded | Committed certificate or refusal |
 
@@ -77,6 +77,13 @@ Agents must preserve the same request and certificate boundary across these
 phases. A refusal is not permission to use a raw editor, script, patch, regex,
 or direct write. If Threadmoth does not support the requested shape, the agent
 must state that limitation or use an explicitly authorised specialist route.
+
+`threadmoth_inspect` remains the existing inspect tool. Its optional `view`
+field selects `identity` (the compatibility-preserved default), `outline`, or
+`expand`; `handle`, `max_bytes`, and `max_entries` are bounded view arguments.
+Handles are hash-bound read observations and are stale-safe, but never mutation
+authority. The MCP process-local outline cache is bounded, non-persistent and
+always follows a fresh current-source identity check.
 
 Before constructing a request, agents must apply the canonical ambiguity rule from
 `skills/threadmoth/SKILL.md`: **preserve ambiguity when shaping mutation requests.

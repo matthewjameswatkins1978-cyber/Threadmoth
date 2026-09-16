@@ -1,6 +1,6 @@
 {
   "name": "threadmoth",
-  "version": "1.9.1",
+  "version": "1.10.0",
   "description": "A bounded, source-preserving file mutation skill for Gemini CLI.",
   "contextFileName": "GEMINI.md"
 }

@@ -1,6 +1,6 @@
 # Syntax targeting
 
-Threadmoth 1.9 uses Tree-sitter to identify source-node boundaries and validate candidate syntax. It does not unparse, pretty-print, serialize or regenerate an AST.
+Threadmoth 1.10.0 uses Tree-sitter to identify source-node boundaries and validate candidate syntax. It does not unparse, pretty-print, serialize or regenerate an AST.
 
 ## AST-grounded
 

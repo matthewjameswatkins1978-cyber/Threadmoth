@@ -1,6 +1,6 @@
 # Threat model
 
-Threadmoth 1.9 keeps parsers deliberately subordinate: they point at source bytes and validate candidates; they do not regenerate or reformat source.
+Threadmoth 1.10.0 keeps parsers deliberately subordinate: they point at source bytes and validate candidates; they do not regenerate or reformat source.
 
 Threadmoth assumes the caller may have stale context and the target file may be concurrently modified. An optional expected hash rejects stale observations; Core also rechecks identity before commit and reads the committed file back afterwards.
 

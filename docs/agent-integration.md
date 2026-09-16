@@ -26,13 +26,31 @@ Before choosing a mutation route for an unfamiliar path, prefer:
 
 ```text
 threadmoth capabilities --for PATH --json
-threadmoth inspect PATH --json
+threadmoth inspect PATH
 threadmoth suggest PATH --goal GOAL --at SELECTOR
 ```
 
 The path-scoped result describes the detected target kind, provider, detection basis, confidence class, understanding level, preservation level, alternatives and explicit fallback routes. A weaker route being listed is not permission to use it automatically.
 
-Threadmoth 1.9 distinguishes structured formats, parser-grounded syntax, bounded regions, exact text and opaque/refused content. Unsupported source languages may still be safely editable as exact text; binary/invalid text is not silently accepted.
+Threadmoth 1.10.0 distinguishes structured formats, parser-grounded syntax, bounded regions, exact text and opaque/refused content. Unsupported source languages may still be safely editable as exact text; binary/invalid text is not silently accepted.
+
+## Context economy in 1.10
+
+The existing `inspect` surface now has bounded views; no additional MCP tool is
+required:
+
+```text
+threadmoth inspect PATH                 # identity-only, unchanged response
+threadmoth inspect PATH --outline       # compact structural map
+threadmoth inspect PATH --expand HANDLE # one exact bounded region
+```
+
+The outline uses the existing provider registry and parser and reports exact
+byte/line ranges rather than ranking or guessing among candidates. Expansion
+re-reads and hashes the current source before accepting the handle. A stale,
+cross-file, malformed or over-budget handle refuses. Handles are observations,
+never permission to mutate; the normal preview/mutation request and certificate
+boundary remains in force.
 
 ## Antigravity
 
@@ -103,7 +121,14 @@ MCP is an adapter over the same deterministic Core. The CLI/JSON contract remain
 }
 ```
 
-The 1.9 MCP tools include:
+The MCP `threadmoth_inspect` tool accepts the existing `path` plus optional
+`view` (`identity`, `outline` or `expand`), `handle`, `max_bytes` and
+`max_entries` fields. It remains the same inspect tool and preserves the
+identity-only behaviour. A long-lived MCP process may reuse a bounded
+process-local outline cache only after re-reading the current source identity;
+the cache is not persisted and does not authorize mutation.
+
+The 1.9/1.10 MCP tools include:
 
 ```text
 threadmoth_capabilities
