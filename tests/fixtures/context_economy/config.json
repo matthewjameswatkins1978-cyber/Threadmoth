@@ -1,0 +1,7 @@
+{
+  "service": {
+    "timeout": 30,
+    "retries": 3
+  },
+  "name": "baseline"
+}
