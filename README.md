@@ -387,7 +387,7 @@ It does one job:
 
 Download the appropriate standalone binary from the **[latest GitHub release](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/releases/latest)** and put `threadmoth` on your `PATH`.
 
-The repository candidate source is version **1.10.0**. The latest-release page remains authoritative for which version and artifacts have actually been published; this 1.10.0 candidate is not yet merged, tagged or published.
+Threadmoth **1.10.0** adds bounded structural inspection: identity inspection, compact structural outlines, and one exact hash-bound expansion. The latest-release page remains authoritative for published artifacts, including the `v1.10.0` archive checksums and release manifest.
 
 Check the installation:
 

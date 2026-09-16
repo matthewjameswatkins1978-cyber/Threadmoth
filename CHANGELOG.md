@@ -1,17 +1,17 @@
 # Changelog
 
-## 1.10.0 - Context Economy release candidate
+## 1.10.0 - Context Economy
 
-This unreleased candidate adds deterministic bounded structural inspection to
-the existing `inspect` CLI/MCP surface. Identity-only inspect remains
-compatible; supported syntax targets can expose compact outlines and expand one
-hash-bound observation without granting mutation authority. Stale observations,
-malformed syntax, unsupported providers and over-budget expansions refuse
-honestly. The long-lived MCP adapter uses only bounded non-persistent LRU
-outline reuse after rechecking current source identity.
+This release adds deterministic bounded structural inspection to the existing
+`inspect` CLI/MCP surface. Identity-only inspect remains compatible; supported
+syntax targets can expose compact outlines and expand one hash-bound observation
+without granting mutation authority. Stale observations, malformed syntax,
+unsupported providers and over-budget expansions refuse honestly. The
+long-lived MCP adapter uses only bounded non-persistent LRU outline reuse after
+rechecking current source identity.
 
-The candidate is tracked in draft PR #51. It is not merged, tagged or
-published.
+The `v1.10.0` release workflow publishes per-archive SHA-256 files and a release
+manifest.
 
 ## 1.9.1 - Consistency and hardening
 

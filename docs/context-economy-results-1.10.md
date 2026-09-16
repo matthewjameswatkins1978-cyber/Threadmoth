@@ -1,9 +1,9 @@
 # Threadmoth 1.10 context-economy evidence
 
-This document records the first implementation-gate measurements against the
-retained [Threadmoth 1.9.1 baseline](context-economy-baseline-1.9.1.md). The
-working package version is now `1.10.0`; this branch does not merge, publish or
-tag the release.
+This document records the first release-gate measurements against the retained
+[Threadmoth 1.9.1 baseline](context-economy-baseline-1.9.1.md). Threadmoth
+`1.10.0` carries these bounded inspection facilities; release proceeds only
+after verified main-branch acceptance and tagging.
 
 ## Measured outline exposure
 
