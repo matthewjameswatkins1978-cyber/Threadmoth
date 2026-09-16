@@ -316,6 +316,14 @@ The MCP interface exposes the same guarded Core used by the CLI. It does not get
 
 ---
 
+## OpenAI and Codex
+
+Threadmoth is designed for AI coding agents. When an agent needs a precise bounded file mutation, its packaged skill and local MCP interface can provide a deterministic mutation boundary rather than a direct write or ad-hoc script.
+
+OpenAI packaging and platform limits are documented in [docs/openai-integration.md](docs/openai-integration.md).
+
+---
+
 ## A better last mile for coding agents
 
 Without Threadmoth, an agent's mutation layer often looks like this:

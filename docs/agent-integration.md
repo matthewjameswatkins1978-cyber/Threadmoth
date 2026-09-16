@@ -38,6 +38,12 @@ The repository root contains a native Antigravity [`plugin.json`](../plugin.json
 
 The adapter should be judged by live behaviour rather than the existence of the manifest. Record whether the agent discovers Threadmoth, previews/guards an edit, respects refusals and returns the final certificate.
 
+## OpenAI / Codex
+
+The repository also contains the documented OpenAI-native [`.codex-plugin/plugin.json`](../.codex-plugin/plugin.json), [`.mcp.json`](../.mcp.json), and [Codex marketplace entry](../.agents/plugins/marketplace.json). These package the existing `skills/threadmoth/SKILL.md` and the existing `threadmoth mcp` server; they do not create a second mutation implementation or install the binary.
+
+Use [the OpenAI integration guide](openai-integration.md) for setup and the separate status of Codex local, ChatGPT Desktop, ChatGPT Web, managed workspaces, and public submission.
+
 ## Useful discovery commands
 
 ```text

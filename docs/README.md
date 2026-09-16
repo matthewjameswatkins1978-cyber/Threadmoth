@@ -12,6 +12,7 @@ For Threadmoth 1.9, start with the [coverage model](coverage.md), [target regist
 | [Target registry](target-registry.md) | Canonical file detection and capability metadata |
 | [CLI guide](cli.md) | 1.9 commands, coverage discovery, plans, assertions, updater, shorthands, recovery, completion and manpages |
 | [Agent integration](agent-integration.md) | Minimal instructions and safe usage flow for coding agents and MCP clients |
+| [OpenAI integration](openai-integration.md) | Codex packaging, local MCP setup, platform status and submission boundary |
 | [Architecture](architecture.md) | Core mutation authority, providers, target discovery, plans and verification |
 | [Protocol](protocol.md) | Request/response contract and machine-facing behaviour |
 | [Provider contract](provider-contract.md) | Rules every mutation provider must obey |

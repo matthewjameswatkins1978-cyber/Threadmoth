@@ -1,7 +1,7 @@
 {
   "name": "threadmoth",
   "description": "A bounded, source-preserving file mutation skill for Claude Code.",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "author": {
     "name": "Matthew Watkins"
   },

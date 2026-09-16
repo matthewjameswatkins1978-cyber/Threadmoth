@@ -1,0 +1,21 @@
+{
+  "name": "threadmoth",
+  "interface": {
+    "displayName": "Threadmoth"
+  },
+  "plugins": [
+    {
+      "name": "threadmoth",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/matthewjameswatkins1978-cyber/Threadmoth.git",
+        "ref": "main"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

@@ -54,6 +54,16 @@ Portable remains the compatibility default; the Windows/Linux `x86-64-v3` artifa
 | Gemini CLI | [`gemini-extension.json`](../gemini-extension.json), [`GEMINI.md`](../GEMINI.md), shared skill | Shipped | Root manifest/context/skill layout present; runtime capabilities are discovered locally |
 | Antigravity | [`plugin.json`](../plugin.json) plus shared skill | Packaged; field validation still incomplete | Authentication and skill discovery were verified locally; treat end-to-end mutation/refusal recovery as unverified until a clean reproducible field run completes |
 
+## OpenAI surface status
+
+| Target | Artifact / route | Status | Evidence boundary |
+|---|---|---|---|
+| OpenAI Codex local | [`.codex-plugin/plugin.json`](../.codex-plugin/plugin.json) plus [`.mcp.json`](../.mcp.json) | Packaged but unverified | Native package and local MCP declaration are present; a separate neutral-prompt Codex field run was not performed |
+| ChatGPT Desktop | OpenAI plugin surface plus local MCP | Packaged but unverified | No separate ChatGPT Desktop field run; availability depends on the account and surface |
+| ChatGPT Web | Remote MCP / Secure MCP Tunnel would be required | Unavailable for local MCP | OpenAI documents that ChatGPT Web connects to remote MCP servers; no hosted Threadmoth service is provided |
+| OpenAI managed workspace | GitHub marketplace import | Ready for admin import | Workspace admin must import the repository marketplace and configure installation/app policy; this has not been done here |
+| Public Plugin Directory | OpenAI app submission flow | Research complete; submission not made | Current requirements and the local-first architecture limitation are documented in [`docs/openai-integration.md`](openai-integration.md) |
+
 All adapters require the user-installed `threadmoth` executable on `PATH`. They do not install a binary, grant filesystem permissions, silently start a server, or replace other editing tools.
 
 ## Historical 1.7 distribution work
