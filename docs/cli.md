@@ -8,13 +8,32 @@ For an unfamiliar target, start with:
 
 ```text
 threadmoth capabilities --for PATH --json
-threadmoth inspect PATH --json
+threadmoth inspect PATH
 threadmoth suggest PATH --goal GOAL --at SELECTOR
 ```
 
 Path-scoped discovery reports the detected target kind, provider, detection basis, confidence class, alternatives, understanding level, preservation level and explicit fallback routes. A fallback being reported does not authorize Threadmoth to silently downgrade a structured/syntax request.
 
 The 1.9 understanding levels are `structured`, `syntax`, `region`, `exact` and `opaque`. See [Coverage](coverage.md).
+
+## Context-economy inspection
+
+The default inspect response is the unchanged identity-only JSON contract. For
+large source files, request a deterministic bounded outline and expand only a
+selected exact observation:
+
+```text
+threadmoth inspect PATH --outline
+threadmoth inspect PATH --outline --max-entries 32
+threadmoth inspect PATH --expand HANDLE --max-bytes 8192
+```
+
+Outline entries contain a bounded label, exact byte/line range, syntax kind and
+an observation handle. Handles are read identities bound to the current file
+hash, path, provider, language and exact range. They are not mutation
+authorization; a changed file causes expansion to refuse rather than relocate
+the observation. Unsupported providers return an honest unavailable outline,
+and malformed syntax fails closed.
 
 ## Plans, assertions, and updates
 

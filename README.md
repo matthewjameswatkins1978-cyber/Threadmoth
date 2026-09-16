@@ -256,6 +256,8 @@ threadmoth capabilities
 threadmoth capabilities --for PATH --json
 threadmoth suggest PATH
 threadmoth inspect PATH
+threadmoth inspect PATH --outline
+threadmoth inspect PATH --expand HANDLE
 ```
 
 Then:
@@ -421,7 +423,7 @@ threadmoth doctor --json
 
 Shorthands authorize one file, one target and one changed region. They refuse ambiguity and stale state. When a refusal includes deterministic `recovery` remedies, `threadmoth suggest --from-refusal refusal.json` emits complete guarded next-request templates; the caller still chooses among candidates.
 
-Before choosing an edit route, agents can inspect Threadmoth's coverage model with `threadmoth capabilities --for PATH --json` or `threadmoth inspect PATH --json`. Files are classified as structured, syntax-aware, bounded regions, exact text, or opaque/refused. Unknown valid UTF-8 remains available through explicit exact mutation; binary and unsupported encodings do not silently fall back.
+Before choosing an edit route, agents can inspect Threadmoth's coverage model with `threadmoth capabilities --for PATH --json` or `threadmoth inspect PATH`. For large syntax-aware files, `inspect --outline` returns a compact deterministic map and `inspect --expand HANDLE` returns one bounded exact region after rechecking the source hash. Files are classified as structured, syntax-aware, bounded regions, exact text, or opaque/refused. Unknown valid UTF-8 remains available through explicit exact mutation; binary and unsupported encodings do not silently fall back.
 
 The current protocol is **1.3.1** and remains compatible with 1.3.0, 1.2.0 and 1.1.0 requests. Mutation, plan application, transaction, filesystem lifecycle and recovery writes use a bounded cooperating-process workspace lock and refuse with `WORKSPACE_BUSY` rather than waiting indefinitely. Unrelated external writers remain covered by stale-state and landed-byte verification, but are not controlled by that lock.
 
