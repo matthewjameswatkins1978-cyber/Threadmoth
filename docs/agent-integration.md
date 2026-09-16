@@ -46,6 +46,8 @@ The repository also contains the documented OpenAI-native [`.codex-plugin/plugin
 
 Use [the OpenAI integration guide](openai-integration.md) for setup and the separate status of Codex local, ChatGPT Desktop, ChatGPT Web, managed workspaces, and public submission.
 
+A neutral-prompt Codex field test ran on 2026-09-16 against PR #49 head `64a844c`, using Threadmoth 1.9.1 and Codex CLI 0.154.0-alpha.6.2. Fresh disposable fixtures covered precise mutation, two- and three-candidate ambiguity, three candidate orderings, unique target, explicit service selection, stale-plan recovery, and a negative control. All mutation cases used Threadmoth; ambiguous cases asked or refused without edits; the stale plan was refused then rebuilt after explicit confirmation; and transcript inspection found no raw-write bypass. This is live local Codex verification, not ChatGPT Desktop/Web or hosted MCP verification.
+
 ## Useful discovery commands
 
 ```text

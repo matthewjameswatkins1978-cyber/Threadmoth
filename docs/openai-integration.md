@@ -91,14 +91,22 @@ refusal, certificate, transaction, or safety semantics.
 Repository-level verification confirms the native manifest, skill path, MCP
 declaration, and marketplace JSON parse successfully. The local executable
 reports Threadmoth 1.9.1, and the existing CLI/MCP regression suite remains the
-runtime authority. This repository change does not claim a separate field test
-of an OpenAI-hosted model selecting Threadmoth automatically.
+runtime authority.
+
+A neutral-prompt local Codex field test ran on 2026-09-16 against PR #49 head
+`64a844c`, using Codex CLI 0.154.0-alpha.6.2 and Threadmoth 1.9.1. Fresh
+disposable fixtures covered precise mutation, two- and three-candidate ambiguity,
+three candidate orderings, unique target, explicit service selection, stale-plan
+recovery, and a negative control. Ambiguous cases asked or refused with zero
+fixture edits; stale state was refused, then a fresh plan was applied only after
+explicit confirmation; transcript inspection found no raw-write bypass. This is
+live local Codex verification, not ChatGPT Desktop/Web or hosted MCP verification.
 
 The current evidence boundary is:
 
 | Surface | Status | Evidence / limitation |
 |---|---|---|
-| Codex local | PACKAGED BUT UNVERIFIED | Native manifest and local MCP declaration are present; a separate Codex plugin import and neutral-prompt field run were not available in this checkout |
+| Codex local | LIVE VERIFIED LOCALLY | Neutral-prompt field matrix passed on 2026-09-16 against PR #49 head `64a844c` using Threadmoth 1.9.1 and Codex CLI 0.154.0-alpha.6.2; ambiguity was preserved, stale plans were rejected, explicit/unique edits were guarded, and no raw-write bypass was observed |
 | ChatGPT Desktop | PACKAGED BUT UNVERIFIED | Plugin packaging is present, but no separate ChatGPT Desktop field run was performed |
 | ChatGPT Web | UNAVAILABLE FOR LOCAL MCP | OpenAI documents that ChatGPT connects to remote MCP servers; local stdio requires a supported desktop/local surface or Secure MCP Tunnel |
 | OpenAI managed workspace | READY FOR ADMIN IMPORT | An admin can import the GitHub marketplace, then set installation and app/action policy; workspace and plan controls still apply |
