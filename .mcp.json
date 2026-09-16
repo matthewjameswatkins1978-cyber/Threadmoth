@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "threadmoth": {
+      "command": "threadmoth",
+      "args": ["mcp"]
+    }
+  }
+}

@@ -14,6 +14,14 @@ metadata:
 
 Threadmoth is a narrow mutation boundary for workspace files. It observes the file or guarded lifecycle target, identifies the intended effect, guards the request, prepares an exact candidate, verifies prospective and committed state, and returns a certificate.
 
+## Canonical ambiguity rule
+
+**Preserve ambiguity when shaping mutation requests. Do not add identifying information that was not supplied by the user or established by evidence.**
+
+**Narrow from evidence, never from imagination.**
+
+An agent may narrow a target only when the specificity comes from an explicit user instruction, a uniquely established observed target, a deliberate caller or user candidate selection, or other trustworthy task evidence that actually resolves the ambiguity. If multiple plausible targets remain, preserve that unresolved choice: inspect or suggest candidates, ask the user to choose, or stop with a clear refusal. Never select the first candidate, the most plausible name, or any target that merely makes progress possible.
+
 It is not a general shell, formatter, compiler, test runner, Git client, package manager, Terraform engine or network tool. The explicit `threadmoth update` maintenance command is a separate CLI-only exception.
 
 ## Decide whether to use it

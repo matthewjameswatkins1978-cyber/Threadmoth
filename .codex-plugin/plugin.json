@@ -1,0 +1,37 @@
+{
+  "name": "threadmoth",
+  "version": "1.9.1",
+  "description": "Deterministic, source-preserving mutation for AI coding agents.",
+  "author": {
+    "name": "Matthew Watkins",
+    "url": "https://github.com/matthewjameswatkins1978-cyber"
+  },
+  "homepage": "https://github.com/matthewjameswatkins1978-cyber/Threadmoth",
+  "repository": "https://github.com/matthewjameswatkins1978-cyber/Threadmoth",
+  "license": "MIT",
+  "keywords": [
+    "bounded-mutation",
+    "source-preservation",
+    "AI-coding-agents",
+    "MCP"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Threadmoth",
+    "shortDescription": "Bounded, source-preserving file mutation",
+    "longDescription": "Use Threadmoth when an AI coding agent needs an exact, bounded workspace mutation with ambiguity handling, stale-state protection, and a machine-readable certificate. Preserve user ambiguity when shaping requests: narrow from evidence, never from imagination. The local threadmoth executable is required on PATH.",
+    "developerName": "Matthew Watkins",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Write"
+    ],
+    "websiteURL": "https://github.com/matthewjameswatkins1978-cyber/Threadmoth",
+    "defaultPrompt": [
+      "Make this bounded file change and preserve unrelated bytes.",
+      "Preview this exact workspace mutation before applying it.",
+      "Explain the mutation certificate or refusal."
+    ],
+    "brandColor": "#6B4F8A"
+  }
+}

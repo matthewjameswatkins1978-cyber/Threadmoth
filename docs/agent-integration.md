@@ -18,6 +18,8 @@ Do not bypass a Threadmoth refusal with a broader raw edit unless the user expli
 
 That is intentionally small. The point is to test Threadmoth's discovery surfaces rather than preload the model with its protocol.
 
+Before constructing a mutation request, apply the canonical ambiguity rule from `skills/threadmoth/SKILL.md`: **preserve ambiguity when shaping mutation requests; do not add identifying information that was not supplied by the user or established by evidence. Narrow from evidence, never from imagination.** If multiple plausible targets remain, inspect or suggest candidates and ask the user to choose, or stop with a clear refusal.
+
 ## 1.9 coverage discovery
 
 Before choosing a mutation route for an unfamiliar path, prefer:
@@ -37,6 +39,14 @@ Threadmoth 1.9 distinguishes structured formats, parser-grounded syntax, bounded
 The repository root contains a native Antigravity [`plugin.json`](../plugin.json) that packages the existing `skills/threadmoth/SKILL.md` without duplicating its instruction text. Install it with `agy plugin install <repository>`.
 
 The adapter should be judged by live behaviour rather than the existence of the manifest. Record whether the agent discovers Threadmoth, previews/guards an edit, respects refusals and returns the final certificate.
+
+## OpenAI / Codex
+
+The repository also contains the documented OpenAI-native [`.codex-plugin/plugin.json`](../.codex-plugin/plugin.json), [`.mcp.json`](../.mcp.json), and [Codex marketplace entry](../.agents/plugins/marketplace.json). These package the existing `skills/threadmoth/SKILL.md` and the existing `threadmoth mcp` server; they do not create a second mutation implementation or install the binary.
+
+Use [the OpenAI integration guide](openai-integration.md) for setup and the separate status of Codex local, ChatGPT Desktop, ChatGPT Web, managed workspaces, and public submission.
+
+A neutral-prompt Codex field test ran on 2026-09-16 against PR #49 head `64a844c`, using Threadmoth 1.9.1 and Codex CLI 0.154.0-alpha.6.2. Fresh disposable fixtures covered precise mutation, two- and three-candidate ambiguity, three candidate orderings, unique target, explicit service selection, stale-plan recovery, and a negative control. All mutation cases used Threadmoth; ambiguous cases asked or refused without edits; the stale plan was refused then rebuilt after explicit confirmation; and transcript inspection found no raw-write bypass. This is live local Codex verification, not ChatGPT Desktop/Web or hosted MCP verification.
 
 ## Useful discovery commands
 
