@@ -20,7 +20,7 @@
   "interface": {
     "displayName": "Threadmoth",
     "shortDescription": "Bounded, source-preserving file mutation",
-    "longDescription": "Use Threadmoth when an AI coding agent needs an exact, bounded workspace mutation with ambiguity handling, stale-state protection, and a machine-readable certificate. The local threadmoth executable is required on PATH.",
+    "longDescription": "Use Threadmoth when an AI coding agent needs an exact, bounded workspace mutation with ambiguity handling, stale-state protection, and a machine-readable certificate. Preserve user ambiguity when shaping requests: narrow from evidence, never from imagination. The local threadmoth executable is required on PATH.",
     "developerName": "Matthew Watkins",
     "category": "Developer Tools",
     "capabilities": [

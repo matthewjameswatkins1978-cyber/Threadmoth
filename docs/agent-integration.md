@@ -18,6 +18,8 @@ Do not bypass a Threadmoth refusal with a broader raw edit unless the user expli
 
 That is intentionally small. The point is to test Threadmoth's discovery surfaces rather than preload the model with its protocol.
 
+Before constructing a mutation request, apply the canonical ambiguity rule from `skills/threadmoth/SKILL.md`: **preserve ambiguity when shaping mutation requests; do not add identifying information that was not supplied by the user or established by evidence. Narrow from evidence, never from imagination.** If multiple plausible targets remain, inspect or suggest candidates and ask the user to choose, or stop with a clear refusal.
+
 ## 1.9 coverage discovery
 
 Before choosing a mutation route for an unfamiliar path, prefer:

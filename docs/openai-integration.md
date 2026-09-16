@@ -78,6 +78,14 @@ phases. A refusal is not permission to use a raw editor, script, patch, regex,
 or direct write. If Threadmoth does not support the requested shape, the agent
 must state that limitation or use an explicitly authorised specialist route.
 
+Before constructing a request, agents must apply the canonical ambiguity rule from
+`skills/threadmoth/SKILL.md`: **preserve ambiguity when shaping mutation requests.
+Do not add identifying information that was not supplied by the user or established
+by evidence.** **Narrow from evidence, never from imagination.** If multiple
+plausible targets remain, inspect or suggest candidates and ask the user to choose,
+or stop with a clear refusal. This guidance does not alter Core cardinality,
+refusal, certificate, transaction, or safety semantics.
+
 ## What was verified
 
 Repository-level verification confirms the native manifest, skill path, MCP

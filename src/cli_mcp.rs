@@ -171,18 +171,18 @@ fn handle_mcp_message(workspace: &Workspace, request: Value) -> Option<Value> {
                 "jsonrpc": "2.0",
                 "id": id,
                 "result": {"tools": [
-                    {"name": "threadmoth_mutate", "description": "Apply one typed Threadmoth mutation and return its certificate", "inputSchema": schema_for!(Request)},
-                    {"name": "threadmoth_preview", "description": "Preview one typed Threadmoth mutation without writing", "inputSchema": schema_for!(Request)},
-                    {"name": "threadmoth_plan", "description": "Prepare a deterministic guarded plan without writing", "inputSchema": schema_for!(Request)},
+                    {"name": "threadmoth_mutate", "description": "Apply one typed Threadmoth mutation and return its certificate; target specificity must come from the user or evidence", "inputSchema": schema_for!(Request)},
+                    {"name": "threadmoth_preview", "description": "Preview one typed Threadmoth mutation without writing; do not invent target specificity", "inputSchema": schema_for!(Request)},
+                    {"name": "threadmoth_plan", "description": "Prepare a deterministic guarded plan without writing; preserve unresolved target ambiguity", "inputSchema": schema_for!(Request)},
                     {"name": "threadmoth_apply_plan", "description": "Apply an exact prepared plan after rechecking identity and assertions", "inputSchema": schema_for!(PreparedPlan)},
-                    {"name": "threadmoth_inspect", "description": "Read target identity, encoding and newline facts without mutation", "inputSchema": schema_for!(InspectToolArgs)},
-                    {"name": "threadmoth_suggest", "description": "Return the existing deterministic request suggestion for a target", "inputSchema": schema_for!(SuggestToolArgs)},
+                    {"name": "threadmoth_inspect", "description": "Read target identity, encoding and newline facts without mutation; expose evidence for caller selection", "inputSchema": schema_for!(InspectToolArgs)},
+                    {"name": "threadmoth_suggest", "description": "Return deterministic request suggestions and candidate evidence; never choose among unresolved candidates", "inputSchema": schema_for!(SuggestToolArgs)},
                     {"name": "threadmoth_explain", "description": "Return stable metadata for a refusal or failure reason", "inputSchema": schema_for!(ExplainToolArgs)},
                     {"name": "threadmoth_capabilities", "description": "Return Threadmoth capabilities, optionally scoped to a provider or path", "inputSchema": schema_for!(CapabilitiesToolArgs)},
                     {"name": "threadmoth_transact_preview", "description": "Preview a guarded transaction without writing", "inputSchema": schema_for!(TransactionRequest)},
                     {"name": "threadmoth_transact", "description": "Prepare and commit a guarded transaction", "inputSchema": schema_for!(TransactionRequest)},
-                    {"name": "threadmoth_exact_replace", "description": "Safely replace one exact text occurrence through the canonical pipeline", "inputSchema": schema_for!(ExactReplaceToolArgs)},
-                    {"name": "threadmoth_set_value", "description": "Safely set one JSON, JSONC, TOML, YAML, INI or dotenv value through the canonical registry and Core pipeline", "inputSchema": schema_for!(SetValueToolArgs)}
+                    {"name": "threadmoth_exact_replace", "description": "Safely replace one exact text occurrence through the canonical pipeline after the occurrence is uniquely established", "inputSchema": schema_for!(ExactReplaceToolArgs)},
+                    {"name": "threadmoth_set_value", "description": "Safely set one selected JSON, JSONC, TOML, YAML, INI or dotenv value through the canonical registry and Core pipeline; do not guess among plausible targets", "inputSchema": schema_for!(SetValueToolArgs)}
                 ]}
             }),
             Some("tools/call") => {
