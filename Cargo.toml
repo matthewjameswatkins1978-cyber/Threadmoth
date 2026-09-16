@@ -23,7 +23,7 @@ schemars = "0.8"
 thiserror = "1.0"
 sha2 = "0.10"
 similar = { version = "2.6", features = ["bytes"] }
-toml_edit = "0.22"
+toml_edit = "0.25"
 atomic-write-file = "0.3.1"
 regex = "1.11"
 memchr = "2.7"
