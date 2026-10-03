@@ -4,18 +4,15 @@ This is the durable record for Threadmoth discovery and distribution work. It re
 
 ## Snapshot
 
-Date: 2026-09-16  
+Date: 2026-10-03
 Repository: [matthewjameswatkins1978-cyber/Threadmoth](https://github.com/matthewjameswatkins1978-cyber/Threadmoth)  
-Current stable release on `main`: **Threadmoth 1.10.0**
-Merged release commit: `80169354bb66b5670f6294b4482c52cd3a22a598`
-Current release tag: **v1.10.0**
-Current `main` merge for the 1.9.1 consistency release: `97f8a1c74fefa6003ddf493a93186dcd51f26a33`  
-Stable published release: [Threadmoth 1.10.0](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/releases/tag/v1.10.0)
+Current stable release on `main`: **Threadmoth 1.11.0**
+Merged release commit: `ba5370159f1fe7ec18de0c390a2da49060cb484b`
+Current release tag: **v1.11.0**
+Prior `main` merge for the 1.9.1 consistency release: `97f8a1c74fefa6003ddf493a93186dcd51f26a33`
+Stable published release: [Threadmoth 1.11.0](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/releases/tag/v1.11.0)
 
-Threadmoth 1.10.0 adds bounded context-economy views to the existing inspect
-surface. The published release includes per-archive SHA-256 files and a release
-manifest; the Windows portable archive was downloaded and its SHA-256 matched
-both published sources.
+Threadmoth 1.11.0 adds structured workspace-root mismatch recovery and hardens path containment across requests, plans, transactions and lifecycle operations. Release CI passed on [Linux and Windows](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/actions/runs/37157027097), and the [six-platform release workflow](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/actions/runs/37157642016) completed successfully. The portable Windows archive SHA-256 matched its checksum file and release manifest. Both existing Windows PATH copies were replaced with the official binary; installed preview checks refused workspace-root mismatch and traversal requests without changing the outside fixture.
 
 Threadmoth 1.9.1 is merged to `main` at `97f8a1c74fefa6003ddf493a93186dcd51f26a33` and **v1.9.1 is tagged and published**. The [release workflow](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/actions/runs/34352262906) completed the source, six-platform/flavour build, package, runtime and publish jobs successfully.
 
@@ -40,7 +37,7 @@ The release remains correctness-gated. Local 1.9 performance smoke evidence reco
 
 ## Current published artifacts
 
-The latest published release at this snapshot is 1.10.0, with release artifacts for:
+The latest published release at this snapshot is 1.11.0, with release artifacts for:
 
 - Windows x86-64;
 - Windows x86-64-v3;
@@ -56,7 +53,7 @@ Portable remains the compatibility default; the Windows/Linux `x86-64-v3` artifa
 
 | Target | Artifact | Status | Validation |
 |---|---|---|---|
-| Portable Agent Skills | [`skills/threadmoth/SKILL.md`](../skills/threadmoth/SKILL.md) | Candidate | Shared skill is versioned for the 1.10.0 candidate and discovers the installed runtime before use |
+| Portable Agent Skills | [`skills/threadmoth/SKILL.md`](../skills/threadmoth/SKILL.md) | Candidate | Shared skill is versioned for the 1.11.0 release and discovers the installed runtime before use |
 | Claude Code | [`.claude-plugin/plugin.json`](../.claude-plugin/plugin.json) plus shared skill | Shipped | Standard plugin layout; still depends on user-installed `threadmoth` executable |
 | Gemini CLI | [`gemini-extension.json`](../gemini-extension.json), [`GEMINI.md`](../GEMINI.md), shared skill | Candidate | Root manifest/context/skill layout present; runtime capabilities are discovered locally |
 | Antigravity | [`plugin.json`](../plugin.json) plus shared skill | Packaged; field validation still incomplete | Authentication and skill discovery were verified locally; treat end-to-end mutation/refusal recovery as unverified until a clean reproducible field run completes |
@@ -84,7 +81,7 @@ Threadmoth 1.7 added important distribution foundations that remain relevant:
 - release automation added macOS Apple Silicon and Intel alongside Windows/Linux;
 - release workflow refused to publish a version tag whose commit was not already contained in `main`.
 
-These are historical milestones, not the current capability list. Use [Coverage](coverage.md) and runtime `capabilities` for 1.10.0.
+These are historical milestones, not the current capability list. Use [Coverage](coverage.md) and runtime `capabilities` for 1.11.0.
 
 ## Existing outreach
 
@@ -106,7 +103,7 @@ The following entries are operational history. Their state should not be interpr
 
 | Target | Fit | Gate |
 |---|---|---|
-| Threadmoth v1.10.0 GitHub release | Highest | Published and verified; PGO remains follow-up work |
+| Threadmoth v1.11.0 GitHub release | Highest | Published and verified; PGO remains follow-up work |
 | Claude Code official directory | High | Authenticated submission plus live integration validation |
 | Gemini CLI gallery | High | Manifest review and live install validation before gallery submission |
 | skills.sh | High | Public skill can be installed by users; do not infer telemetry before observed use |
