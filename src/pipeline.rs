@@ -53,6 +53,24 @@ pub fn execute_pipeline(
     execute_request(workspace, &request, dry_run)
 }
 
+fn budget_path_is_allowed(
+    workspace: &Workspace,
+    path: &str,
+    prefixes: &[String],
+) -> Result<bool, WorkspaceError> {
+    if prefixes.is_empty() {
+        return Ok(true);
+    }
+    for prefix in prefixes {
+        match workspace.is_within_allowed_prefix(path, prefix) {
+            Ok(true) => return Ok(true),
+            Ok(false) | Err(WorkspaceError::NotFound(_)) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(false)
+}
+
 pub fn execute_request(workspace: &Workspace, request: &Request, dry_run: bool) -> Certificate {
     let normalized_path = PathNormalizer::normalize(&request.file_path, &request.namespace);
     let provider = provider_name(&request.operation);
@@ -73,13 +91,15 @@ pub fn execute_request(workspace: &Workspace, request: &Request, dry_run: bool) 
             String::new(),
         );
     }
-    if !request.budget.allowed_path_prefixes.is_empty()
-        && !request
-            .budget
-            .allowed_path_prefixes
-            .iter()
-            .any(|prefix| file_path == *prefix || file_path.starts_with(&format!("{prefix}/")))
-    {
+    let allowed = match budget_path_is_allowed(
+        workspace,
+        &file_path,
+        &request.budget.allowed_path_prefixes,
+    ) {
+        Ok(allowed) => allowed,
+        Err(error) => return workspace_error(request, &file_path, provider, error),
+    };
+    if !allowed {
         return refusal(
             request,
             &file_path,
@@ -425,13 +445,15 @@ fn prepare_content_request(
             String::new(),
         ));
     }
-    if !request.budget.allowed_path_prefixes.is_empty()
-        && !request
-            .budget
-            .allowed_path_prefixes
-            .iter()
-            .any(|prefix| file_path == *prefix || file_path.starts_with(&format!("{prefix}/")))
-    {
+    let allowed = match budget_path_is_allowed(
+        workspace,
+        &file_path,
+        &request.budget.allowed_path_prefixes,
+    ) {
+        Ok(allowed) => allowed,
+        Err(error) => return Err(workspace_error(request, &file_path, provider, error)),
+    };
+    if !allowed {
         return Err(refusal(
             request,
             &file_path,
@@ -901,6 +923,23 @@ pub fn apply_prepared_plan(workspace: &Workspace, plan: &PreparedPlan) -> PlanAp
             Ok(path) => path,
             Err(error) => return plan_failure_result(workspace, plan, workspace_reason(error)),
         };
+        let allowed = match budget_path_is_allowed(
+            workspace,
+            &path,
+            &operation.request.budget.allowed_path_prefixes,
+        ) {
+            Ok(allowed) => allowed,
+            Err(error) => return plan_failure_result(workspace, plan, workspace_reason(error)),
+        };
+        if !allowed {
+            return plan_failure_result(
+                workspace,
+                plan,
+                RefusalReason::WorkspaceTraversal {
+                    path: "path is outside requested budget scope".into(),
+                },
+            );
+        }
         let original = match workspace.read_file(&path) {
             Ok(bytes) => bytes,
             Err(error) => return plan_failure_result(workspace, plan, workspace_reason(error)),
@@ -1843,13 +1882,12 @@ fn execute_single_file_transaction(
                 },
             );
         }
-        if !request.budget.allowed_path_prefixes.is_empty()
-            && !request
-                .budget
-                .allowed_path_prefixes
-                .iter()
-                .any(|prefix| path == *prefix || path.starts_with(&format!("{prefix}/")))
-        {
+        let allowed =
+            match budget_path_is_allowed(workspace, &path, &request.budget.allowed_path_prefixes) {
+                Ok(allowed) => allowed,
+                Err(error) => return transaction_refusal(transaction, workspace_reason(error)),
+            };
+        if !allowed {
             return transaction_refusal(
                 transaction,
                 RefusalReason::WorkspaceTraversal {
@@ -2742,6 +2780,30 @@ fn execute_file_operation(
                 Ok(x) => x,
                 Err(e) => return workspace_error(request, file_path, provider, e),
             };
+            let destination_relative =
+                match workspace.resolve_namespaced_path(destination, &request.namespace) {
+                    Ok(path) => path,
+                    Err(error) => return workspace_error(request, file_path, provider, error),
+                };
+            let allowed = match budget_path_is_allowed(
+                workspace,
+                &destination_relative,
+                &request.budget.allowed_path_prefixes,
+            ) {
+                Ok(allowed) => allowed,
+                Err(error) => return workspace_error(request, file_path, provider, error),
+            };
+            if !allowed {
+                return refusal(
+                    request,
+                    file_path,
+                    provider,
+                    RefusalReason::WorkspaceTraversal {
+                        path: "destination is outside requested budget scope".into(),
+                    },
+                    pre,
+                );
+            }
             let same_source = std::fs::canonicalize(&dest)
                 .map(|path| source.as_ref().is_ok_and(|source| path == *source))
                 .unwrap_or(false);
@@ -2811,6 +2873,25 @@ fn execute_file_operation(
                         Ok(path) => path,
                         Err(error) => return workspace_error(request, file_path, provider, error),
                     };
+                let allowed = match budget_path_is_allowed(
+                    workspace,
+                    &destination_path,
+                    &request.budget.allowed_path_prefixes,
+                ) {
+                    Ok(allowed) => allowed,
+                    Err(error) => return workspace_error(request, file_path, provider, error),
+                };
+                if !allowed {
+                    return refusal(
+                        request,
+                        file_path,
+                        provider,
+                        RefusalReason::WorkspaceTraversal {
+                            path: "destination is outside requested budget scope".into(),
+                        },
+                        pre_hash,
+                    );
+                }
                 workspace.rename_file_checked(
                     file_path,
                     destination_path,
@@ -3240,6 +3321,14 @@ fn recovery_for(request: &Request, reason: &RefusalReason, pre_hash: &str) -> Op
                 remedies,
             })
         }
+        RefusalReason::WorkspaceRootMismatch { target, workspace_root } => Some(RecoveryInfo {
+            requires_choice: true,
+            remedies: vec![RecoveryRemedy {
+                kind: "checkout_local_cli".into(),
+                description: format!("target {target} is outside configured workspace {workspace_root}; if this is the intended authorized checkout, run the checkout-local Threadmoth CLI with that checkout as its working directory and preview again"),
+                request_patch: None,
+            }],
+        }),
         RefusalReason::StaleIdentity { actual_hash, .. } => {
             let mut patched = request.clone();
             patched.expected_pre_hash = Some(actual_hash.clone());
@@ -3338,6 +3427,19 @@ fn failure(
 }
 fn workspace_error(r: &Request, path: &str, provider: &str, e: WorkspaceError) -> Certificate {
     match e {
+        WorkspaceError::WorkspaceRootMismatch {
+            target,
+            workspace_root,
+        } => refusal(
+            r,
+            path,
+            provider,
+            RefusalReason::WorkspaceRootMismatch {
+                target,
+                workspace_root,
+            },
+            String::new(),
+        ),
         WorkspaceError::Traversal(p) => refusal(
             r,
             path,
@@ -3419,6 +3521,13 @@ fn workspace_error(r: &Request, path: &str, provider: &str, e: WorkspaceError) -
 
 fn workspace_reason(error: WorkspaceError) -> RefusalReason {
     match error {
+        WorkspaceError::WorkspaceRootMismatch {
+            target,
+            workspace_root,
+        } => RefusalReason::WorkspaceRootMismatch {
+            target,
+            workspace_root,
+        },
         WorkspaceError::Traversal(path) => RefusalReason::WorkspaceTraversal { path },
         WorkspaceError::SymlinkEscape(path) => RefusalReason::SymlinkEscape { path },
         WorkspaceError::NotFound(path) => RefusalReason::MissingTarget { target: path },

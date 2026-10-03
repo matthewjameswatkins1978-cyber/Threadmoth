@@ -1,4 +1,19 @@
 # Changelog
+## 1.11.0 - Workspace scope and containment
+
+### Added
+
+- Absolute targets outside the process workspace now return a structured, choice-required checkout-local CLI recovery. The recovery preserves the refusal and does not broaden mutation authority.
+
+### Fixed
+
+- Enforced path budgets against resolved filesystem targets and destinations, including plans and transactions.
+- Rejected lexical parent traversal before scope evaluation and resolved existing path ancestors before authorizing writes.
+- Added Windows junction and symlink containment regressions; canonical path comparisons remain component-boundary and case-sensitive.
+
+### Release
+
+- Published portable and x86-64-v3 Windows, Linux and macOS artifacts with SHA-256 files and a release manifest.
 
 ## 1.10.0 - Context Economy
 

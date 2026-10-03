@@ -220,6 +220,10 @@ pub enum RefusalReason {
     WorkspaceTraversal {
         path: String,
     },
+    WorkspaceRootMismatch {
+        target: String,
+        workspace_root: String,
+    },
     SymlinkEscape {
         path: String,
     },
@@ -322,6 +326,7 @@ impl RefusalReason {
             Self::CardinalityAmbiguous { .. } | Self::DuplicateTarget { .. } => "TARGET_AMBIGUOUS",
             Self::StaleIdentity { .. } => "STALE_IDENTITY",
             Self::WorkspaceTraversal { .. } => "WORKSPACE_ESCAPE",
+            Self::WorkspaceRootMismatch { .. } => "WORKSPACE_ROOT_MISMATCH",
             Self::SymlinkEscape { .. } => "SYMLINK_ESCAPE",
             Self::MissingTarget { .. } => "TARGET_NOT_FOUND",
             Self::UnsupportedEncoding { .. } => "ENCODING_UNSUPPORTED",

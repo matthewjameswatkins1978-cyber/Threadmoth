@@ -17,6 +17,7 @@ Do not bypass a Threadmoth refusal with a broader raw edit unless the user expli
 ```
 
 That is intentionally small. The point is to test Threadmoth's discovery surfaces rather than preload the model with its protocol.
+If a request gets WORKSPACE_ROOT_MISMATCH, the absolute target is outside the workspace bound to this process. Keep the refusal. When the target is the intended authorized checkout, use its checkout-local Threadmoth CLI from that checkout root, then preview with an explicit narrow path boundary. The recovery certificate explains this route; it never retries or grants authority automatically.
 
 Before constructing a mutation request, apply the canonical ambiguity rule from `skills/threadmoth/SKILL.md`: **preserve ambiguity when shaping mutation requests; do not add identifying information that was not supplied by the user or established by evidence. Narrow from evidence, never from imagination.** If multiple plausible targets remain, inspect or suggest candidates and ask the user to choose, or stop with a clear refusal.
 
@@ -32,7 +33,7 @@ threadmoth suggest PATH --goal GOAL --at SELECTOR
 
 The path-scoped result describes the detected target kind, provider, detection basis, confidence class, understanding level, preservation level, alternatives and explicit fallback routes. A weaker route being listed is not permission to use it automatically.
 
-Threadmoth 1.10.0 distinguishes structured formats, parser-grounded syntax, bounded regions, exact text and opaque/refused content. Unsupported source languages may still be safely editable as exact text; binary/invalid text is not silently accepted.
+Threadmoth 1.11.0 distinguishes structured formats, parser-grounded syntax, bounded regions, exact text and opaque/refused content. Unsupported source languages may still be safely editable as exact text; binary/invalid text is not silently accepted.
 
 ## Context economy in 1.10
 

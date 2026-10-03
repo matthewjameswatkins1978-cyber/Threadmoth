@@ -14,6 +14,11 @@ use thiserror::Error;
 pub enum WorkspaceError {
     #[error("path traversal attempt detected: {0}")]
     Traversal(String),
+    #[error("requested path is outside the configured workspace root: {target} (workspace: {workspace_root})")]
+    WorkspaceRootMismatch {
+        target: String,
+        workspace_root: String,
+    },
     #[error("symlink escape attempt detected: {0}")]
     SymlinkEscape(String),
     #[error("path not found: {0}")]
@@ -131,6 +136,8 @@ impl Workspace {
                 return Err(WorkspaceError::UnmappablePath(path.into()));
             }
         }
+        let normalized = PathNormalizer::normalize(path, namespace);
+        reject_parent_components(&normalized)?;
         let native = PathNormalizer::to_native_path(path, namespace);
         if native.is_absolute() {
             let resolved =
@@ -151,16 +158,45 @@ impl Workspace {
                         WorkspaceError::UnmappablePath(native.display().to_string())
                     })?)
                 };
-            let relative = resolved
-                .strip_prefix(&self.root)
-                .map_err(|_| WorkspaceError::Traversal(path.into()))?;
+            let relative = relative_if_within(&resolved, &self.root).ok_or_else(|| {
+                WorkspaceError::WorkspaceRootMismatch {
+                    target: path.into(),
+                    workspace_root: self.root.display().to_string(),
+                }
+            })?;
             let relative = relative.to_string_lossy().replace('\\', "/");
             reject_internal_namespace(&relative)?;
             return Ok(relative);
         }
-        let normalized = PathNormalizer::normalize(path, namespace);
         reject_internal_namespace(&normalized)?;
+        self.resolve_path(&normalized)?;
         Ok(normalized)
+    }
+
+    /// Check the budget boundary using resolved filesystem paths. A prefix is
+    /// an authority root only when its canonical location is inside the
+    /// canonical workspace; the target's deepest existing ancestor is also
+    /// resolved so not-yet-created leaves cannot hide a junction or symlink.
+    pub fn is_within_allowed_prefix(
+        &self,
+        target: &str,
+        prefix: &str,
+    ) -> Result<bool, WorkspaceError> {
+        let normalized_prefix = prefix.replace('\\', "/");
+        reject_parent_components(&normalized_prefix)?;
+        reject_internal_namespace(&normalized_prefix)?;
+        let prefix_path = self.resolve_path(&normalized_prefix)?;
+        let target_path = self.resolve_path(target)?;
+        if !prefix_path.exists() {
+            return Err(WorkspaceError::NotFound(prefix.into()));
+        }
+        let prefix_metadata = fs::metadata(&prefix_path)?;
+        if prefix_metadata.is_dir() {
+            Ok(path_is_within(&target_path, &prefix_path))
+        } else {
+            Ok(path_is_within(&target_path, &prefix_path)
+                && path_is_within(&prefix_path, &target_path))
+        }
     }
 
     pub fn resolve_path<P: AsRef<Path>>(&self, rel_path: P) -> Result<PathBuf, WorkspaceError> {
@@ -176,9 +212,7 @@ impl Workspace {
         for c in rel.components() {
             match c {
                 Component::ParentDir => {
-                    if components.pop().is_none() {
-                        return Err(WorkspaceError::Traversal(rel.display().to_string()));
-                    }
+                    return Err(WorkspaceError::Traversal(rel.display().to_string()))
                 }
                 Component::Normal(c) => components.push(c.to_owned()),
                 Component::CurDir => {}
@@ -191,42 +225,13 @@ impl Workspace {
         for c in &components {
             candidate.push(c);
         }
-        let mut ancestor = self.root.clone();
-        for c in &components {
-            ancestor.push(c);
-            if fs::symlink_metadata(&ancestor).is_ok() {
-                let resolved = fs::canonicalize(&ancestor).map_err(|e| {
-                    if e.kind() == io::ErrorKind::NotFound {
-                        WorkspaceError::NotFound(ancestor.display().to_string())
-                    } else {
-                        WorkspaceError::Io(e)
-                    }
-                })?;
-                if !resolved.starts_with(&self.root) {
-                    return Err(WorkspaceError::SymlinkEscape(format!(
-                        "{} resolves outside workspace",
-                        ancestor.display()
-                    )));
-                }
-            }
+        let resolved = canonicalize_candidate(&candidate)?;
+        if !path_is_within(&resolved, &self.root) {
+            return Err(WorkspaceError::SymlinkEscape(
+                candidate.display().to_string(),
+            ));
         }
-        if fs::symlink_metadata(&candidate).is_ok() {
-            let resolved = fs::canonicalize(&candidate).map_err(|e| {
-                if e.kind() == io::ErrorKind::NotFound {
-                    WorkspaceError::NotFound(candidate.display().to_string())
-                } else {
-                    WorkspaceError::Io(e)
-                }
-            })?;
-            if !resolved.starts_with(&self.root) {
-                return Err(WorkspaceError::SymlinkEscape(
-                    candidate.display().to_string(),
-                ));
-            }
-            Ok(resolved)
-        } else {
-            Ok(candidate)
-        }
+        Ok(resolved)
     }
 
     /// Resolve a destination without canonicalising its final spelling. This
@@ -248,9 +253,7 @@ impl Workspace {
         for component in rel.components() {
             match component {
                 Component::ParentDir => {
-                    if components.pop().is_none() {
-                        return Err(WorkspaceError::Traversal(rel.display().to_string()));
-                    }
+                    return Err(WorkspaceError::Traversal(rel.display().to_string()))
                 }
                 Component::Normal(component) => components.push(component.to_owned()),
                 Component::CurDir => {}
@@ -263,24 +266,11 @@ impl Workspace {
         for component in &components {
             candidate.push(component);
         }
-        let mut ancestor = self.root.clone();
-        for component in &components {
-            ancestor.push(component);
-            if fs::symlink_metadata(&ancestor).is_ok() {
-                let resolved = fs::canonicalize(&ancestor).map_err(|error| {
-                    if error.kind() == io::ErrorKind::NotFound {
-                        WorkspaceError::NotFound(ancestor.display().to_string())
-                    } else {
-                        WorkspaceError::Io(error)
-                    }
-                })?;
-                if !resolved.starts_with(&self.root) {
-                    return Err(WorkspaceError::SymlinkEscape(format!(
-                        "{} resolves outside workspace",
-                        ancestor.display()
-                    )));
-                }
-            }
+        let resolved = canonicalize_candidate(&candidate)?;
+        if !path_is_within(&resolved, &self.root) {
+            return Err(WorkspaceError::SymlinkEscape(
+                candidate.display().to_string(),
+            ));
         }
         Ok(candidate)
     }
@@ -445,7 +435,7 @@ impl Workspace {
 
     fn ensure_parent(&self, parent: &Path) -> Result<(), WorkspaceError> {
         let canonical = fs::canonicalize(parent)?;
-        if !canonical.starts_with(&self.root) {
+        if !path_is_within(&canonical, &self.root) {
             return Err(WorkspaceError::SymlinkEscape(parent.display().to_string()));
         }
         Ok(())
@@ -483,6 +473,79 @@ fn sha256(bytes: &[u8]) -> String {
     let mut h = Sha256::new();
     h.update(bytes);
     format!("{:x}", h.finalize())
+}
+
+fn reject_parent_components(path: &str) -> Result<(), WorkspaceError> {
+    if Path::new(path)
+        .components()
+        .any(|component| component == Component::ParentDir)
+    {
+        return Err(WorkspaceError::Traversal(path.into()));
+    }
+    Ok(())
+}
+
+/// Canonicalize an existing target or its deepest existing ancestor, then
+/// append the still-missing leaf components. This resolves symlinks and
+/// Windows reparse points before a create/write path is authorized.
+fn canonicalize_candidate(path: &Path) -> Result<PathBuf, WorkspaceError> {
+    let mut ancestor = path.to_path_buf();
+    let mut suffix = Vec::new();
+    loop {
+        match fs::symlink_metadata(&ancestor) {
+            Ok(_) => {
+                let mut resolved = fs::canonicalize(&ancestor)?;
+                if !suffix.is_empty() && !fs::metadata(&resolved)?.is_dir() {
+                    return Err(WorkspaceError::NotFound(path.display().to_string()));
+                }
+                for component in suffix.iter().rev() {
+                    resolved.push(component);
+                }
+                return Ok(resolved);
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                let name = ancestor
+                    .file_name()
+                    .ok_or_else(|| WorkspaceError::NotFound(path.display().to_string()))?
+                    .to_owned();
+                suffix.push(name);
+                if !ancestor.pop() {
+                    return Err(WorkspaceError::NotFound(path.display().to_string()));
+                }
+            }
+            Err(error) => return Err(WorkspaceError::Io(error)),
+        }
+    }
+}
+
+fn path_is_within(path: &Path, root: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        let mut path_components = path.components();
+        root.components().all(|root_component| {
+            path_components
+                .next()
+                .is_some_and(|path_component| path_component == root_component)
+        })
+    }
+    #[cfg(not(windows))]
+    {
+        path.starts_with(root)
+    }
+}
+
+fn relative_if_within(path: &Path, root: &Path) -> Option<PathBuf> {
+    if !path_is_within(path, root) {
+        return None;
+    }
+    #[cfg(windows)]
+    {
+        Some(path.components().skip(root.components().count()).collect())
+    }
+    #[cfg(not(windows))]
+    {
+        path.strip_prefix(root).ok().map(Path::to_path_buf)
+    }
 }
 
 #[cfg(test)]

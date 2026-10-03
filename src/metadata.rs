@@ -751,6 +751,14 @@ pub fn reason_metadata() -> Vec<ReasonMetadata> {
         ["capabilities", "inspect"]
     );
     reason!(
+        "WORKSPACE_ROOT_MISMATCH",
+        "The absolute target is outside the workspace root bound to this Threadmoth process.",
+        "A hosted bridge cannot be rebound by a request boundary. If this is the intended authorized checkout, use the checkout-local CLI from that checkout and preview again.",
+        "run_checkout_local_cli_from_target_workspace",
+        false,
+        ["doctor", "preview", "explain"]
+    );
+    reason!(
         "WORKSPACE_ESCAPE",
         "The path or scope leaves the workspace.",
         "Threadmoth only mutates confined workspace state.",
@@ -2380,7 +2388,7 @@ pub fn refusal_recovery(certificate: &crate::protocol::Certificate) -> Value {
             "file_path": certificate.file_path,
             "provider": certificate.provider,
             "request_template": recovery_request_without_candidate(certificate),
-            "next": "inspect the target, narrow the selector or explicitly correct the guard/budget",
+            "next": if matches!(certificate.refusal_reason.as_ref(), Some(crate::protocol::RefusalReason::WorkspaceRootMismatch { .. })) { "if this is the intended authorized checkout, run the checkout-local Threadmoth CLI from its root and preview with a narrow boundary" } else { "inspect the target, narrow the selector or explicitly correct the guard/budget" },
             "no_safe_automatic_retry_template": !matches!(certificate.provider.as_str(), "text" | "pattern" | "markdown" | "code" | "web")
         }));
     }

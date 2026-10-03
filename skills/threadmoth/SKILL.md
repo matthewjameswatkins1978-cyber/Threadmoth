@@ -7,7 +7,7 @@ compatibility: >-
   Works with any agent that can read files and run local commands.
 metadata:
   author: matthewjameswatkins1978-cyber
-  version: "1.10.0"
+  version: "1.11.0"
 ---
 
 # Threadmoth
@@ -58,7 +58,7 @@ threadmoth schema
 threadmoth examples
 ```
 
-Threadmoth 1.10.0 discovery classifies targets as `structured`, `syntax`, `region`, `exact` or `opaque` and reports preservation level plus explicit fallback routes. The existing inspect surface also supports a deterministic bounded outline and exact bounded expansion for supported syntax providers. Outline handles are hash-bound read identities; they become stale on source change and never authorize mutation. The Target Registry is also authoritative for CLI and MCP shorthand provider selection, including special filenames such as `setup.cfg` and `.env.local`.
+Threadmoth 1.11.0 discovery classifies targets as `structured`, `syntax`, `region`, `exact` or `opaque` and reports preservation level plus explicit fallback routes. The existing inspect surface also supports a deterministic bounded outline and exact bounded expansion for supported syntax providers. Outline handles are hash-bound read identities; they become stale on source change and never authorize mutation. The Target Registry is also authoritative for CLI and MCP shorthand provider selection, including special filenames such as `setup.cfg` and `.env.local`.
 
 Use the canonical `threadmoth` executable. `thm` may exist as a convenience alias, but it is not the compatibility contract. Do not assume a `.thm` source extension.
 
@@ -121,7 +121,8 @@ Inspect the preview before mutating. Confirm outcome, provider, path, cardinalit
 
 Exit codes are stable: `0` for applied/no-change, `2` for refusal and `3` for runtime failure.
 
-On refusal, read the reason code, candidate context and deterministic remedies. Use `threadmoth explain REASON_CODE` and, where provided, `threadmoth suggest --from-refusal CERTIFICATE`. Narrow the request, explicitly choose a reported candidate/route, ask the user to disambiguate, or stop. Never silently widen the edit or bypass a refusal with a raw write.
+On refusal, read the reason code, candidate context and deterministic remedies.
+WORKSPACE_ROOT_MISMATCH means an absolute target is outside the workspace root bound to this process. Keep the refusal. If that path is the intended authorized checkout, run the checkout-local Threadmoth CLI from its root and preview again with an explicit narrow path boundary. The structured recovery teaches this route but never retries or grants authority automatically. Use `threadmoth explain REASON_CODE` and, where provided, `threadmoth suggest --from-refusal CERTIFICATE`. Narrow the request, explicitly choose a reported candidate/route, ask the user to disambiguate, or stop. Never silently widen the edit or bypass a refusal with a raw write.
 
 For transaction failures, use recovery discovery rather than deleting evidence:
 

@@ -4,13 +4,13 @@ Threadmoth is a fast, deterministic structural search-and-rewrite runtime for AI
 
 ## Start here
 
-For Threadmoth 1.10.0, start with the [coverage model](coverage.md), [target registry](target-registry.md), [protocol](protocol.md), [context-economy evidence](context-economy-results-1.10.md), and [performance builds](performance-builds.md). Measured local performance evidence is recorded separately in [performance results](performance-results.md).
+For Threadmoth 1.11.0, start with the [coverage model](coverage.md), [target registry](target-registry.md), [protocol](protocol.md), [context-economy evidence](context-economy-results-1.10.md), and [performance builds](performance-builds.md). Measured local performance evidence is recorded separately in [performance results](performance-results.md).
 
 | Document | Purpose |
 |---|---|
-| [Coverage model](coverage.md) | The 1.10.0 structured, syntax, region, exact and opaque capability ladder |
+| [Coverage model](coverage.md) | The 1.11.0 structured, syntax, region, exact and opaque capability ladder |
 | [Target registry](target-registry.md) | Canonical file detection and capability metadata |
-| [CLI guide](cli.md) | 1.10.0 commands, coverage discovery, bounded inspect views, plans, assertions, updater, shorthands, recovery, completion and manpages |
+| [CLI guide](cli.md) | 1.11.0 commands, coverage discovery, bounded inspect views, plans, assertions, updater, shorthands, recovery, completion and manpages |
 | [Agent integration](agent-integration.md) | Minimal instructions and safe usage flow for coding agents and MCP clients |
 | [OpenAI integration](openai-integration.md) | Codex packaging, local MCP setup, platform status and submission boundary |
 | [Architecture](architecture.md) | Core mutation authority, providers, target discovery, plans and verification |
@@ -28,13 +28,13 @@ For Threadmoth 1.10.0, start with the [coverage model](coverage.md), [target reg
 
 ## Historical design records
 
-The following files are intentionally retained as historical records. They describe the product at the named milestone and are not the source of truth for current 1.10.0 capabilities:
+The following files are intentionally retained as historical records. They describe the product at the named milestone and are not the source of truth for current 1.11.0 capabilities:
 
 - [v1.0 acceptance boundary](v1-acceptance.md)
 - [v1.1 discovery surface](v1.1-discovery.md)
 - [optimization pass 1](optimization-plan-pass1.md)
 
-For current behaviour, prefer `threadmoth capabilities --json --all`, `threadmoth schema --json`, and the 1.10.0 documents above.
+For current behaviour, prefer `threadmoth capabilities --json --all`, `threadmoth schema --json`, and the 1.11.0 documents above.
 
 ## Core idea
 
