@@ -234,6 +234,30 @@ fn links_are_authorized_by_their_canonical_target() {
         b"before\n"
     );
 
+    let escaped_missing = execute_request(
+        &workspace,
+        &text_request("allowed/escape-link/new.txt", "allowed"),
+        false,
+    );
+    assert_eq!(escaped_missing.outcome, Outcome::Refused);
+    assert!(matches!(
+        escaped_missing.refusal_reason,
+        Some(RefusalReason::WorkspaceTraversal { .. })
+    ));
+    assert!(!outside_prefix.join("new.txt").exists());
+
+    let mut safe_missing_request = text_request("allowed/safe-link/new.txt", "allowed");
+    safe_missing_request.operation = OperationPayload::File(FileOperation::CreateFile {
+        expected_absent: true,
+        content: b"created safely\n".to_vec(),
+    });
+    let safe_missing = execute_request(&workspace, &safe_missing_request, false);
+    assert_eq!(safe_missing.outcome, Outcome::Applied);
+    assert_eq!(
+        std::fs::read(safe_target.join("new.txt")).unwrap(),
+        b"created safely\n"
+    );
+
     let escaped_workspace = execute_request(
         &workspace,
         &text_request("allowed/root-escape-link/external.txt", "allowed"),
