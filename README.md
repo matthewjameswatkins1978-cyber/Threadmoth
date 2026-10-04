@@ -404,7 +404,7 @@ threadmoth update --check
 threadmoth update
 ```
 
-The 1.12 release pipeline supports portable Windows x86-64, Linux x86-64, macOS Apple Silicon and macOS x86-64 archives, with checksums and a release manifest. Windows and Linux also have explicit `-v3` modern artifacts built for the `x86-64-v3` CPU baseline. Portable remains the compatibility default.
+The 1.13 release pipeline supports portable Windows x86-64, Linux x86-64, macOS Apple Silicon and macOS x86-64 archives, with checksums and a release manifest. Windows and Linux also have explicit `-v3` modern artifacts built for the `x86-64-v3` CPU baseline. Portable remains the compatibility default.
 
 Local maximum-performance builds can use `target-cpu=native` through the checked-in build scripts. Native builds are tuned to the machine that compiles them and are never presented as universal downloads. See [Performance builds](docs/performance-builds.md) and [Performance results](docs/performance-results.md).
 
