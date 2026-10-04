@@ -19,7 +19,8 @@ use crate::cli::THREADMOTH_VERSION;
 #[derive(Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct InspectToolArgs {
-    path: String,
+    #[serde(rename = "file_path", alias = "path")]
+    file_path: String,
     #[serde(default)]
     view: Option<String>,
     #[serde(default)]
@@ -33,11 +34,13 @@ struct InspectToolArgs {
 #[derive(Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct SuggestToolArgs {
-    path: String,
+    #[serde(rename = "file_path", alias = "path")]
+    file_path: String,
     #[serde(default)]
     goal: Option<String>,
     #[serde(default)]
-    at: Option<String>,
+    #[serde(rename = "selector", alias = "at")]
+    selector: Option<String>,
     #[serde(default = "default_suggestion_mode")]
     mode: String,
 }
@@ -54,13 +57,15 @@ struct CapabilitiesToolArgs {
     #[serde(default)]
     selector: Option<String>,
     #[serde(default)]
-    for_path: Option<String>,
+    #[serde(rename = "file_path", alias = "for_path")]
+    file_path: Option<String>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct ExactReplaceToolArgs {
-    file: String,
+    #[serde(rename = "file_path", alias = "file")]
+    file_path: String,
     old: String,
     new: String,
 }
@@ -68,10 +73,16 @@ struct ExactReplaceToolArgs {
 #[derive(Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct SetValueToolArgs {
-    file: String,
-    path: String,
+    #[serde(rename = "file_path", alias = "file")]
+    file_path: String,
+    #[serde(rename = "selector", alias = "path")]
+    selector: String,
     value: Value,
 }
+
+#[derive(Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct OrientToolArgs {}
 
 fn default_suggestion_mode() -> String {
     "safe".into()
@@ -195,7 +206,8 @@ fn handle_mcp_message(
                     {"name": "threadmoth_transact_preview", "description": "Preview a guarded transaction without writing", "inputSchema": schema_for!(TransactionRequest)},
                     {"name": "threadmoth_transact", "description": "Prepare and commit a guarded transaction", "inputSchema": schema_for!(TransactionRequest)},
                     {"name": "threadmoth_exact_replace", "description": "Safely replace one exact text occurrence through the canonical pipeline after the occurrence is uniquely established", "inputSchema": schema_for!(ExactReplaceToolArgs)},
-                    {"name": "threadmoth_set_value", "description": "Safely set one selected JSON, JSONC, TOML, YAML, INI or dotenv value through the canonical registry and Core pipeline; do not guess among plausible targets", "inputSchema": schema_for!(SetValueToolArgs)}
+                    {"name": "threadmoth_set_value", "description": "Safely set one selected JSON, JSONC, TOML, YAML, INI or dotenv value through the canonical registry and Core pipeline; do not guess among plausible targets", "inputSchema": schema_for!(SetValueToolArgs)},
+                    {"name": "threadmoth_orient", "description": "Return the compact workspace-bound discovery workflow and exit-code map; does not select or change a workspace", "inputSchema": schema_for!(OrientToolArgs)}
                 ]}
             }),
             Some("tools/call") => {
@@ -225,13 +237,25 @@ fn handle_mcp_message(
                     .get("arguments")
                     .cloned()
                     .unwrap_or_else(|| json!({}));
+                let call_arguments = arguments.clone();
                 let value = call_tool(workspace, name, arguments, observation_cache);
                 let result = match value {
-                    Ok(value) => {
+                    Ok(mut value) => {
+                        if value["outcome"] == "REFUSED" {
+                            attach_refusal_envelope(workspace, &mut value);
+                        }
                         json!({"content": [{"type": "text", "text": serde_json::to_string(&value).unwrap()}], "structuredContent": value})
                     }
                     Err(error) => {
-                        json!({"isError": true, "content": [{"type": "text", "text": error}]})
+                        if error
+                            .contains("requested path is outside the configured workspace root:")
+                        {
+                            let refusal =
+                                workspace_root_refusal(workspace, &call_arguments, &error);
+                            json!({"isError": true, "content": [{"type": "text", "text": serde_json::to_string(&refusal).unwrap()}], "structuredContent": refusal})
+                        } else {
+                            json!({"isError": true, "content": [{"type": "text", "text": error}]})
+                        }
                     }
                 };
                 json!({"jsonrpc": "2.0", "id": id, "result": result})
@@ -247,6 +271,66 @@ fn handle_mcp_message(
     }
 }
 
+fn attach_refusal_envelope(workspace: &Workspace, certificate: &mut Value) {
+    let code = certificate["reason_code"].as_str().unwrap_or("REFUSED");
+    let reason = threadmoth::metadata::reason(code);
+    let workspace_root = workspace.root().display().to_string();
+    let requested_path = certificate["file_path"].as_str().unwrap_or("");
+    let recovery = if code == "WORKSPACE_ROOT_MISMATCH" {
+        json!([
+            {"action": "use_checkout_local_threadmoth", "description": "Run Threadmoth from the intended authorized checkout, then preview again."},
+            {"action": "inspect_workspace_configuration", "description": "Check the host-configured workspace root; a request cannot rebind it."}
+        ])
+    } else {
+        certificate["recovery"]["remedies"]
+            .as_array()
+            .map(|remedies| {
+                remedies
+                    .iter()
+                    .map(|remedy| {
+                        json!({
+                            "action": remedy["kind"],
+                            "description": remedy["description"]
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+            .into()
+    };
+    certificate["refusal"] = json!({
+        "status": "refused",
+        "code": code,
+        "message": reason.as_ref().map(|item| item.meaning).unwrap_or("The request was refused by a safety guard."),
+        "write_performed": false,
+        "context": {"workspace_root": workspace_root, "requested_path": requested_path, "provider": certificate["provider"]},
+        "recovery": recovery,
+        "retryability": reason.as_ref().map(|item| if item.retry_unchanged { "safe_to_retry_unchanged" } else { "correct_request_before_retry" }).unwrap_or("correct_request_before_retry")
+    });
+}
+
+fn workspace_root_refusal(workspace: &Workspace, arguments: &Value, message: &str) -> Value {
+    let requested_path = ["file_path", "path", "file", "for_path"]
+        .iter()
+        .find_map(|field| arguments.get(*field).and_then(Value::as_str))
+        .unwrap_or("");
+    json!({
+        "status": "refused",
+        "code": "WORKSPACE_ROOT_MISMATCH",
+        "message": "The requested path is outside the workspace root bound to this Threadmoth process.",
+        "write_performed": false,
+        "workspace_root": workspace.root().display().to_string(),
+        "requested_path": requested_path,
+        "reason": message.chars().take(512).collect::<String>(),
+        "context": {"workspace_root": workspace.root().display().to_string(), "requested_path": requested_path},
+        "recovery": [
+            {"action": "use_checkout_local_threadmoth", "description": "Run Threadmoth from the intended authorized checkout, then preview again."},
+            {"action": "inspect_workspace_configuration", "description": "Check the host-configured workspace root; a request cannot rebind it."}
+        ],
+        "retryability": "retry_after_caller_selects_and_starts_the_authorized_workspace"
+    })
+}
+
 fn call_tool(
     workspace: &Workspace,
     name: &str,
@@ -258,7 +342,7 @@ fn call_tool(
             let args =
                 serde_json::from_value::<ExactReplaceToolArgs>(arguments).map_err(schema_error)?;
             let request = shorthand_request(
-                &args.file,
+                &args.file_path,
                 OperationPayload::Text(threadmoth::provider::text::TextOperation::Replace {
                     target: args.old.clone(),
                     replacement: args.new.clone(),
@@ -274,16 +358,19 @@ fn call_tool(
             let bytes = serde_json::to_vec(&args.value)
                 .map_err(|error| error.to_string())?
                 .len();
-            let operation =
-                threadmoth::shorthand::set_value_operation(&args.file, &args.path, args.value)?;
-            let request = shorthand_request(&args.file, operation, bytes);
+            let operation = threadmoth::shorthand::set_value_operation(
+                &args.file_path,
+                &args.selector,
+                args.value,
+            )?;
+            let request = shorthand_request(&args.file_path, operation, bytes);
             serde_json::to_value(execute_request(workspace, &request, false))
                 .map_err(|error| error.to_string())
         }
         "threadmoth_capabilities" | "suture_capabilities" => {
             let args =
                 serde_json::from_value::<CapabilitiesToolArgs>(arguments).map_err(schema_error)?;
-            let output = if let Some(path) = args.for_path {
+            let output = if let Some(path) = args.file_path {
                 let bytes = workspace.read_file(&path).ok();
                 threadmoth::metadata::capabilities_for(&path, bytes.as_deref())
             } else {
@@ -296,7 +383,7 @@ fn call_tool(
                 serde_json::from_value::<InspectToolArgs>(arguments).map_err(schema_error)?;
             threadmoth::metadata::inspect_view(
                 workspace,
-                &args.path,
+                &args.file_path,
                 args.view.as_deref(),
                 args.handle.as_deref(),
                 args.max_bytes,
@@ -307,11 +394,11 @@ fn call_tool(
         "threadmoth_suggest" => {
             let args =
                 serde_json::from_value::<SuggestToolArgs>(arguments).map_err(schema_error)?;
-            let bytes = workspace.read_file(&args.path).ok();
+            let bytes = workspace.read_file(&args.file_path).ok();
             serde_json::to_value(threadmoth::metadata::suggest(
-                &args.path,
+                &args.file_path,
                 args.goal.as_deref(),
-                args.at.as_deref(),
+                args.selector.as_deref(),
                 &args.mode,
                 bytes.as_deref(),
             ))
@@ -323,6 +410,12 @@ fn call_tool(
             let reason = threadmoth::metadata::reason(&args.code)
                 .ok_or_else(|| format!("unknown reason code: {}", args.code))?;
             serde_json::to_value(reason).map_err(|e| e.to_string())
+        }
+        "threadmoth_orient" => {
+            let _ = serde_json::from_value::<OrientToolArgs>(arguments).map_err(schema_error)?;
+            Ok(threadmoth::metadata::orientation(
+                &workspace.root().display().to_string(),
+            ))
         }
         "threadmoth_mutate" | "suture_mutate" => {
             let request = serde_json::from_value::<Request>(arguments).map_err(schema_error)?;

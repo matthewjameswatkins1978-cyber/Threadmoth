@@ -51,6 +51,7 @@ fn main() {
         Command::Benchmark(args) => run_benchmark(args),
         Command::Torture { json } => std::process::exit(threadmoth::torture::run(json)),
         Command::Help(args) => run_help(args),
+        Command::Orient { json } => run_orient(json),
         Command::Explain {
             code,
             plan,
@@ -969,7 +970,34 @@ fn run_help(args: HelpArgs) {
 
     let mut root = Cli::command();
     if let Some(command) = args.command {
+        if let Some((provider, operation)) = command.split_once(':') {
+            let output = threadmoth::metadata::operation_help(provider, operation);
+            match output {
+                Some(value) if args.json => {
+                    println!("{}", serde_json::to_string_pretty(&value).unwrap())
+                }
+                Some(value) => println!("{}", threadmoth::metadata::render_operation_help(&value)),
+                None => {
+                    eprintln!("unknown provider operation: {command}");
+                    std::process::exit(1);
+                }
+            }
+            return;
+        }
+        if let Some(value) = threadmoth::metadata::provider_help(&command) {
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&value).unwrap());
+            } else {
+                println!("{}", threadmoth::metadata::render_provider_help(&value));
+            }
+            return;
+        }
         if let Some(subcommand) = root.find_subcommand_mut(&command) {
+            if args.json {
+                let value = serde_json::json!({"command": command, "help": subcommand.render_long_help().to_string()});
+                println!("{}", serde_json::to_string_pretty(&value).unwrap());
+                return;
+            }
             subcommand.print_long_help().unwrap();
             println!();
             return;
@@ -983,6 +1011,26 @@ fn run_help(args: HelpArgs) {
     }
     root.print_long_help().unwrap();
     println!();
+}
+
+fn run_orient(json_output: bool) {
+    let workspace = env::current_dir()
+        .map(|path| path.canonicalize().unwrap_or(path))
+        .unwrap_or_else(|_| ".".into());
+    let value = threadmoth::metadata::orientation(&workspace.to_string_lossy());
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&value).unwrap());
+    } else {
+        println!(
+            "Threadmoth {} · workspace {}",
+            THREADMOTH_VERSION,
+            workspace.display()
+        );
+        println!("Workflow: preview → mutate → verify certificate");
+        println!("Discover: capabilities · suggest PATH · help TARGET");
+        println!("Confinement: workspace and effect budget; refusals do not write");
+        println!("Exit codes: success 0 · refusal 2 · runtime failure 3");
+    }
 }
 
 fn print_explain(code: &str, json_output: bool) {

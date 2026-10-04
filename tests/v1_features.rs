@@ -1,3 +1,4 @@
+use serde_json::json;
 use tempfile::TempDir;
 use threadmoth::engine::compute_sha256;
 use threadmoth::lifecycle::FileOperation;
@@ -55,6 +56,68 @@ fn every_provider_operation_is_in_canonical_operation_metadata() {
             );
         }
     }
+}
+
+#[test]
+fn targeted_help_projects_provider_selectors_and_executable_examples() {
+    let help = threadmoth::metadata::operation_help("json", "set").unwrap();
+    assert_eq!(help["provider"], "json");
+    assert_eq!(help["operation"], "set");
+    assert_eq!(help["selector"], "dotted_key");
+    assert_eq!(help["selector_forms"], serde_json::json!(["dotted_key"]));
+    assert_eq!(help["example"]["operation"]["provider"], "json");
+    assert_eq!(help["example"]["operation"]["operation"]["type"], "set");
+    assert!(threadmoth::metadata::operation_help("filesystem", "set").is_none());
+    let markdown = threadmoth::metadata::operation_help("markdown", "replace_section").unwrap();
+    assert_eq!(
+        markdown["selector_forms"],
+        serde_json::json!(["heading", "section", "fenced_region"])
+    );
+    assert_eq!(markdown["selector"], "heading");
+    let ini = threadmoth::metadata::operation_help("ini", "ensure_section").unwrap();
+    assert_eq!(ini["description"], "Ensure one INI section exists.");
+    assert_eq!(ini["selector"], "section");
+    assert_eq!(
+        ini["example"]["operation"]["operation"]["type"],
+        "ensure_section"
+    );
+}
+
+#[test]
+fn operation_help_cannot_diverge_from_advertised_registry_pairs() {
+    for provider in threadmoth::metadata::provider_metadata() {
+        for operation in &provider.operations {
+            let help = threadmoth::metadata::operation_help(provider.name, operation)
+                .unwrap_or_else(|| panic!("missing help for {}:{operation}", provider.name));
+            assert_eq!(help["provider"], provider.name);
+            assert_eq!(help["operation"], *operation);
+            assert_eq!(
+                help["selector_forms"],
+                serde_json::to_value(&provider.selectors).unwrap()
+            );
+            assert_eq!(help["required_parameters"][0], "file_path");
+            if let Some(example) = help["example"].as_object() {
+                assert_eq!(example["operation"]["provider"], provider.name);
+                assert_eq!(example["operation"]["operation"]["type"], *operation);
+            }
+        }
+    }
+}
+
+#[test]
+fn orientation_is_compact_versioned_and_describes_the_existing_authority_boundary() {
+    let orientation = threadmoth::metadata::orientation("C:/checkout");
+    assert_eq!(orientation["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(orientation["workspace"], "C:/checkout");
+    assert_eq!(orientation["confinement"], "workspace-and-budget");
+    assert_eq!(
+        orientation["workflow"],
+        serde_json::json!(["preview", "mutate", "verify"])
+    );
+    assert!(orientation["providers"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("markdown")));
 }
 
 #[test]

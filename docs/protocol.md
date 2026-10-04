@@ -1,6 +1,10 @@
 # Protocol v1.3
 
-Threadmoth 1.12.0 advertises protocol **1.3.1**. Requests using protocol `1.3.0`, `1.2.0`, and `1.1.0` remain accepted with their promised semantics.
+Threadmoth 1.13.0 advertises protocol **1.3.1**. Requests using protocol `1.3.0`, `1.2.0`, and `1.1.0` remain accepted with their promised semantics.
+
+The request-level `file_path` always names the physical workspace target. Provider operation payloads keep their established selector fields (for example JSON's `path`) for wire compatibility. CLI shorthand and MCP shorthand use the clearer canonical name `selector`; MCP also accepts the earlier `path`/`at` spellings as contextual aliases. MCP physical-target parameters use `file_path`, retaining `path`, `file` and `for_path` as input aliases where applicable.
+
+The MCP server binds its canonical workspace root once at startup. Workspace-root mismatch refusals include `code`, `message`, `write_performed: false`, bounded context and caller-selected recovery actions. Request paths and MCP `roots/list` never rebind that root.
 
 A request is JSON with a stable `request_id`, workspace-relative `file_path`, optional namespace and source-identity guards, explicit cardinality, an optional hard effect budget, and one typed provider operation. Unknown fields are rejected.
 

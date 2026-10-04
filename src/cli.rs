@@ -96,6 +96,13 @@ pub enum Command {
     /// Search or show detailed command help.
     Help(HelpArgs),
 
+    /// Orient an agent to the current workspace and safe discovery workflow.
+    Orient {
+        /// Emit machine-readable orientation data.
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Explain a refusal or failure reason code.
     Explain {
         /// Reason code such as TARGET_AMBIGUOUS.
@@ -114,7 +121,7 @@ pub enum Command {
 
     /// Suggest a safe request shape for a workspace file or refusal.
     #[command(
-        after_help = "Examples:\n  threadmoth suggest Cargo.toml --goal set-value --at package.name\n  threadmoth suggest --from-refusal refusal.json"
+        after_help = "Examples:\n  threadmoth suggest Cargo.toml --goal set-value --selector package.name\n  threadmoth suggest --from-refusal refusal.json"
     )]
     Suggest(SuggestArgs),
 
@@ -168,7 +175,7 @@ pub struct DoctorArgs {
 #[derive(Args, Debug)]
 pub struct InspectArgs {
     /// Workspace-relative file path.
-    #[arg(value_hint = ValueHint::FilePath)]
+    #[arg(value_name = "FILE_PATH", value_hint = ValueHint::FilePath)]
     pub path: std::path::PathBuf,
 
     /// Return a bounded deterministic structural outline.
@@ -190,6 +197,7 @@ pub struct InspectArgs {
 
 #[derive(Args, Debug)]
 pub struct ReplaceExactArgs {
+    #[arg(value_name = "FILE_PATH", value_hint = ValueHint::FilePath)]
     pub file: std::path::PathBuf,
     pub old: String,
     pub new: String,
@@ -197,7 +205,9 @@ pub struct ReplaceExactArgs {
 
 #[derive(Args, Debug)]
 pub struct SetValueArgs {
+    #[arg(value_name = "FILE_PATH", value_hint = ValueHint::FilePath)]
     pub file: std::path::PathBuf,
+    #[arg(value_name = "SELECTOR")]
     pub path: String,
     /// JSON spelling of the value, for example 8080, true, or "enabled".
     pub value: String,
@@ -208,7 +218,9 @@ pub struct SetValueArgs {
 
 #[derive(Args, Debug)]
 pub struct SetStringArgs {
+    #[arg(value_name = "FILE_PATH", value_hint = ValueHint::FilePath)]
     pub file: std::path::PathBuf,
+    #[arg(value_name = "SELECTOR")]
     pub path: String,
     /// Literal UTF-8 string value.
     pub value: String,
@@ -216,6 +228,7 @@ pub struct SetStringArgs {
 
 #[derive(Args, Debug)]
 pub struct CreateFileArgs {
+    #[arg(value_name = "FILE_PATH", value_hint = ValueHint::FilePath)]
     pub file: std::path::PathBuf,
     pub content: String,
 }
@@ -366,12 +379,16 @@ pub struct HelpArgs {
     /// Search Threadmoth help metadata.
     #[arg(long)]
     pub find: Option<String>,
+
+    /// Emit machine-readable targeted help.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
 pub struct SuggestArgs {
     /// Workspace-relative file to inspect.
-    #[arg(value_hint = ValueHint::FilePath, required_unless_present = "from_refusal")]
+    #[arg(value_name = "FILE_PATH", value_hint = ValueHint::FilePath, required_unless_present = "from_refusal")]
     pub path: Option<std::path::PathBuf>,
 
     /// Read an existing refusal certificate from this file, or `-` for stdin.
@@ -383,7 +400,7 @@ pub struct SuggestArgs {
     pub goal: Option<String>,
 
     /// Structural location, such as package.name.
-    #[arg(long)]
+    #[arg(long = "selector", alias = "at")]
     pub at: Option<String>,
 
     /// Suggestion mode. Defaults to safe.

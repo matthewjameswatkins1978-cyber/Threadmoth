@@ -92,16 +92,109 @@ fn tools_list_exposes_preview_and_notification_has_no_response() {
         .unwrap()
         .iter()
         .any(|tool| tool["name"] == "threadmoth_update"));
-    assert_eq!(output[0]["result"]["tools"].as_array().unwrap().len(), 12);
+    assert_eq!(output[0]["result"]["tools"].as_array().unwrap().len(), 13);
+    assert!(output[0]["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|tool| tool["name"] == "threadmoth_orient"));
     let inspect = output[0]["result"]["tools"]
         .as_array()
         .unwrap()
         .iter()
         .find(|tool| tool["name"] == "threadmoth_inspect")
         .unwrap();
-    for property in ["path", "view", "handle", "max_bytes", "max_entries"] {
+    for property in ["file_path", "view", "handle", "max_bytes", "max_entries"] {
         assert!(inspect["inputSchema"]["properties"][property].is_object());
     }
+    let set_value = output[0]["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == "threadmoth_set_value")
+        .unwrap();
+    assert!(set_value["inputSchema"]["properties"]["file_path"].is_object());
+    assert!(set_value["inputSchema"]["properties"]["selector"].is_object());
+    let suggest = output[0]["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == "threadmoth_suggest")
+        .unwrap();
+    assert!(suggest["inputSchema"]["properties"]["selector"].is_object());
+}
+
+#[test]
+fn workspace_mismatch_is_a_choice_gated_structured_refusal() {
+    let bridge = TempDir::new().unwrap();
+    let checkout = TempDir::new().unwrap();
+    let target = checkout.path().join("config.json");
+    fs::write(&target, b"{\"port\":8080}\n").unwrap();
+    let output = call_mcp(
+        &bridge,
+        &[
+            json!({
+                "jsonrpc":"2.0","id":1,"method":"tools/call",
+                "params":{"name":"threadmoth_inspect","arguments":{"file_path":target}}
+            }),
+            json!({
+                "jsonrpc":"2.0","id":2,"method":"tools/call",
+                "params":{"name":"threadmoth_preview","arguments":replace_request(&target.to_string_lossy())}
+            }),
+        ],
+    );
+    let result = &output[0]["result"];
+    let refusal = &result["structuredContent"];
+    assert_eq!(result["isError"], true);
+    assert_eq!(refusal["status"], "refused");
+    assert_eq!(refusal["code"], "WORKSPACE_ROOT_MISMATCH");
+    assert_eq!(refusal["write_performed"], false);
+    assert_eq!(refusal["requested_path"], target.to_string_lossy().as_ref());
+    assert_eq!(
+        refusal["recovery"][0]["action"],
+        "use_checkout_local_threadmoth"
+    );
+    assert_eq!(
+        refusal["recovery"][1]["action"],
+        "inspect_workspace_configuration"
+    );
+    let preview_refusal = &output[1]["result"]["structuredContent"];
+    assert_eq!(preview_refusal["outcome"], "REFUSED");
+    assert_eq!(
+        preview_refusal["refusal"]["code"],
+        "WORKSPACE_ROOT_MISMATCH"
+    );
+    assert_eq!(preview_refusal["refusal"]["write_performed"], false);
+    assert_eq!(fs::read(target).unwrap(), b"{\"port\":8080}\n");
+}
+
+#[test]
+fn orientation_is_available_through_mcp_without_workspace_rebinding() {
+    let workspace = TempDir::new().unwrap();
+    let output = call_mcp(
+        &workspace,
+        &[json!({
+            "jsonrpc":"2.0","id":1,"method":"tools/call",
+            "params":{"name":"threadmoth_orient","arguments":{}}
+        })],
+    );
+    let orientation = &output[0]["result"]["structuredContent"];
+    assert_eq!(orientation["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(orientation["confinement"], "workspace-and-budget");
+    assert_eq!(
+        orientation["workflow"],
+        json!(["preview", "mutate", "verify"])
+    );
+    assert_eq!(orientation["exit_codes"]["refusal"], 2);
+    assert_eq!(
+        orientation["workspace"],
+        workspace
+            .path()
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .as_ref()
+    );
 }
 
 #[test]
@@ -309,6 +402,10 @@ fn mutate_still_commits_and_refusal_is_structured() {
     assert_eq!(
         output[1]["result"]["structuredContent"]["outcome"],
         "REFUSED"
+    );
+    assert_eq!(
+        output[1]["result"]["structuredContent"]["refusal"]["write_performed"],
+        false
     );
     assert!(output[1]["result"]["structuredContent"]["refusal_reason"].is_object());
 }

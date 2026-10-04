@@ -33,7 +33,9 @@ threadmoth suggest PATH --goal GOAL --at SELECTOR
 
 The path-scoped result describes the detected target kind, provider, detection basis, confidence class, understanding level, preservation level, alternatives and explicit fallback routes. A weaker route being listed is not permission to use it automatically.
 
-Threadmoth 1.12.0 distinguishes structured formats, parser-grounded syntax, bounded regions, exact text and opaque/refused content. Unsupported source languages may still be safely editable as exact text; binary/invalid text is not silently accepted.
+Threadmoth 1.13.0 begins with `threadmoth orient`, then uses registry-projected `threadmoth help PROVIDER:OPERATION` and `threadmoth suggest PATH` to discover bounded procedures and examples. It distinguishes structured formats, parser-grounded syntax, bounded regions, exact text and opaque/refused content. Unsupported source languages may still be safely editable as exact text; binary/invalid text is not silently accepted.
+
+The MCP server binds its workspace root at process startup. A refusal reports the configured root and a checkout-local CLI recovery choice; neither a request path nor MCP `roots/list` changes authority. MCP uses `file_path` for the physical target and `selector` for a structured location. Previous `path`, `file` and `for_path` spellings remain accepted as input aliases.
 
 ## Context economy in 1.10
 
