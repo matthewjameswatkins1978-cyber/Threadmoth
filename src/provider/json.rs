@@ -348,6 +348,9 @@ fn parse_path(path: &str) -> Result<Vec<Segment>, JsonProviderError> {
     if path.is_empty() || path == "$" {
         return Ok(Vec::new());
     }
+    if path.starts_with('/') {
+        return Err(malformed("JSON Pointer selectors are not supported; use dotted or bracket syntax, for example '$.port' or '$.service.port'."));
+    }
     let mut s = path.strip_prefix("$").unwrap_or(path);
     if let Some(rest) = s.strip_prefix('.') {
         s = rest;

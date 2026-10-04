@@ -1,6 +1,6 @@
 # Coverage model
 
-Threadmoth 1.11.0 classifies a discovered file before mutation. The Target
+Threadmoth 1.12.0 classifies a discovered file before mutation. The Target
 Registry is the single classification authority used by discovery, inspect,
 capabilities, suggest, CLI shorthands and MCP shorthands. The level is an
 honest description of what the selected provider can prove, not a promise to
@@ -23,6 +23,8 @@ A structured request never silently becomes an exact, regex, patch or desired-st
 ### JSON / JSONC
 
 JSON uses strict source-range structural edits. JSONC uses the JSON structural operation family while preserving supported comments/trailing-comma source layout. Neither provider needs to reserialize the whole document for a local edit.
+
+JSON and JSONC operations accept the legacy-compatible dotted and bracket selector syntax, such as `$.service.port` or `$["key.with.dots"]`. JSON Pointer selectors are not supported and are not advertised; a pointer-looking selector beginning with `/` is refused with a structured diagnostic showing the corrected form.
 
 ### TOML
 

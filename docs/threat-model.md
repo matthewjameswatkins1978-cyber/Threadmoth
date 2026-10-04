@@ -1,10 +1,12 @@
 # Threat model
 
-Threadmoth 1.11.0 keeps parsers deliberately subordinate: they point at source bytes and validate candidates; they do not regenerate or reformat source.
+Threadmoth 1.12.0 keeps parsers deliberately subordinate: they point at source bytes and validate candidates; they do not regenerate or reformat source.
 
 Threadmoth assumes the caller may have stale context and the target file may be concurrently modified. An optional expected hash rejects stale observations; Core also rechecks identity before commit and reads the committed file back afterwards.
 
 Path traversal, absolute paths and symlink escapes are refused. Ancestor checks are repeated while resolving and commit uses a canonical destination path. This narrows pathname races; no portable userspace API makes replacement immune to an attacker with equivalent filesystem authority.
+Residual pathname race: canonicalization and containment checks are separate from the later path-based open or replace. A process with concurrent write access to workspace directories could swap a checked component for a symlink, junction or other reparse point in that gap. Parent rechecks and atomic replacement narrow the window but do not eliminate it; a concurrent actor with equivalent filesystem authority remains outside the protection boundary.
+
 The workspace root is bound when the CLI or MCP process starts and cannot be changed by a request. An absolute target outside it returns WORKSPACE_ROOT_MISMATCH with a choice-required checkout-local CLI recovery. The caller must decide whether that checkout is the intended authorized workspace and preview there; Threadmoth does not widen scope or retry automatically.
 
 ## Structured and syntax input

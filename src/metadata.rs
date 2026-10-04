@@ -17,6 +17,7 @@ use crate::protocol::{
 use crate::provider::code::CodeOperation;
 use crate::provider::dotenv::DotenvOperation;
 use crate::provider::json::JsonOperation;
+use crate::provider::markdown::MarkdownOperation;
 use crate::provider::patch::PatchOperation;
 use crate::provider::syntax::{self, LanguageFamily};
 use crate::provider::text::TextOperation;
@@ -257,7 +258,7 @@ pub fn operation_metadata() -> Vec<OperationMetadata> {
         op(
             "insert",
             "Insert a structured member or array item.",
-            "json_pointer",
+            "dotted_key",
             false,
             "additive",
             vec!["unrelated_bytes"],
@@ -265,7 +266,7 @@ pub fn operation_metadata() -> Vec<OperationMetadata> {
         op(
             "rename_key",
             "Rename one structured key.",
-            "json_pointer",
+            "dotted_key",
             false,
             "mixed",
             vec!["unrelated_bytes"],
@@ -476,7 +477,7 @@ pub fn provider_metadata() -> Vec<ProviderMetadata> {
                 "unset",
                 "rename",
             ],
-            vec!["json_pointer"],
+            vec!["dotted_key"],
             "source ranges, unrelated bytes",
             true,
         ),
@@ -493,7 +494,7 @@ pub fn provider_metadata() -> Vec<ProviderMetadata> {
                 "unset",
                 "rename",
             ],
-            vec!["json_pointer"],
+            vec!["dotted_key"],
             "comments and source ranges",
             true,
         ),
@@ -756,7 +757,7 @@ pub fn reason_metadata() -> Vec<ReasonMetadata> {
         "A hosted bridge cannot be rebound by a request boundary. If this is the intended authorized checkout, use the checkout-local CLI from that checkout and preview again.",
         "run_checkout_local_cli_from_target_workspace",
         false,
-        ["doctor", "preview", "explain"]
+        ["doctor", "preview", "explain", "suggest"]
     );
     reason!(
         "WORKSPACE_ESCAPE",
@@ -956,7 +957,7 @@ pub fn capabilities() -> CapabilityManifest {
         "threadmoth_version": env!("CARGO_PKG_VERSION"),
         "providers": providers,
         "operations": operations,
-        "selectors": ["literal", "json_pointer", "dotted_key", "yaml_path", "section_key", "heading", "bounded_pattern", "syntax_node_text", "syntax_node_kind", "workspace_relative_path"],
+        "selectors": ["literal", "dotted_key", "yaml_path", "section_key", "heading", "bounded_pattern", "syntax_node_text", "syntax_node_kind", "workspace_relative_path"],
         "preservation_guarantees": ["unrelated_bytes", "utf8", "utf8_bom", "lf", "crlf", "final_newline", "comments_where_supported"],
         "encodings": ["utf8", "utf8_bom"],
         "path_namespaces": ["native", "windows", "wsl", "posix"],
@@ -989,7 +990,6 @@ pub fn capabilities() -> CapabilityManifest {
         operations: operation_metadata(),
         selectors: vec![
             "literal",
-            "json_pointer",
             "dotted_key",
             "yaml_path",
             "section_key",
@@ -2064,7 +2064,24 @@ pub fn suggest(
     let template = allowed_goal
         .then(|| selected.and_then(|provider| template_for(provider, path, goal_name, at, &budget)))
         .flatten();
+    let unsupported_provider_goal = allowed_goal && selected.is_some() && template.is_none();
     let mut alternatives = Vec::new();
+    if unsupported_provider_goal {
+        if let Some(provider_name) = selected {
+            alternatives.extend(
+                provider_metadata()
+                    .into_iter()
+                    .find(|provider| provider.name == provider_name)
+                    .into_iter()
+                    .flat_map(|provider| provider.operations)
+                    .map(|operation| json!({
+                        "provider": provider_name,
+                        "operation": operation,
+                        "next": "select this operation, provide its required selector and content, then preview"
+                    })),
+            );
+        }
+    }
     if selected == Some("text") {
         alternatives.push(
             serde_json::to_value(base_request(
@@ -2097,7 +2114,9 @@ pub fn suggest(
             .and_then(Value::as_str)
             .map(str::to_owned),
         rationale: if !allowed_goal {
-            "The requested goal is outside the controlled 1.1 goal set; choose one of the advertised goals.".into()
+            "The requested goal is outside the supported goal set; choose one of the advertised goals.".into()
+        } else if unsupported_provider_goal {
+            format!("The {detected} provider has no safe template for goal {goal_name}; choose one of the advertised provider operations.")
         } else if candidates.is_empty() {
             format!("Use the most specific advertised provider for {}; preview before committing when the target is unfamiliar.", selected.unwrap_or("the target"))
         } else {
@@ -2116,6 +2135,9 @@ pub fn suggest(
             .into_iter()
             .map(|candidate| format!("provider detection remains ambiguous: {candidate}"))
             .chain((!allowed_goal).then_some(format!("unsupported controlled goal: {goal_name}")))
+            .chain(unsupported_provider_goal.then_some(format!(
+                "provider {detected} has no safe template for goal {goal_name}"
+            )))
             .collect(),
         capability_set_id: capabilities().capability_set_id,
     }
@@ -2128,6 +2150,55 @@ fn template_for(
     at: Option<&str>,
     budget: &EffectBudget,
 ) -> Option<Value> {
+    let supported_provider_goal = matches!(
+        (provider, goal),
+        (
+            _,
+            "create-file" | "delete-file" | "apply-patch" | "transact"
+        ) | (
+            "text",
+            "replace-text"
+                | "set-value"
+                | "add-item"
+                | "remove-item"
+                | "rename"
+                | "ensure-present"
+                | "ensure-absent"
+                | "move"
+        ) | (
+            "json" | "jsonc" | "toml",
+            "replace-text"
+                | "set-value"
+                | "add-item"
+                | "remove-item"
+                | "rename"
+                | "ensure-present"
+                | "ensure-absent"
+        ) | (
+            "yaml",
+            "replace-text" | "set-value" | "remove-item" | "ensure-present" | "ensure-absent"
+        ) | (
+            "dotenv",
+            "replace-text"
+                | "set-value"
+                | "add-item"
+                | "remove-item"
+                | "ensure-present"
+                | "ensure-absent"
+        ) | (
+            "ini",
+            "replace-text"
+                | "set-value"
+                | "remove-item"
+                | "rename"
+                | "ensure-present"
+                | "ensure-absent"
+        ) | ("code" | "web", "replace-text" | "set-value")
+            | ("markdown", "replace-text")
+    );
+    if !supported_provider_goal {
+        return None;
+    }
     let operation = match goal {
         "create-file" => OperationPayload::File(FileOperation::CreateFile {
             expected_absent: true,
@@ -2251,6 +2322,10 @@ fn template_for(
                 path: at.unwrap_or("key").into(),
                 value: json!("NEW_VALUE"),
             }),
+            "dotenv" => OperationPayload::Dotenv(DotenvOperation::Set {
+                key: at.unwrap_or("KEY").into(),
+                value: "NEW_VALUE".into(),
+            }),
             "ini" => OperationPayload::Ini(crate::provider::ini::IniOperation::Set {
                 path: at.unwrap_or("SECTION.KEY").into(),
                 value: "NEW_VALUE".into(),
@@ -2313,6 +2388,30 @@ fn template_for(
                 target: "OLD_NODE".into(),
                 replacement: "NEW_NODE".into(),
                 node_kind: None,
+            }),
+            "json" | "jsonc" => OperationPayload::Json(JsonOperation::Set {
+                path: at.unwrap_or("$.KEY").into(),
+                value: json!("NEW_VALUE"),
+            }),
+            "toml" => OperationPayload::Toml(TomlOperation::Set {
+                path: at.unwrap_or("key").into(),
+                value: TomlValueWrapper::String("NEW_VALUE".into()),
+            }),
+            "yaml" => OperationPayload::Yaml(YamlOperation::Set {
+                path: at.unwrap_or("key").into(),
+                value: json!("NEW_VALUE"),
+            }),
+            "dotenv" => OperationPayload::Dotenv(DotenvOperation::Set {
+                key: at.unwrap_or("KEY").into(),
+                value: "NEW_VALUE".into(),
+            }),
+            "ini" => OperationPayload::Ini(crate::provider::ini::IniOperation::Set {
+                path: at.unwrap_or("SECTION.KEY").into(),
+                value: "NEW_VALUE".into(),
+            }),
+            "markdown" => OperationPayload::Markdown(MarkdownOperation::ReplaceSection {
+                heading: at.unwrap_or("SECTION_HEADING").into(),
+                content: "REPLACEMENT_CONTENT".into(),
             }),
             _ => OperationPayload::Text(TextOperation::Replace {
                 target: "EXACT_TARGET".into(),

@@ -1,4 +1,17 @@
 # Changelog
+
+## 1.12.0 - Teachback and provider fidelity
+
+### Added
+
+- Workspace-root mismatch recovery now exposes `suggest` alongside inspection and refusal explanation commands while preserving caller choice and the original refusal.
+- `suggest PATH` emits provider-specific JSON, JSONC, TOML, YAML, dotenv, INI, Markdown and syntax-aware code templates; unsupported provider/goal pairs return provider operation choices instead of generic text templates.
+- CLI subprocess regressions lock the documented exit codes: 0 for applied/no-change, 2 for refusal and 3 for runtime failure.
+
+### Fixed
+
+- JSON and JSONC capability metadata now advertises the supported dotted/bracket selector syntax instead of claiming JSON Pointer support. Pointer-looking selectors receive an explicit structured correction diagnostic.
+- Kept canonical path containment checks and their cross-platform regression suite in the release gate.
 ## 1.11.0 - Workspace scope and containment
 
 ### Added
