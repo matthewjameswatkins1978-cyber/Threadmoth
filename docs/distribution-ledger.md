@@ -4,15 +4,17 @@ This is the durable record for Threadmoth discovery and distribution work. It re
 
 ## Snapshot
 
-Date: 2026-10-03
+Date: 2026-10-04
 Repository: [matthewjameswatkins1978-cyber/Threadmoth](https://github.com/matthewjameswatkins1978-cyber/Threadmoth)  
-Current stable release on `main`: **Threadmoth 1.11.0**
-Merged release commit: `ba5370159f1fe7ec18de0c390a2da49060cb484b`
-Current release tag: **v1.11.0**
+Current stable release on `main`: **Threadmoth 1.12.0**
+Merged release commit: `efa5df19c889cf8c92f485b21e7ebe17ebf50a74`
+Current release tag: **v1.12.0**
 Prior `main` merge for the 1.9.1 consistency release: `97f8a1c74fefa6003ddf493a93186dcd51f26a33`
-Stable published release: [Threadmoth 1.11.0](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/releases/tag/v1.11.0)
+Stable published release: [Threadmoth 1.12.0](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/releases/tag/v1.12.0)
 
-Threadmoth 1.11.0 adds structured workspace-root mismatch recovery and hardens path containment across requests, plans, transactions and lifecycle operations. Release CI passed on [Linux and Windows](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/actions/runs/37157027097), and the [six-platform release workflow](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/actions/runs/37157642016) completed successfully. The portable Windows archive SHA-256 matched its checksum file and release manifest. Both existing Windows PATH copies were replaced with the official binary; installed preview checks refused workspace-root mismatch and traversal requests without changing the outside fixture.
+Threadmoth 1.12.0 improves workspace-root mismatch recovery, aligns `suggest` with detected providers, reports JSON/JSONC selector capabilities truthfully, standardizes CLI exit-code coverage, and strengthens path-authorization regressions. The [release workflow](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/actions/runs/37182074584) passed all six platform/build variants and published checksummed artifacts plus a release manifest. The portable Windows archive SHA-256 matched its checksum file and release manifest. The standalone 1.12.0 Windows build is installed at `%USERPROFILE%\.local\threadmoth\1.12.0` and resolves first on PATH; prior 1.11.0 binaries remain preserved later on PATH.
+
+Fresh-agent Teachback experiment: **DEFERRED BY OWNER — NOT TESTED**.
 
 Threadmoth 1.9.1 is merged to `main` at `97f8a1c74fefa6003ddf493a93186dcd51f26a33` and **v1.9.1 is tagged and published**. The [release workflow](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/actions/runs/34352262906) completed the source, six-platform/flavour build, package, runtime and publish jobs successfully.
 
@@ -37,7 +39,7 @@ The release remains correctness-gated. Local 1.9 performance smoke evidence reco
 
 ## Current published artifacts
 
-The latest published release at this snapshot is 1.11.0, with release artifacts for:
+The latest published release at this snapshot is 1.12.0, with release artifacts for:
 
 - Windows x86-64;
 - Windows x86-64-v3;
@@ -53,7 +55,7 @@ Portable remains the compatibility default; the Windows/Linux `x86-64-v3` artifa
 
 | Target | Artifact | Status | Validation |
 |---|---|---|---|
-| Portable Agent Skills | [`skills/threadmoth/SKILL.md`](../skills/threadmoth/SKILL.md) | Candidate | Shared skill is versioned for the 1.11.0 release and discovers the installed runtime before use |
+| Portable Agent Skills | [`skills/threadmoth/SKILL.md`](../skills/threadmoth/SKILL.md) | Shipped | Shared skill is versioned for the 1.12.0 release and discovers the installed runtime before use |
 | Claude Code | [`.claude-plugin/plugin.json`](../.claude-plugin/plugin.json) plus shared skill | Shipped | Standard plugin layout; still depends on user-installed `threadmoth` executable |
 | Gemini CLI | [`gemini-extension.json`](../gemini-extension.json), [`GEMINI.md`](../GEMINI.md), shared skill | Candidate | Root manifest/context/skill layout present; runtime capabilities are discovered locally |
 | Antigravity | [`plugin.json`](../plugin.json) plus shared skill | Packaged; field validation still incomplete | Authentication and skill discovery were verified locally; treat end-to-end mutation/refusal recovery as unverified until a clean reproducible field run completes |
