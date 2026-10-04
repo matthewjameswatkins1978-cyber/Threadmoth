@@ -7,7 +7,7 @@ compatibility: >-
   Works with any agent that can read files and run local commands.
 metadata:
   author: matthewjameswatkins1978-cyber
-  version: "1.12.0"
+  version: "1.13.0"
 ---
 
 # Threadmoth
@@ -58,7 +58,7 @@ threadmoth schema
 threadmoth examples
 ```
 
-Threadmoth 1.12.0 discovery classifies targets as `structured`, `syntax`, `region`, `exact` or `opaque` and reports preservation level plus explicit fallback routes. The existing inspect surface also supports a deterministic bounded outline and exact bounded expansion for supported syntax providers. Outline handles are hash-bound read identities; they become stale on source change and never authorize mutation. The Target Registry is also authoritative for CLI and MCP shorthand provider selection, including special filenames such as `setup.cfg` and `.env.local`.
+Threadmoth 1.13.0 adds `threadmoth orient` and registry-projected provider/operation help. Start with `threadmoth orient`, then use `threadmoth capabilities`, `threadmoth suggest PATH`, and `threadmoth help PROVIDER:OPERATION` to discover exact selectors and examples. Discovery classifies targets as `structured`, `syntax`, `region`, `exact` or `opaque` and reports preservation level plus explicit fallback routes. Inspect also supports bounded outlines and stale-safe expansions for supported syntax providers. The Target Registry remains authoritative for CLI and MCP shorthand provider selection, including special filenames such as `setup.cfg` and `.env.local`.
 
 Use the canonical `threadmoth` executable. `thm` may exist as a convenience alias, but it is not the compatibility contract. Do not assume a `.thm` source extension.
 

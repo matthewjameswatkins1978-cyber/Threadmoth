@@ -559,7 +559,7 @@ pub fn provider_metadata() -> Vec<ProviderMetadata> {
                 "rename_key",
                 "ensure_section",
             ],
-            vec!["section_key", "key"],
+            vec!["section", "section_key", "key"],
             "comments, ordering, whitespace and unrelated lines",
             true,
         ),
@@ -622,6 +622,131 @@ pub fn provider_metadata() -> Vec<ProviderMetadata> {
             true,
         ),
     ]
+}
+
+/// Compact orientation for agents. The workspace value is diagnostic context;
+/// it never grants authority or rebinds an MCP process.
+pub fn orientation(workspace: &str) -> Value {
+    json!({
+        "version": crate::PACKAGE_VERSION,
+        "workspace": workspace,
+        "confinement": "workspace-and-budget",
+        "workflow": ["preview", "mutate", "verify"],
+        "providers": provider_metadata().into_iter().map(|provider| provider.name).collect::<Vec<_>>(),
+        "discovery": {
+            "capabilities": "threadmoth capabilities",
+            "suggest": "threadmoth suggest PATH",
+            "help": "threadmoth help TARGET"
+        },
+        "exit_codes": {"success": 0, "refusal": 2, "runtime_failure": 3}
+    })
+}
+
+/// Registry-projected targeted provider help. Pair support comes only from the
+/// provider metadata; examples are executable samples from the canonical set.
+pub fn operation_help(provider: &str, operation: &str) -> Option<Value> {
+    let provider_entry = provider_metadata()
+        .into_iter()
+        .find(|entry| entry.name == provider)?;
+    if !provider_entry.operations.contains(&operation) {
+        return None;
+    }
+    let metadata = operation_metadata()
+        .into_iter()
+        .find(|entry| entry.name == operation)?;
+    let example = examples(None).into_iter().find(|example| {
+        example.request["operation"]["provider"] == provider
+            && example.request["operation"]["operation"]["type"] == operation
+    });
+    let example_request = example.map(|example| example.request);
+    let operation_parameters = example_request
+        .as_ref()
+        .and_then(|request| request["operation"]["operation"].as_object())
+        .map(|object| {
+            object
+                .keys()
+                .filter(|key| key.as_str() != "type")
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let selector = match provider {
+        "json" | "jsonc" | "toml" => "dotted_key",
+        "yaml" => "yaml_path",
+        "markdown" if operation.ends_with("_section") || operation == "insert_after_heading" => {
+            "heading"
+        }
+        "markdown" if operation.ends_with("_list_item") => "list_item",
+        "markdown" => "fenced_region",
+        "dotenv" => "key",
+        "ini" if operation == "ensure_section" => "section",
+        "ini" => "section_key",
+        "pattern" => "bounded_pattern",
+        "patch" => "exact_preimage",
+        "code" | "web" => "syntax_node_text",
+        "desired_state" | "filesystem" => "workspace_relative_path",
+        _ => metadata.required_selector,
+    };
+    Some(json!({
+        "provider": provider,
+        "operation": operation,
+        "description": if provider == "ini" && operation == "ensure_section" { "Ensure one INI section exists." } else { metadata.purpose },
+        "required_parameters": ["file_path"],
+        "operation_parameters": operation_parameters,
+        "selector": selector,
+        "selector_forms": provider_entry.selectors,
+        "cardinality": metadata.default_cardinality,
+        "effect": metadata.effect,
+        "boundary": "canonical workspace root and explicit effect budget",
+        "example": example_request,
+        "recovery": ["inspect the refusal code", "correct the path, selector, guard, or budget", "preview again"]
+    }))
+}
+
+pub fn provider_help(provider: &str) -> Option<Value> {
+    let entry = provider_metadata()
+        .into_iter()
+        .find(|entry| entry.name == provider)?;
+    Some(json!({
+        "provider": entry.name,
+        "description": format!("{} provider", entry.name),
+        "selector_forms": entry.selectors,
+        "operations": entry.operations.iter().filter_map(|operation| operation_help(provider, operation)).collect::<Vec<_>>()
+    }))
+}
+
+pub fn render_operation_help(value: &Value) -> String {
+    let example = value.get("example").filter(|value| !value.is_null());
+    format!(
+        "{}:{} — {}\nSelector: {} ({})\nRequired: {}\nEffect: {}\nBoundary: {}{}",
+        value["provider"].as_str().unwrap_or_default(),
+        value["operation"].as_str().unwrap_or_default(),
+        value["description"].as_str().unwrap_or_default(),
+        value["selector"].as_str().unwrap_or_default(),
+        value["selector_forms"],
+        value["required_parameters"],
+        value["effect"].as_str().unwrap_or_default(),
+        value["boundary"].as_str().unwrap_or_default(),
+        example
+            .map(|v| format!("\nExample: {}", v))
+            .unwrap_or_default()
+    )
+}
+
+pub fn render_provider_help(value: &Value) -> String {
+    let operations = value["operations"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry["operation"].as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "{} provider\nSelector forms: {}\nOperations: {}",
+        value["provider"].as_str().unwrap_or_default(),
+        value["selector_forms"],
+        operations
+    )
 }
 
 fn provider(
@@ -957,7 +1082,7 @@ pub fn capabilities() -> CapabilityManifest {
         "threadmoth_version": env!("CARGO_PKG_VERSION"),
         "providers": providers,
         "operations": operations,
-        "selectors": ["literal", "dotted_key", "yaml_path", "section_key", "heading", "bounded_pattern", "syntax_node_text", "syntax_node_kind", "workspace_relative_path"],
+        "selectors": ["literal", "dotted_key", "yaml_path", "section", "section_key", "heading", "bounded_pattern", "syntax_node_text", "syntax_node_kind", "workspace_relative_path"],
         "preservation_guarantees": ["unrelated_bytes", "utf8", "utf8_bom", "lf", "crlf", "final_newline", "comments_where_supported"],
         "encodings": ["utf8", "utf8_bom"],
         "path_namespaces": ["native", "windows", "wsl", "posix"],
@@ -992,6 +1117,7 @@ pub fn capabilities() -> CapabilityManifest {
             "literal",
             "dotted_key",
             "yaml_path",
+            "section",
             "section_key",
             "heading",
             "bounded_pattern",
@@ -1827,6 +1953,31 @@ pub fn examples(topic: Option<&str>) -> Vec<Example> {
             "Budgets are checked before commit.",
         ),
         example(
+            "markdown-section-replacement",
+            "Replace the body of one exact Markdown heading section.",
+            base_request(
+                "README.md",
+                OperationPayload::Markdown(MarkdownOperation::ReplaceSection {
+                    heading: "Installation".into(),
+                    content: "Install the verified release.\n".into(),
+                }),
+            ),
+            "APPLIED",
+            "The heading is the bounded selector; unrelated sections are preserved.",
+        ),
+        example(
+            "ini-section-creation",
+            "Ensure one named INI section exists.",
+            base_request(
+                "settings.ini",
+                OperationPayload::Ini(crate::provider::ini::IniOperation::EnsureSection {
+                    section: "database".into(),
+                }),
+            ),
+            "APPLIED or NO_CHANGE",
+            "The operation targets one explicit section name and preserves other entries.",
+        ),
+        example(
             "strict-patch",
             "Apply an exact unified diff or refuse.",
             patch_request("x.txt"),
@@ -1918,6 +2069,10 @@ fn transaction_request(requests: Vec<Request>) -> TransactionRequest {
 pub fn commands() -> Vec<(&'static str, &'static str)> {
     vec![
         (
+            "orient",
+            "Show the compact workspace-bound discovery workflow and exit-code map.",
+        ),
+        (
             "capabilities",
             "Discover providers, operations, guarantees and limits.",
         ),
@@ -1966,7 +2121,7 @@ pub fn command_help(command: &str) -> Option<String> {
         "examples" => "Use examples [TOPIC] to print current, schema-valid request patterns.",
         "schema" => "Use schema [request|response|PROVIDER|OPERATION] [--json] [--pretty] to inspect the local contract and schema_id.",
         "explain" => "Use explain REASON_CODE [--json] to get meaning, evidence interpretation and safe recovery guidance.",
-        "suggest" => "Use suggest PATH [--goal GOAL] [--at SELECTOR] [--mode minimal|safe|full], or suggest --from-refusal CERTIFICATE.",
+        "suggest" => "Use suggest FILE_PATH [--goal GOAL] [--selector SELECTOR] [--mode minimal|safe|full], or suggest --from-refusal CERTIFICATE.",
         "inspect" => "Read a workspace-relative target's identity, encoding and newline profile, or use --outline/--expand for bounded structural observations; it never mutates.",
         "transact" => "Reads a TransactionRequest and stages every member before commit; transaction-preview prepares without writing.",
         "recover" => "Inspect local recovery journals and complete or restore interrupted transactions with evidence.",
@@ -2063,7 +2218,19 @@ pub fn suggest(
     };
     let template = allowed_goal
         .then(|| selected.and_then(|provider| template_for(provider, path, goal_name, at, &budget)))
-        .flatten();
+        .flatten()
+        .filter(|template| {
+            let Some(provider_name) = template["operation"]["provider"].as_str() else {
+                return false;
+            };
+            let Some(operation_name) = template["operation"]["operation"]["type"].as_str() else {
+                return false;
+            };
+            provider_metadata()
+                .into_iter()
+                .find(|provider| provider.name == provider_name)
+                .is_some_and(|provider| provider.operations.contains(&operation_name))
+        });
     let unsupported_provider_goal = allowed_goal && selected.is_some() && template.is_none();
     let mut alternatives = Vec::new();
     if unsupported_provider_goal {

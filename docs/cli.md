@@ -1,6 +1,14 @@
 # Threadmoth CLI
 
-Threadmoth 1.12.0 uses one structured command grammar for parsing, help, validation, completion, and manpage generation.
+Threadmoth 1.13.0 adds compact orientation and registry-projected provider/operation help while keeping one structured command grammar for parsing, validation, completion, and manpage generation.
+
+Start with `threadmoth orient` (or `threadmoth orient --json`). Provider and operation help is generated from advertised metadata:
+
+```text
+threadmoth help json
+threadmoth help json:set
+threadmoth help markdown:replace_section --json
+```
 
 ## Discover before editing
 

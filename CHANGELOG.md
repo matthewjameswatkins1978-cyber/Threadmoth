@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.13.0 - Agent-native discovery and recovery
+
+### Added
+
+- `threadmoth orient` and `threadmoth orient --json` provide a compact workspace-bound discovery map and preserve the documented exit codes.
+- `threadmoth help PROVIDER` and `threadmoth help PROVIDER:OPERATION --json` project provider selectors, operation metadata and matching executable examples.
+- MCP discovery accepts canonical `file_path` and `selector` names while retaining the existing `path`, `file`, `for_path` and selector `path` aliases.
+- MCP refusal results include a compact structured envelope; workspace-root mismatch recovery offers checkout-local CLI and host-configuration inspection without rebinding authority.
+- Suggestion templates are checked against the advertised provider-operation pairs before they are returned.
+
+### Preserved
+
+- The workspace root remains bound to the process configuration. Request paths and MCP roots do not grant or rebind authority.
+- The existing `Certificate` refusal and recovery fields, operation wire tags, and exit-code contract remain compatible.
+- JSON Pointer remains unsupported; dotted/bracket selector diagnostics continue to reject ambiguity.
+
+### Verification
+
+- See the 1.13.0 release workflow for focused/full test, static-analysis, package and cross-platform security-regression results.
+
 ## 1.12.0 - Teachback and provider fidelity
 
 ### Added

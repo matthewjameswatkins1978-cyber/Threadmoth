@@ -35,6 +35,9 @@ jobs:
       - run: cargo run --locked --release -- schema request --json
       - run: cargo run --locked --release -- explain TARGET_AMBIGUOUS --json
       - run: cargo run --locked --release -- suggest Cargo.toml --goal set-value --at package.name
+      - run: cargo run --locked --release -- orient --json
+      - run: cargo run --locked --release -- help json:set --json
+      - run: cargo run --locked --release -- help markdown:replace_section --json
       - run: target/release/threadmoth completions bash > threadmoth.bash
       - run: cargo run --locked --release -- manpage --output threadmoth.1
       - run: cargo run --locked --release -- benchmark tough --json
