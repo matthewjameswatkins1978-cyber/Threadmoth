@@ -15,6 +15,7 @@ pub mod protocol;
 pub mod provider;
 pub mod recovery;
 pub mod shorthand;
+pub mod source_prepare;
 pub mod target_registry;
 pub mod torture;
 pub mod updater;

@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.14.0 - Source-aware text preparation
+
+### Added
+
+- `threadmoth_prepare_text` and `threadmoth prepare-text` accept compact ordered exact text replacements and return the existing portable prepared plan without writing the source.
+- Uniform LF/CRLF conventions are derived from the observed file. Mixed or absent conventions require `newline_policy: "exact"` and literal line-ending bytes.
+- Ordered replacements resolve against one evolving in-memory source and are committed as one stale-safe, budgeted operation.
+- Protocol 1.4.0 adds `text.replace_sequence`; protocols 1.3.1, 1.3.0, 1.2.0 and 1.1.0 remain accepted with their prior semantics.
+
+### Preserved
+
+- Exact text matching remains byte-exact after the explicitly defined newline adaptation; missing and duplicate targets still refuse.
+- Preparation is read-only. Applying a returned plan revalidates the observed hash, authority, cardinality, budgets and exact operation before commit.
+
+### Verification
+
+- The source-aware workflow regression harness compares retries, tool calls and request bytes against the prior full-request workflow. See the 1.14.0 release workflow for complete test, lint, Windows build and security-regression evidence.
+
 ## 1.13.0 - Agent-native discovery and recovery
 
 ### Added

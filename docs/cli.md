@@ -1,6 +1,6 @@
 # Threadmoth CLI
 
-Threadmoth 1.13.0 adds compact orientation and registry-projected provider/operation help while keeping one structured command grammar for parsing, validation, completion, and manpage generation.
+Threadmoth 1.14.0 adds `prepare-text` for compact source-aware exact text sequences while keeping one structured command grammar for parsing, validation, completion, and manpage generation.
 
 Start with `threadmoth orient` (or `threadmoth orient --json`). Provider and operation help is generated from advertised metadata:
 
@@ -283,7 +283,7 @@ threadmoth doctor --json
 
 ## Compatibility policy
 
-Threadmoth 1.12.0 keeps important pre-1.3 command/provider spellings as compatibility routes, including `apply`, `dry-run`, positional benchmark profiles, `torture`, `transaction-preview`, and request provider alias `file`. It accepts protocol 1.1.0, 1.2.0 and 1.3.0 requests with their promised semantics while advertising protocol 1.3.1 as current.
+Threadmoth keeps older command/provider spellings as compatibility routes, including `apply`, `dry-run`, positional benchmark profiles, `torture`, `transaction-preview`, and request provider alias `file`. Protocol 1.4.0 adds `text.replace_sequence` while protocols 1.3.1, 1.3.0, 1.2.0 and 1.1.0 remain accepted with their promised semantics.
 
 ## Plan review
 

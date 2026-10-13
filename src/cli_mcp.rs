@@ -72,6 +72,15 @@ struct ExactReplaceToolArgs {
 
 #[derive(Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+struct PrepareTextToolArgs {
+    file_path: String,
+    edits: Vec<threadmoth::source_prepare::TextReplacementIntent>,
+    #[serde(default)]
+    newline_policy: threadmoth::source_prepare::NewlinePolicy,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 struct SetValueToolArgs {
     #[serde(rename = "file_path", alias = "file")]
     file_path: String,
@@ -199,6 +208,7 @@ fn handle_mcp_message(
                     {"name": "threadmoth_preview", "description": "Preview one typed Threadmoth mutation without writing; do not invent target specificity", "inputSchema": schema_for!(Request)},
                     {"name": "threadmoth_plan", "description": "Prepare a deterministic guarded plan without writing; preserve unresolved target ambiguity", "inputSchema": schema_for!(Request)},
                     {"name": "threadmoth_apply_plan", "description": "Apply an exact prepared plan after rechecking identity and assertions", "inputSchema": schema_for!(PreparedPlan)},
+                    {"name": "threadmoth_prepare_text", "description": "Prepare one or more exact text replacements against one observed source state; derives uniform line endings, refuses ambiguity, and never writes", "inputSchema": schema_for!(PrepareTextToolArgs)},
                     {"name": "threadmoth_inspect", "description": "Read unchanged identity facts or a bounded deterministic outline/expansion; observation handles are stale-safe read identities and never mutation authority", "inputSchema": schema_for!(InspectToolArgs)},
                     {"name": "threadmoth_suggest", "description": "Return deterministic request suggestions and candidate evidence; never choose among unresolved candidates", "inputSchema": schema_for!(SuggestToolArgs)},
                     {"name": "threadmoth_explain", "description": "Return stable metadata for a refusal or failure reason", "inputSchema": schema_for!(ExplainToolArgs)},
@@ -351,6 +361,25 @@ fn call_tool(
             );
             serde_json::to_value(execute_request(workspace, &request, false))
                 .map_err(|error| error.to_string())
+        }
+        "threadmoth_prepare_text" => {
+            let args =
+                serde_json::from_value::<PrepareTextToolArgs>(arguments).map_err(schema_error)?;
+            let request = threadmoth::source_prepare::SourceAwareTextRequest {
+                file_path: args.file_path,
+                edits: args.edits,
+                newline_policy: args.newline_policy,
+            };
+            let result = threadmoth::source_prepare::prepare(workspace, &request);
+            let output = match result {
+                threadmoth::source_prepare::SourcePreparationResult::Prepared(prepared) => {
+                    serde_json::to_value(prepared)
+                }
+                threadmoth::source_prepare::SourcePreparationResult::Refused { certificate } => {
+                    serde_json::to_value(certificate)
+                }
+            };
+            output.map_err(|error| error.to_string())
         }
         "threadmoth_set_value" => {
             let args =

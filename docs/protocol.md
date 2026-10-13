@@ -1,6 +1,6 @@
-# Protocol v1.3
+# Protocol v1.4
 
-Threadmoth 1.13.0 advertises protocol **1.3.1**. Requests using protocol `1.3.0`, `1.2.0`, and `1.1.0` remain accepted with their promised semantics.
+Threadmoth 1.14.0 advertises protocol **1.4.0**. Requests using protocol `1.3.1`, `1.3.0`, `1.2.0`, and `1.1.0` remain accepted with their promised semantics. Protocol 1.4.0 adds ordered exact text replacement sequences with explicit newline policy.
 
 The request-level `file_path` always names the physical workspace target. Provider operation payloads keep their established selector fields (for example JSON's `path`) for wire compatibility. CLI shorthand and MCP shorthand use the clearer canonical name `selector`; MCP also accepts the earlier `path`/`at` spellings as contextual aliases. MCP physical-target parameters use `file_path`, retaining `path`, `file` and `for_path` as input aliases where applicable.
 
@@ -16,7 +16,7 @@ The operation is encoded as an outer provider and nested tagged operation:
 
 ```json
 {
-  "version": "1.3.1",
+  "version": "1.4.0",
   "request_id": "example-2",
   "file_path": "config.json",
   "cardinality": { "type": "exactly_one" },

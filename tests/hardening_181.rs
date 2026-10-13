@@ -108,6 +108,6 @@ fn cli_shorthands_and_doctor_json_use_safe_surfaces() {
     assert!(doctor.status.success());
     let doctor: serde_json::Value = serde_json::from_slice(&doctor.stdout).unwrap();
     assert_eq!(doctor["version"], env!("CARGO_PKG_VERSION"));
-    assert_eq!(doctor["protocol"], "1.3.1");
+    assert_eq!(doctor["protocol"], "1.4.0");
     assert_eq!(doctor["workspace_readiness"], "ready");
 }

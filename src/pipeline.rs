@@ -71,6 +71,27 @@ fn budget_path_is_allowed(
     Ok(false)
 }
 
+fn operation_protocol_refusal(
+    version: &str,
+    operation: &OperationPayload,
+) -> Option<RefusalReason> {
+    if version != crate::protocol::PROTOCOL_VERSION
+        && matches!(
+            operation,
+            OperationPayload::Text(TextOperation::ReplaceSequence { .. })
+        )
+    {
+        Some(RefusalReason::UnsupportedOperation {
+            operation: format!(
+                "text.replace_sequence requires protocol {}",
+                crate::protocol::PROTOCOL_VERSION
+            ),
+        })
+    } else {
+        None
+    }
+}
+
 pub fn execute_request(workspace: &Workspace, request: &Request, dry_run: bool) -> Certificate {
     let normalized_path = PathNormalizer::normalize(&request.file_path, &request.namespace);
     let provider = provider_name(&request.operation);
@@ -90,6 +111,9 @@ pub fn execute_request(workspace: &Workspace, request: &Request, dry_run: bool) 
             },
             String::new(),
         );
+    }
+    if let Some(reason) = operation_protocol_refusal(&request.version, &request.operation) {
+        return refusal(request, &file_path, provider, reason, String::new());
     }
     let allowed = match budget_path_is_allowed(
         workspace,
@@ -442,6 +466,15 @@ fn prepare_content_request(
                 requested: request.version.clone(),
                 supported: SUPPORTED_PROTOCOL_VERSIONS.join(", "),
             },
+            String::new(),
+        ));
+    }
+    if let Some(reason) = operation_protocol_refusal(&request.version, &request.operation) {
+        return Err(refusal(
+            request,
+            &file_path,
+            provider,
+            reason,
             String::new(),
         ));
     }
@@ -917,6 +950,20 @@ pub fn apply_prepared_plan(workspace: &Workspace, plan: &PreparedPlan) -> PlanAp
     let mut overrides = std::collections::HashMap::new();
     let mut aggregate = zero_effect();
     for operation in &plan.operations {
+        if operation.request.version != plan.protocol_version {
+            return plan_failure_result(
+                workspace,
+                plan,
+                RefusalReason::PlanInvalid {
+                    details: "prepared operation protocol does not match its plan".into(),
+                },
+            );
+        }
+        if let Some(reason) =
+            operation_protocol_refusal(&operation.request.version, &operation.request.operation)
+        {
+            return plan_failure_result(workspace, plan, reason);
+        }
         let path = match workspace
             .resolve_namespaced_path(&operation.file_path, &operation.request.namespace)
         {

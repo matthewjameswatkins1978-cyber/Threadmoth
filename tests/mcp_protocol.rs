@@ -80,6 +80,7 @@ fn tools_list_exposes_preview_and_notification_has_no_response() {
         "threadmoth_transact_preview",
         "threadmoth_plan",
         "threadmoth_apply_plan",
+        "threadmoth_prepare_text",
     ] {
         assert!(output[0]["result"]["tools"]
             .as_array()
@@ -92,7 +93,7 @@ fn tools_list_exposes_preview_and_notification_has_no_response() {
         .unwrap()
         .iter()
         .any(|tool| tool["name"] == "threadmoth_update"));
-    assert_eq!(output[0]["result"]["tools"].as_array().unwrap().len(), 13);
+    assert_eq!(output[0]["result"]["tools"].as_array().unwrap().len(), 14);
     assert!(output[0]["result"]["tools"]
         .as_array()
         .unwrap()
@@ -195,6 +196,44 @@ fn orientation_is_available_through_mcp_without_workspace_rebinding() {
             .to_string_lossy()
             .as_ref()
     );
+}
+
+#[test]
+fn source_aware_text_preparation_is_read_only_and_returns_an_applicable_plan() {
+    let workspace = TempDir::new().unwrap();
+    let path = workspace.path().join("agent.txt");
+    fs::write(&path, b"first=1\r\nsecond=2\r\n").unwrap();
+    let prepared = call_mcp(
+        &workspace,
+        &[json!({
+            "jsonrpc":"2.0","id":1,"method":"tools/call",
+            "params":{"name":"threadmoth_prepare_text","arguments":{
+                "file_path":"agent.txt",
+                "edits":[
+                    {"old":"first=1\nsecond=2\n","new":"one=2\nsecond=2\n"},
+                    {"old":"second=2","new":"two=3"}
+                ]
+            }}
+        })],
+    );
+    let content = &prepared[0]["result"]["structuredContent"];
+    assert_eq!(content["outcome"], "PREPARED");
+    assert_eq!(content["source_newline_profile"], "crlf");
+    assert_eq!(content["resolved_edits"], 2);
+    assert_eq!(fs::read(&path).unwrap(), b"first=1\r\nsecond=2\r\n");
+
+    let applied = call_mcp(
+        &workspace,
+        &[json!({
+            "jsonrpc":"2.0","id":2,"method":"tools/call",
+            "params":{"name":"threadmoth_apply_plan","arguments":content["plan"]}
+        })],
+    );
+    assert_eq!(
+        applied[0]["result"]["structuredContent"]["outcome"],
+        "APPLIED"
+    );
+    assert_eq!(fs::read(path).unwrap(), b"one=2\r\ntwo=3\r\n");
 }
 
 #[test]

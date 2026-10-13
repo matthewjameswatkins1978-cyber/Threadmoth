@@ -11,16 +11,66 @@ use thiserror::Error;
 #[derive(Serialize, Deserialize, JsonSchema, Debug, Clone, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TextOperation {
-    Replace { target: String, replacement: String },
-    InsertBefore { target: String, content: String },
-    InsertAfter { target: String, content: String },
-    Delete { target: String },
-    Move { target: String, before: String },
-    EnsurePresent { content: String },
-    EnsureAbsent { target: String },
-    Set { target: String, replacement: String },
-    Unset { target: String },
-    Rename { target: String, replacement: String },
+    Replace {
+        target: String,
+        replacement: String,
+    },
+    /// Apply exact replacements in sequence against one evolving in-memory
+    /// source, then expose a single exact source-to-result byte plan.
+    ReplaceSequence {
+        edits: Vec<TextReplacementIntent>,
+        #[serde(default)]
+        newline_policy: NewlinePolicy,
+    },
+    InsertBefore {
+        target: String,
+        content: String,
+    },
+    InsertAfter {
+        target: String,
+        content: String,
+    },
+    Delete {
+        target: String,
+    },
+    Move {
+        target: String,
+        before: String,
+    },
+    EnsurePresent {
+        content: String,
+    },
+    EnsureAbsent {
+        target: String,
+    },
+    Set {
+        target: String,
+        replacement: String,
+    },
+    Unset {
+        target: String,
+    },
+    Rename {
+        target: String,
+        replacement: String,
+    },
+}
+
+#[derive(Serialize, Deserialize, JsonSchema, Debug, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TextReplacementIntent {
+    pub old: String,
+    pub new: String,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum NewlinePolicy {
+    /// Adapt LF or CRLF input to a single convention observed in the source.
+    #[default]
+    Source,
+    /// Require supplied CR and LF bytes to match the source exactly.
+    Exact,
 }
 
 #[derive(Error, Debug, PartialEq, Eq)]
@@ -53,6 +103,21 @@ impl TextProvider {
         op: &TextOperation,
         cardinality: &Cardinality,
     ) -> Result<Vec<ByteEdit>, TextProviderError> {
+        if let TextOperation::ReplaceSequence {
+            edits,
+            newline_policy,
+        } = op
+        {
+            if !matches!(cardinality, Cardinality::ExactlyOne) {
+                return Err(TextProviderError::Refused(
+                    RefusalReason::CardinalityMismatch {
+                        expected: "exactly_one for each ordered replacement".into(),
+                        actual: edits.len(),
+                    },
+                ));
+            }
+            return plan_sequence(content, edits, *newline_policy);
+        }
         match op {
             TextOperation::EnsurePresent { content: wanted } => {
                 return plan_ensure_present(content, wanted)
@@ -109,6 +174,7 @@ impl TextProvider {
                 true,
             ),
             TextOperation::Move { .. } | TextOperation::EnsurePresent { .. } => unreachable!(),
+            TextOperation::ReplaceSequence { .. } => unreachable!(),
         };
 
         if target.is_empty() {
@@ -185,7 +251,9 @@ impl TextProvider {
             TextOperation::InsertAfter { target, content } => {
                 (target.as_bytes(), content.as_bytes(), Placement::After)
             }
-            TextOperation::Move { .. } | TextOperation::EnsurePresent { .. } => {
+            TextOperation::Move { .. }
+            | TextOperation::EnsurePresent { .. }
+            | TextOperation::ReplaceSequence { .. } => {
                 return Err(TextProviderError::Refused(
                     RefusalReason::UnsupportedOperation {
                         operation: "candidate guard is not available for this text operation"
@@ -209,6 +277,139 @@ impl TextProvider {
             end,
             replacement: build_replacement(target, replacement, placement),
         }])
+    }
+}
+
+fn plan_sequence(
+    content: &[u8],
+    edits: &[TextReplacementIntent],
+    newline_policy: NewlinePolicy,
+) -> Result<Vec<ByteEdit>, TextProviderError> {
+    const MAX_SEQUENCE_EDITS: usize = 64;
+    if edits.is_empty() || edits.len() > MAX_SEQUENCE_EDITS {
+        return Err(TextProviderError::Refused(
+            RefusalReason::ResourceLimitExceeded {
+                dimension: "source_text_edits".into(),
+                limit: MAX_SEQUENCE_EDITS,
+                actual: edits.len(),
+            },
+        ));
+    }
+    let profile = newline_profile(content);
+    let has_multiline_intent = edits
+        .iter()
+        .any(|edit| edit.old.contains(['\r', '\n']) || edit.new.contains(['\r', '\n']));
+    let delimiter = match (newline_policy, profile.as_str(), has_multiline_intent) {
+        (NewlinePolicy::Exact, _, _) => "\n",
+        (NewlinePolicy::Source, "lf", _) => "\n",
+        (NewlinePolicy::Source, "crlf", _) => "\r\n",
+        (NewlinePolicy::Source, "none", false) => "\n",
+        _ => {
+            return Err(TextProviderError::Refused(
+                RefusalReason::PreservationUnavailable {
+                    details: format!(
+                        "source newline profile is {profile}; use newline_policy=exact and supply literal line endings"
+                    ),
+                },
+            ))
+        }
+    };
+    let mut candidate = content.to_vec();
+    for intent in edits {
+        let target = adapt_newline_text(&intent.old, newline_policy, delimiter)?;
+        let replacement = adapt_newline_text(&intent.new, newline_policy, delimiter)?;
+        let operation = TextOperation::Replace {
+            target,
+            replacement,
+        };
+        let byte_edits = TextProvider::plan(&candidate, &operation, &Cardinality::ExactlyOne)?;
+        candidate = crate::engine::apply_byte_edits(&candidate, &byte_edits).map_err(|error| {
+            TextProviderError::Error {
+                message: error.to_string(),
+            }
+        })?;
+    }
+    crate::diff_planner::plan(content, &candidate)
+        .map(|plan| plan.edits)
+        .map_err(|error| match error {
+            crate::diff_planner::DiffPlannerError::ResourceLimit {
+                dimension,
+                limit,
+                actual,
+            } => TextProviderError::Refused(RefusalReason::ResourceLimitExceeded {
+                dimension: dimension.into(),
+                limit,
+                actual,
+            }),
+            crate::diff_planner::DiffPlannerError::Invariant(details) => {
+                TextProviderError::Error { message: details }
+            }
+        })
+}
+
+fn newline_profile(content: &[u8]) -> String {
+    let mut crlf = 0usize;
+    let mut lf = 0usize;
+    let mut cr = 0usize;
+    let mut index = 0usize;
+    while index < content.len() {
+        match content[index] {
+            b'\r' if content.get(index + 1) == Some(&b'\n') => {
+                crlf += 1;
+                index += 2;
+            }
+            b'\r' => {
+                cr += 1;
+                index += 1;
+            }
+            b'\n' => {
+                lf += 1;
+                index += 1;
+            }
+            _ => index += 1,
+        }
+    }
+    let kinds = usize::from(crlf > 0) + usize::from(lf > 0) + usize::from(cr > 0);
+    match (kinds, crlf, lf, cr) {
+        (0, _, _, _) => "none",
+        (1, count, 0, 0) if count > 0 => "crlf",
+        (1, 0, count, 0) if count > 0 => "lf",
+        _ => "mixed",
+    }
+    .into()
+}
+
+fn adapt_newline_text(
+    value: &str,
+    policy: NewlinePolicy,
+    delimiter: &str,
+) -> Result<String, TextProviderError> {
+    if policy == NewlinePolicy::Exact {
+        return Ok(value.to_owned());
+    }
+    let mut normalized = String::with_capacity(value.len());
+    let mut chars = value.chars().peekable();
+    while let Some(character) = chars.next() {
+        match character {
+            '\r' if chars.peek() == Some(&'\n') => {
+                chars.next();
+                normalized.push('\n');
+            }
+            '\r' => {
+                return Err(TextProviderError::Refused(
+                    RefusalReason::PreservationUnavailable {
+                        details: "source newline adaptation does not accept a lone carriage return"
+                            .into(),
+                    },
+                ));
+            }
+            other => normalized.push(other),
+        }
+    }
+    if delimiter == "\r\n" {
+        Ok(normalized.replace('\n', "\r\n"))
+    } else {
+        Ok(normalized)
     }
 }
 
@@ -371,6 +572,19 @@ fn plan_move(
 fn diagnose_near_miss(content: &[u8], target: &[u8]) -> String {
     let target_str = String::from_utf8_lossy(target);
     let content_str = String::from_utf8_lossy(content);
+
+    let has_crlf = content.windows(2).any(|window| window == b"\r\n");
+    let has_lf_only = content
+        .iter()
+        .enumerate()
+        .any(|(index, byte)| *byte == b'\n' && (index == 0 || content[index - 1] != b'\r'));
+    if has_crlf && has_lf_only && target_str.contains('\n') {
+        let normalized_content = content_str.replace("\r\n", "\n");
+        let normalized_target = target_str.replace("\r\n", "\n");
+        if normalized_content.contains(&normalized_target) {
+            return "Target not found exact; the matching source region uses mixed LF and CRLF line endings. Set newline_policy to exact and copy each line ending from the observed source.".into();
+        }
+    }
 
     if target_str.contains(' ') && content_str.contains('\u{00A0}') {
         let alt = target_str.replace(' ', "\u{00A0}");

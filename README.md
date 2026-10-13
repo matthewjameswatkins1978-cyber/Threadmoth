@@ -169,6 +169,20 @@ It can be inspected by another agent or a human before anything is written.
 
 When applied, the plan is treated as untrusted input. Threadmoth re-reads reality and re-checks everything.
 
+For exact text edits, `threadmoth_prepare_text` (MCP) and `threadmoth prepare-text` (CLI) accept a compact list of `{old,new}` replacements. Threadmoth reads one source snapshot, resolves each replacement exactly in sequence, and returns the same portable plan used above. Uniform LF or CRLF source conventions are derived automatically, so an LF-authored multiline target works against CRLF source. Mixed or absent newline conventions require `newline_policy: "exact"`; supplied line-ending bytes then remain literal. Missing and duplicate targets keep their normal refusal certificates. Preparation is read-only, and applying the returned plan rechecks source identity, path scope, budgets, and the resolved operation.
+
+Example request for `threadmoth prepare-text --request edits.json`:
+
+```json
+{
+  "file_path": "src/config.txt",
+  "edits": [
+    {"old": "first=1\nsecond=2\n", "new": "first=3\nsecond=2\n"},
+    {"old": "second=2", "new": "second=4"}
+  ]
+}
+```
+
 If the repository changed:
 
 ```text
@@ -237,7 +251,7 @@ PHP includes PHP source and embedded PHP parsing. HCL support is source syntax o
 
 Unsupported languages do not make an ordinary UTF-8 text file unusable. Threadmoth can still offer explicit exact text, strict patch, bounded pattern or desired-state routes where applicable. It never silently downgrades a structured request to a weaker route.
 
-See [Coverage](docs/coverage.md) for the full 1.13.0 model and current refusal boundaries.
+See [Coverage](docs/coverage.md) for the full 1.14.0 model and current refusal boundaries.
 
 Providers locate candidates.
 
@@ -281,6 +295,14 @@ threadmoth plan --request request.json --output plan.json
 threadmoth explain --plan plan.json
 threadmoth apply-plan --plan plan.json
 ```
+
+For compact source-aware text edits, pass the small intent request on stdin or with `--request`; this command prints a prepared plan and never writes the source:
+
+```bash
+threadmoth prepare-text --request edits.json
+```
+
+Apply the returned plan through `threadmoth apply-plan` or the MCP `threadmoth_apply_plan` tool. The default `newline_policy` is `source`; use `exact` for mixed-ending files or when literal line endings are intentional.
 
 When Threadmoth refuses something:
 
@@ -387,7 +409,7 @@ It does one job:
 
 Download the appropriate standalone binary from the **[latest GitHub release](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/releases/latest)** and put `threadmoth` on your `PATH`.
 
-Threadmoth **1.13.0** adds workspace-bound orientation, generated provider/operation help, structured MCP refusal recovery and canonical MCP parameter names with compatibility aliases. It preserves the 1.12 path-scope authorization and checkout-local workspace mismatch recovery. The latest-release page remains authoritative for published artifacts, including archive checksums and the release manifest.
+Threadmoth **1.14.0** adds source-aware preparation for ordered exact text edits, deriving uniform source line endings and returning a stale-safe portable plan. It preserves 1.13 discovery/recovery and path authorization. The latest-release page remains authoritative for published artifacts, including archive checksums and the release manifest.
 
 Check the installation:
 
@@ -425,7 +447,7 @@ Shorthands authorize one file, one target and one changed region. They refuse am
 
 Before choosing an edit route, agents can inspect Threadmoth's coverage model with `threadmoth capabilities --for PATH --json` or `threadmoth inspect PATH`. For large syntax-aware files, `inspect --outline` returns a compact deterministic map and `inspect --expand HANDLE` returns one bounded exact region after rechecking the source hash. Files are classified as structured, syntax-aware, bounded regions, exact text, or opaque/refused. Unknown valid UTF-8 remains available through explicit exact mutation; binary and unsupported encodings do not silently fall back.
 
-The current protocol is **1.3.1** and remains compatible with 1.3.0, 1.2.0 and 1.1.0 requests. Mutation, plan application, transaction, filesystem lifecycle and recovery writes use a bounded cooperating-process workspace lock and refuse with `WORKSPACE_BUSY` rather than waiting indefinitely. Unrelated external writers remain covered by stale-state and landed-byte verification, but are not controlled by that lock.
+The current protocol is **1.4.0** and remains compatible with 1.3.1, 1.3.0, 1.2.0 and 1.1.0 requests. Mutation, plan application, transaction, filesystem lifecycle and recovery writes use a bounded cooperating-process workspace lock and refuse with `WORKSPACE_BUSY` rather than waiting indefinitely. Unrelated external writers remain covered by stale-state and landed-byte verification, but are not controlled by that lock.
 
 Mutation operations remain local. The explicit update command is the only normal Threadmoth operation that needs network access.
 

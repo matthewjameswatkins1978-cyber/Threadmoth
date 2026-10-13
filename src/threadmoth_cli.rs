@@ -24,8 +24,8 @@ use threadmoth::{
 use cli::{
     ApplyPlanArgs, BenchmarkArgs, BenchmarkProfile, CapabilitiesArgs, Cli, Command,
     CompletionShell, CreateFileArgs, DoctorArgs, ExplainFormat, HelpArgs, InspectArgs, PlanArgs,
-    RecoverArgs, ReplaceExactArgs, SchemaArgs, SetStringArgs, SetValueArgs, SuggestArgs,
-    UpdateArgs, THREADMOTH_VERSION,
+    PrepareTextArgs, RecoverArgs, ReplaceExactArgs, SchemaArgs, SetStringArgs, SetValueArgs,
+    SuggestArgs, UpdateArgs, THREADMOTH_VERSION,
 };
 
 fn main() {
@@ -42,6 +42,7 @@ fn main() {
         }
         Command::Plan(args) => run_plan(args),
         Command::ApplyPlan(args) => run_apply_plan(args),
+        Command::PrepareText(args) => run_prepare_text(args),
         Command::TransactionPreview(args) => {
             run_transaction(args.request.as_deref(), true, args.summary)
         }
@@ -340,6 +341,41 @@ fn run_plan(args: PlanArgs) {
     } else {
         println!("{rendered}");
     }
+}
+
+fn run_prepare_text(args: PrepareTextArgs) {
+    let input = match read_request_input(args.request.as_deref()) {
+        Ok(input) => input,
+        Err(RequestInputError::TooLarge(actual)) => {
+            eprintln!("source-aware request exceeds {MAX_REQUEST_BYTES} bytes (actual: {actual})");
+            std::process::exit(2);
+        }
+        Err(RequestInputError::Io(error)) => {
+            eprintln!("source-aware request read failed: {error}");
+            std::process::exit(3);
+        }
+    };
+    let request =
+        serde_json::from_str::<threadmoth::source_prepare::SourceAwareTextRequest>(&input)
+            .unwrap_or_else(|error| {
+                eprintln!("invalid source-aware request: {error}");
+                std::process::exit(2);
+            });
+    let workspace = Workspace::new(env::current_dir().unwrap_or_else(|_| ".".into()))
+        .unwrap_or_else(|error| {
+            eprintln!("workspace initialization failed: {error}");
+            std::process::exit(3);
+        });
+    let result = threadmoth::source_prepare::prepare(&workspace, &request);
+    let output = match result {
+        threadmoth::source_prepare::SourcePreparationResult::Prepared(prepared) => {
+            serde_json::to_value(prepared).unwrap()
+        }
+        threadmoth::source_prepare::SourcePreparationResult::Refused { certificate } => {
+            serde_json::to_value(certificate).unwrap()
+        }
+    };
+    println!("{}", serde_json::to_string_pretty(&output).unwrap());
 }
 
 fn run_apply_plan(args: ApplyPlanArgs) {
