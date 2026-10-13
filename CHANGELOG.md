@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.16.1 - Safe plan commands across shells
+
+### Fixed
+
+- `prepare-text --summary` emits shell-labeled Review and Apply commands with literal plan-path quoting appropriate to PowerShell on Windows or POSIX shells on Unix.
+- Paths that cannot be represented safely and faithfully on one command line receive non-executable guidance rather than misleading commands.
+- Added real shell round-trip regression tests for quotes, interpolation, special characters and unrepresentable paths.
+
+### Compatibility
+
+- Patch-level CLI guidance fix only. Exact editing, source preservation, plans, certificates, workspace guards and protocol version 1.4.0 are unchanged.
+
 ## 1.16.0 - Agent usability and source-aware input
 
 ### Added
