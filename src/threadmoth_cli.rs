@@ -348,15 +348,28 @@ fn run_prepare_text(args: PrepareTextArgs) {
         eprintln!("--summary requires --output so the prepared plan can be reviewed and applied");
         std::process::exit(2);
     }
-    let has_compact_intent = args.file.is_some() || !args.edits.is_empty();
+    let has_inline_edits = !args.edits.is_empty();
+    let has_file_edits = !args.edit_files.is_empty();
+    let has_compact_intent = args.file.is_some() || has_inline_edits || has_file_edits;
+    if has_inline_edits && has_file_edits {
+        eprintln!(
+            "--edit and --edit-files cannot be mixed; use one input mode to preserve edit order"
+        );
+        std::process::exit(2);
+    }
     if !has_compact_intent && args.newline_policy.is_some() {
-        eprintln!("--newline-policy applies to compact PATH/--edit input; set newline_policy in the JSON request");
+        eprintln!("--newline-policy applies to compact PATH/--edit/--edit-files input; set newline_policy in the JSON request");
         std::process::exit(2);
     }
     if args.request.is_some() && has_compact_intent {
-        eprintln!("--request cannot be combined with PATH or --edit");
+        eprintln!("--request cannot be combined with PATH, --edit, or --edit-files");
         std::process::exit(2);
     }
+    let workspace = Workspace::new(env::current_dir().unwrap_or_else(|_| ".".into()))
+        .unwrap_or_else(|error| {
+            eprintln!("workspace initialization failed: {error}");
+            std::process::exit(3);
+        });
     let request = if !has_compact_intent {
         let input = match read_request_input(args.request.as_deref()) {
             Ok(input) => input,
@@ -378,15 +391,19 @@ fn run_prepare_text(args: PrepareTextArgs) {
             })
     } else {
         let Some(file) = args.file else {
-            eprintln!("provide PATH and at least one --edit OLD NEW, or use --request");
+            eprintln!("provide PATH and at least one --edit OLD NEW or --edit-files OLD_FILE NEW_FILE, or use --request");
             std::process::exit(2);
         };
-        if args.edits.is_empty() || args.edits.len() % 2 != 0 {
-            eprintln!("each --edit requires exactly OLD and NEW");
+        let edit_values = if has_file_edits {
+            read_edit_files(&workspace, &args.edit_files)
+        } else {
+            args.edits
+        };
+        if edit_values.is_empty() || edit_values.len() % 2 != 0 {
+            eprintln!("provide at least one complete --edit or --edit-files pair");
             std::process::exit(2);
         }
-        let edits = args
-            .edits
+        let edits = edit_values
             .chunks_exact(2)
             .map(|pair| threadmoth::source_prepare::TextReplacementIntent {
                 old: pair[0].clone(),
@@ -406,11 +423,6 @@ fn run_prepare_text(args: PrepareTextArgs) {
             },
         }
     };
-    let workspace = Workspace::new(env::current_dir().unwrap_or_else(|_| ".".into()))
-        .unwrap_or_else(|error| {
-            eprintln!("workspace initialization failed: {error}");
-            std::process::exit(3);
-        });
     match threadmoth::source_prepare::prepare(&workspace, &request) {
         threadmoth::source_prepare::SourcePreparationResult::Prepared(prepared) => {
             if let Some(output) = args.output.as_deref() {
@@ -468,6 +480,7 @@ fn run_prepare_text(args: PrepareTextArgs) {
             } else {
                 println!("{}", serde_json::to_string_pretty(&certificate).unwrap());
             }
+            exit_for_outcome(certificate.outcome);
         }
     }
 }
@@ -484,7 +497,74 @@ fn print_prepare_refusal_summary(certificate: &Certificate) {
             }
         }
     }
+    if let Some(evidence) = certificate
+        .diff_summary
+        .as_deref()
+        .filter(|summary| summary.contains("line ending discrepancy"))
+    {
+        println!("Evidence     {evidence}");
+    }
+    if let Some(remedy) = certificate.recovery.as_ref().and_then(|recovery| {
+        recovery
+            .remedies
+            .iter()
+            .find(|remedy| remedy.kind == "use_file_based_text_input")
+    }) {
+        println!("Next step    {}", remedy.description);
+    }
     println!("Source       unchanged");
+}
+
+fn read_edit_files(workspace: &Workspace, paths: &[std::path::PathBuf]) -> Vec<String> {
+    let mut total_bytes = 0usize;
+    paths
+        .iter()
+        .map(|input_path| {
+            let input_display = input_path.to_str().unwrap_or_else(|| {
+                eprintln!(
+                    "--edit-files input path is not valid Unicode: {}",
+                    input_path.display()
+                );
+                std::process::exit(2);
+            });
+            let relative = workspace
+                .resolve_namespaced_path(input_display, &threadmoth::path::PathNamespace::Native)
+                .unwrap_or_else(|error| {
+                    eprintln!("--edit-files input path refused: {error}");
+                    std::process::exit(2);
+                });
+            let path = workspace.resolve_path(&relative).unwrap_or_else(|error| {
+                eprintln!("--edit-files input path refused: {error}");
+                std::process::exit(2);
+            });
+            if !path.is_file() {
+                eprintln!("--edit-files input is not a file: {}", path.display());
+                std::process::exit(2);
+            }
+            let remaining = MAX_REQUEST_BYTES.saturating_sub(total_bytes);
+            let mut bytes = Vec::new();
+            fs::File::open(&path)
+                .unwrap_or_else(|error| {
+                    eprintln!("cannot read --edit-files input {}: {error}", path.display());
+                    std::process::exit(3);
+                })
+                .take((remaining as u64).saturating_add(1))
+                .read_to_end(&mut bytes)
+                .unwrap_or_else(|error| {
+                    eprintln!("cannot read --edit-files input {}: {error}", path.display());
+                    std::process::exit(3);
+                });
+            if bytes.len() > remaining {
+                eprintln!("combined --edit-files input exceeds {MAX_REQUEST_BYTES} bytes");
+                std::process::exit(2);
+            }
+            total_bytes += bytes.len();
+            String::from_utf8(bytes).unwrap_or_else(|_| {
+                eprintln!("--edit-files input is not valid UTF-8: {}", path.display());
+                std::process::exit(2);
+            })
+        })
+        .collect()
 }
 
 fn output_resolves_to_source(output: &Path, source: &str, workspace: &Workspace) -> bool {
@@ -1128,6 +1208,7 @@ fn print_examples(topic: Option<&str>) {
             "topic": "source-text",
             "intent": "Replace exact text using source-aware preparation.",
             "prepare": "threadmoth prepare-text PATH --edit OLD NEW --output PLAN --summary",
+            "prepare_from_files": "threadmoth prepare-text PATH --edit-files OLD_FILE NEW_FILE --output PLAN --summary",
             "review": "threadmoth explain --plan PLAN --format diff",
             "apply": "threadmoth apply-plan --plan PLAN --summary",
             "recovery": "If review says stale, prepare again from current source with the same intent.",
@@ -1235,6 +1316,7 @@ fn run_orient(json_output: bool) {
         );
         println!("Workflow: preview → mutate → verify certificate");
         println!("Text edits: prepare-text PATH --edit OLD NEW --output PLAN --summary → review with explain --plan PLAN --format diff → apply-plan --plan PLAN");
+        println!("Multiline intent: use --edit-files OLD_FILE NEW_FILE for faithful UTF-8 input.");
         println!("Discover: capabilities · suggest PATH · help TARGET");
         println!("Confinement: workspace and effect budget; refusals do not write");
         println!("Exit codes: success 0 · refusal 2 · runtime failure 3");
@@ -1311,6 +1393,7 @@ fn run_suggest(args: SuggestArgs) {
 }
 
 fn run_inspect(args: InspectArgs) {
+    let _ = args.json;
     let path = args.path.to_string_lossy();
     let root = env::current_dir().unwrap_or_else(|_| ".".into());
     let ws = match Workspace::new(root) {

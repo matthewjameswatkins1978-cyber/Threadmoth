@@ -7,7 +7,7 @@ compatibility: >-
   Works with any agent that can read files and run local commands.
 metadata:
   author: matthewjameswatkins1978-cyber
-  version: "1.15.0"
+  version: "1.16.0"
 ---
 
 # Threadmoth
@@ -59,7 +59,7 @@ threadmoth schema
 threadmoth examples
 ```
 
-For ordinary exact text edits, prefer `threadmoth prepare-text PATH --edit OLD NEW --output PLAN --summary`. Repeat `--edit OLD NEW` for ordered same-file changes; the source-aware route derives uniform LF/CRLF, reports source hash and newline profile, and writes only the requested plan. Review with `threadmoth explain --plan PLAN --format diff`; a fresh review prints the apply command and a stale review requires re-preparation. Apply the reviewed plan with `threadmoth apply-plan --plan PLAN --summary`, then retain its certificate. `--request` preserves the full JSON interface. In MCP, use `threadmoth_prepare_text`, preview `operations[0].request`, then apply the unchanged plan with `threadmoth_apply_plan`. Mixed newline files require explicit exact line endings. Discover with `threadmoth orient`, then use `threadmoth capabilities`, `threadmoth suggest PATH`, and `threadmoth help PROVIDER:OPERATION`. The Target Registry remains authoritative for CLI and MCP shorthand provider selection.
+For ordinary exact text edits, prefer `threadmoth prepare-text PATH --edit OLD NEW --output PLAN --summary`. Repeat `--edit OLD NEW` for ordered same-file changes. For faithful multiline text, use repeated `--edit-files OLD_FILE NEW_FILE` pairs; they read workspace-confined UTF-8 inputs through the same exact pipeline, bounded to 1 MiB combined. Do not mix `--edit` and `--edit-files`. The source-aware route derives uniform LF/CRLF, reports source hash and newline profile, and writes only the requested plan. Review with `threadmoth explain --plan PLAN --format diff`; a fresh review prints the apply command and a stale review requires re-preparation. Apply the reviewed plan with `threadmoth apply-plan --plan PLAN --summary`, then retain its certificate. `--request` preserves the full JSON interface. In MCP, use `threadmoth_prepare_text`, preview `operations[0].request`, then apply the unchanged plan with `threadmoth_apply_plan`. Mixed newline files require explicit exact line endings. Discover with `threadmoth orient`, then use `threadmoth capabilities`, `threadmoth suggest PATH`, and `threadmoth help PROVIDER:OPERATION`. The Target Registry remains authoritative for CLI and MCP shorthand provider selection.
 
 Use the canonical `threadmoth` executable. `thm` may exist as a convenience alias, but it is not the compatibility contract. Do not assume a `.thm` source extension.
 

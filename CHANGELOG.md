@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.16.0 - Agent usability and source-aware input
+
+### Added
+
+- prepare-text PATH --edit-files OLD_FILE NEW_FILE accepts repeated, ordered pairs of bounded workspace-confined UTF-8 files for faithful multiline input through the existing exact preparation pipeline.
+- Preparation refusals now return exit code 2, preserve refusal certificates, and offer structured file-input recovery for missing exact targets; line-ending guidance appears only when supported by observed source.
+- inspect --json is accepted as a compatibility spelling for its existing JSON output, and budget.allowed_path_prefixes may be omitted with the existing empty-array semantics.
+- Orient, help, CLI/MCP documentation and examples explain the concise and file-based input routes.
+
+### Compatibility
+
+- Protocol version remains 1.4.0. Existing CLI inline edits, JSON requests, exact matching, workspace confinement, plans and certificates retain their existing semantics.
+
+
 ## 1.15.0 - Guided source-aware text editing
 
 ### Added

@@ -221,6 +221,35 @@ fn orientation_is_available_through_mcp_without_workspace_rebinding() {
 }
 
 #[test]
+fn source_aware_prepare_text_target_not_found_has_structured_file_input_recovery() {
+    let workspace = TempDir::new().unwrap();
+    fs::write(workspace.path().join("source.txt"), b"present\n").unwrap();
+    let output = call_mcp(
+        &workspace,
+        &[json!({
+            "jsonrpc":"2.0","id":1,"method":"tools/call",
+            "params":{"name":"threadmoth_prepare_text","arguments":{
+                "file_path":"source.txt",
+                "edits":[{"old":"missing exact text","new":"replacement"}]
+            }}
+        })],
+    );
+
+    let refusal = &output[0]["result"]["structuredContent"];
+    assert_eq!(refusal["outcome"], "REFUSED");
+    assert_eq!(refusal["reason_code"], "TARGET_NOT_FOUND");
+    assert!(refusal["recovery"]["remedies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|remedy| remedy["kind"] == "use_file_based_text_input"));
+    assert_eq!(
+        fs::read(workspace.path().join("source.txt")).unwrap(),
+        b"present\n"
+    );
+}
+
+#[test]
 fn source_aware_text_preparation_is_read_only_and_returns_an_applicable_plan() {
     let workspace = TempDir::new().unwrap();
     let path = workspace.path().join("agent.txt");

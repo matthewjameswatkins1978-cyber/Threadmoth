@@ -1,6 +1,6 @@
 # Threadmoth CLI
 
-Threadmoth 1.15.0 makes source-aware text preparation the shortest CLI route: `prepare-text PATH --edit OLD NEW --output PLAN --summary`, followed by plan review and guarded application. Repeated `--edit` values support same-file sequences; `--request` retains the complete JSON interface.
+Threadmoth makes source-aware text preparation the shortest CLI route: `prepare-text PATH --edit OLD NEW --output PLAN --summary`, followed by plan review and guarded application. Repeat `--edit` for inline same-file sequences, or use repeated `--edit-files OLD_FILE NEW_FILE` pairs for faithful multiline UTF-8 input. The two input modes cannot be mixed; `--request` retains the complete JSON interface.
 
 Start with `threadmoth orient` (or `threadmoth orient --json`). Provider and operation help is generated from advertised metadata:
 
@@ -31,9 +31,12 @@ large source files, request a deterministic bounded outline and expand only a
 selected exact observation:
 
 ```text
+threadmoth inspect PATH
+threadmoth inspect PATH --json                 # compatibility spelling; JSON is the default
 threadmoth inspect PATH --outline
-threadmoth inspect PATH --outline --max-entries 32
+threadmoth inspect PATH --outline --json
 threadmoth inspect PATH --expand HANDLE --max-bytes 8192
+threadmoth inspect PATH --expand HANDLE --json
 ```
 
 Outline entries contain a bounded label, exact byte/line range, syntax kind and
