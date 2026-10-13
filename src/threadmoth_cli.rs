@@ -343,6 +343,45 @@ fn run_plan(args: PlanArgs) {
     }
 }
 
+#[cfg(windows)]
+fn quote_powershell_argument(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+#[cfg(unix)]
+fn quote_posix_argument(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+#[cfg(windows)]
+const PLAN_COMMAND_SHELL: &str = "PowerShell";
+#[cfg(unix)]
+const PLAN_COMMAND_SHELL: &str = "POSIX shell";
+#[cfg(not(any(windows, unix)))]
+const PLAN_COMMAND_SHELL: &str = "supported shell";
+
+fn quote_plan_output_path(output: &Path) -> Option<String> {
+    let value = output.to_str()?;
+    if value
+        .chars()
+        .any(|character| character.is_control() || matches!(character, '\u{2028}' | '\u{2029}'))
+    {
+        return None;
+    }
+    #[cfg(windows)]
+    {
+        Some(quote_powershell_argument(value))
+    }
+    #[cfg(unix)]
+    {
+        Some(quote_posix_argument(value))
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        None
+    }
+}
+
 fn run_prepare_text(args: PrepareTextArgs) {
     if args.summary && args.output.is_none() {
         eprintln!("--summary requires --output so the prepared plan can be reviewed and applied");
@@ -462,14 +501,21 @@ fn run_prepare_text(args: PrepareTextArgs) {
                 println!("Newlines       {}", prepared.source_newline_profile);
                 println!("Exact edits    {}", prepared.resolved_edits);
                 println!("Plan ID        {}", prepared.plan.plan_id);
-                println!(
-                    "Review         threadmoth explain --plan \"{}\" --format diff",
-                    output.display()
-                );
-                println!(
-                    "Apply          threadmoth apply-plan --plan \"{}\"",
-                    output.display()
-                );
+                if let Some(quoted_plan_path) = quote_plan_output_path(output) {
+                    println!(
+                        "Review ({PLAN_COMMAND_SHELL}): threadmoth explain --plan {quoted_plan_path} --format diff"
+                    );
+                    println!(
+                        "Apply ({PLAN_COMMAND_SHELL}): threadmoth apply-plan --plan {quoted_plan_path}"
+                    );
+                } else {
+                    println!(
+                        "Review ({PLAN_COMMAND_SHELL}): unavailable (not executable; plan path cannot be represented faithfully as a safe single-line command)"
+                    );
+                    println!(
+                        "Apply ({PLAN_COMMAND_SHELL}): unavailable (not executable; plan path cannot be represented faithfully as a safe single-line command)"
+                    );
+                }
             } else {
                 println!("{}", serde_json::to_string_pretty(&prepared).unwrap());
             }
@@ -1672,6 +1718,37 @@ mod tests {
             budget_suggestions(&certificate),
             vec!["max_changed_regions=3", "max_changed_lines=7"]
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn powershell_argument_uses_literal_single_quoted_syntax() {
+        let value = r#"path "double" 'single' $env:TEMP $(Get-Date) `tick`"#;
+        assert_eq!(
+            quote_powershell_argument(value),
+            r#"'path "double" ''single'' $env:TEMP $(Get-Date) `tick`'"#
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn powershell_command_parser_round_trips_quotes_and_interpolation_text() {
+        let value = r#"C:\Temp\plan "double" 'single' $env:TEMP $(throw 'executed') `tick`"#;
+        let script = format!(
+            "$value = {}; [Console]::Out.Write($value)",
+            quote_powershell_argument(value)
+        );
+        let output = std::process::Command::new("powershell.exe")
+            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"])
+            .arg(script)
+            .output()
+            .expect("PowerShell is available on Windows");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(output.stdout, value.as_bytes());
     }
 
     #[test]

@@ -436,6 +436,222 @@ fn compact_cli_prepares_repeated_crlf_edits_and_guides_review_then_apply() {
     );
 }
 
+#[cfg(windows)]
+fn round_trip_powershell_command(
+    command: &str,
+    working_directory: &std::path::Path,
+) -> Vec<String> {
+    let script = r#"
+function threadmoth { $global:captured = @($args) }
+Invoke-Expression $env:THREADMOTH_RENDERED_COMMAND
+[Console]::Out.Write((ConvertTo-Json -InputObject @($global:captured) -Compress))
+"#;
+    let output = Command::new("powershell.exe")
+        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"])
+        .arg(script)
+        .env("THREADMOTH_RENDERED_COMMAND", command)
+        .current_dir(working_directory)
+        .output()
+        .expect("PowerShell is available on Windows");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).expect("PowerShell returns the captured argument array")
+}
+
+#[cfg(windows)]
+#[test]
+fn summary_review_and_apply_commands_round_trip_plan_path_in_powershell() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("source.txt"), b"old\n").unwrap();
+    let plan = temp
+        .path()
+        .join("plan-$(Set-Content -NoNewline marker.txt injected)-'quoted'.json");
+
+    let preparation = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args([
+            "prepare-text",
+            "source.txt",
+            "--edit",
+            "old",
+            "new",
+            "--output",
+        ])
+        .arg(&plan)
+        .args(["--summary"])
+        .output()
+        .unwrap();
+    assert!(
+        preparation.status.success(),
+        "{}",
+        String::from_utf8_lossy(&preparation.stderr)
+    );
+    let summary = String::from_utf8_lossy(&preparation.stdout);
+    let review = summary
+        .lines()
+        .find_map(|line| line.strip_prefix("Review (PowerShell): "))
+        .expect("summary contains a PowerShell Review command");
+    let apply = summary
+        .lines()
+        .find_map(|line| line.strip_prefix("Apply (PowerShell): "))
+        .expect("summary contains a PowerShell Apply command");
+    let expected_plan = plan.to_string_lossy().into_owned();
+
+    assert_eq!(
+        round_trip_powershell_command(review, temp.path()),
+        vec![
+            "explain",
+            "--plan",
+            expected_plan.as_str(),
+            "--format",
+            "diff"
+        ]
+    );
+    assert!(!temp.path().join("marker.txt").exists());
+    assert_eq!(
+        round_trip_powershell_command(apply, temp.path()),
+        vec!["apply-plan", "--plan", expected_plan.as_str()]
+    );
+    assert!(!temp.path().join("marker.txt").exists());
+}
+
+#[cfg(unix)]
+fn round_trip_posix_command(command: &str, working_directory: &std::path::Path) -> Vec<Vec<u8>> {
+    let script = r#"
+threadmoth() { printf '%s\n' "$@"; }
+eval "$THREADMOTH_RENDERED_COMMAND"
+"#;
+    let output = Command::new("sh")
+        .args(["-c", script])
+        .env("THREADMOTH_RENDERED_COMMAND", command)
+        .current_dir(working_directory)
+        .output()
+        .expect("a POSIX shell is available on Unix");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output
+        .stdout
+        .split(|byte| *byte == b'\n')
+        .filter(|argument| !argument.is_empty())
+        .map(<[u8]>::to_vec)
+        .collect()
+}
+
+#[cfg(unix)]
+#[test]
+fn summary_review_and_apply_commands_round_trip_plan_paths_in_posix_shell() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("source.txt"), b"old\n").unwrap();
+    let plan_names = [
+        "plan.json",
+        "plan with spaces.json",
+        "plan-O'Brien.json",
+        "plan-$HOME-$(touch marker-substitution)-`touch marker-backtick`;&|*?.json",
+    ];
+
+    for plan_name in plan_names {
+        let preparation = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+            .current_dir(temp.path())
+            .args([
+                "prepare-text",
+                "source.txt",
+                "--edit",
+                "old",
+                "new",
+                "--output",
+            ])
+            .arg(plan_name)
+            .args(["--summary"])
+            .output()
+            .unwrap();
+        assert!(
+            preparation.status.success(),
+            "{}",
+            String::from_utf8_lossy(&preparation.stderr)
+        );
+        let summary = String::from_utf8(preparation.stdout).unwrap();
+        let review = summary
+            .lines()
+            .find_map(|line| line.strip_prefix("Review (POSIX shell): "))
+            .expect("summary contains a POSIX Review command");
+        let apply = summary
+            .lines()
+            .find_map(|line| line.strip_prefix("Apply (POSIX shell): "))
+            .expect("summary contains a POSIX Apply command");
+        let expected_path = plan_name.as_bytes();
+
+        assert_eq!(
+            round_trip_posix_command(review, temp.path()),
+            vec![
+                b"explain".to_vec(),
+                b"--plan".to_vec(),
+                expected_path.to_vec(),
+                b"--format".to_vec(),
+                b"diff".to_vec(),
+            ],
+            "Review command changed plan path {plan_name:?}"
+        );
+        assert_eq!(
+            round_trip_posix_command(apply, temp.path()),
+            vec![
+                b"apply-plan".to_vec(),
+                b"--plan".to_vec(),
+                expected_path.to_vec()
+            ],
+            "Apply command changed plan path {plan_name:?}"
+        );
+        assert!(!temp.path().join("marker-substitution").exists());
+        assert!(!temp.path().join("marker-backtick").exists());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn summary_omits_commands_for_newline_and_non_utf8_plan_paths() {
+    use std::os::unix::ffi::OsStringExt;
+
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("source.txt"), b"old\n").unwrap();
+    let plan_paths = [
+        std::ffi::OsString::from("plan\nwith-newline.json"),
+        std::ffi::OsString::from("plan\u{2028}line-separator.json"),
+        std::ffi::OsString::from_vec(b"plan-\xff-non-utf8.json".to_vec()),
+    ];
+
+    for plan_path in plan_paths {
+        let preparation = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+            .current_dir(temp.path())
+            .args([
+                "prepare-text",
+                "source.txt",
+                "--edit",
+                "old",
+                "new",
+                "--output",
+            ])
+            .arg(&plan_path)
+            .args(["--summary"])
+            .output()
+            .unwrap();
+        assert!(
+            preparation.status.success(),
+            "{}",
+            String::from_utf8_lossy(&preparation.stderr)
+        );
+        let summary = String::from_utf8_lossy(&preparation.stdout);
+        assert!(summary.contains("Review (POSIX shell): unavailable (not executable;"));
+        assert!(summary.contains("Apply (POSIX shell): unavailable (not executable;"));
+        assert!(!summary.contains("threadmoth explain --plan"));
+        assert!(!summary.contains("threadmoth apply-plan --plan"));
+    }
+}
+
 #[test]
 fn stale_plan_review_explains_repreparation_and_apply_refuses_without_overwrite() {
     let temp = TempDir::new().unwrap();
