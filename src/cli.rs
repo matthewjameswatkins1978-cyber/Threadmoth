@@ -60,6 +60,10 @@ pub enum Command {
     #[command(after_help = "Example: threadmoth apply-plan --plan plan.json --summary")]
     ApplyPlan(ApplyPlanArgs),
 
+    /// Prepare an exact text replacement sequence from the observed source without writing.
+    #[command(after_help = "Example: threadmoth prepare-text --request edits.json")]
+    PrepareText(PrepareTextArgs),
+
     /// Legacy alias for `transact --preview`.
     #[command(hide = true)]
     TransactionPreview(RequestArgs),
@@ -298,6 +302,13 @@ pub struct ApplyPlanArgs {
     /// Print a compact human summary instead of the full certificate.
     #[arg(long)]
     pub summary: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct PrepareTextArgs {
+    /// Read compact source-aware edit intent from this JSON file, or stdin when omitted.
+    #[arg(short = 'r', long, value_hint = ValueHint::FilePath)]
+    pub request: Option<std::path::PathBuf>,
 }
 
 #[derive(Args, Debug)]

@@ -16,13 +16,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-pub const PROTOCOL_VERSION: &str = "1.3.1";
+pub const PROTOCOL_VERSION: &str = "1.4.0";
 pub const LEGACY_PROTOCOL_VERSION: &str = "1.1.0";
 pub const PREVIOUS_PROTOCOL_VERSION: &str = "1.2.0";
-pub const PREVIOUS_CURRENT_PROTOCOL_VERSION: &str = "1.3.0";
+pub const PREVIOUS_CURRENT_PROTOCOL_VERSION: &str = "1.3.1";
+pub const PREVIOUS_PATCH_PROTOCOL_VERSION: &str = "1.3.0";
 pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &[
     PROTOCOL_VERSION,
     PREVIOUS_CURRENT_PROTOCOL_VERSION,
+    PREVIOUS_PATCH_PROTOCOL_VERSION,
     PREVIOUS_PROTOCOL_VERSION,
     LEGACY_PROTOCOL_VERSION,
 ];

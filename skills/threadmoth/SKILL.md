@@ -7,7 +7,7 @@ compatibility: >-
   Works with any agent that can read files and run local commands.
 metadata:
   author: matthewjameswatkins1978-cyber
-  version: "1.13.0"
+  version: "1.14.0"
 ---
 
 # Threadmoth
@@ -54,11 +54,12 @@ threadmoth inspect PATH
 threadmoth inspect PATH --outline
 threadmoth inspect PATH --expand HANDLE
 threadmoth suggest PATH
+threadmoth prepare-text --request edits.json
 threadmoth schema
 threadmoth examples
 ```
 
-Threadmoth 1.13.0 adds `threadmoth orient` and registry-projected provider/operation help. Start with `threadmoth orient`, then use `threadmoth capabilities`, `threadmoth suggest PATH`, and `threadmoth help PROVIDER:OPERATION` to discover exact selectors and examples. Discovery classifies targets as `structured`, `syntax`, `region`, `exact` or `opaque` and reports preservation level plus explicit fallback routes. Inspect also supports bounded outlines and stale-safe expansions for supported syntax providers. The Target Registry remains authoritative for CLI and MCP shorthand provider selection, including special filenames such as `setup.cfg` and `.env.local`.
+Threadmoth 1.14.0 adds source-aware preparation for ordered exact text replacements. Use `threadmoth_prepare_text` or `threadmoth prepare-text` with a compact `{file_path, edits:[{old,new}]}` request; uniform LF/CRLF is derived from the observed file. Mixed or absent newline conventions require `newline_policy: "exact"` and literal line endings. Preparation returns the existing portable plan without writing; apply it with `threadmoth_apply_plan` or `threadmoth apply-plan`. Start discovery with `threadmoth orient`, then use `threadmoth capabilities`, `threadmoth suggest PATH`, and `threadmoth help PROVIDER:OPERATION`. The Target Registry remains authoritative for CLI and MCP shorthand provider selection.
 
 Use the canonical `threadmoth` executable. `thm` may exist as a convenience alias, but it is not the compatibility contract. Do not assume a `.thm` source extension.
 
@@ -70,7 +71,7 @@ For an ordinary text replacement, the current request shape is:
 
 ```json
 {
-  "version": "1.3.1",
+  "version": "1.4.0",
   "request_id": "change-unique-id",
   "file_path": "config.txt",
   "cardinality": { "type": "exactly_one" },

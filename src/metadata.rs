@@ -184,6 +184,14 @@ pub fn operation_metadata() -> Vec<OperationMetadata> {
             common.clone(),
         ),
         op(
+            "replace_sequence",
+            "Apply ordered exact replacements against one observed source state.",
+            "literal",
+            false,
+            "mixed",
+            common.clone(),
+        ),
+        op(
             "insert_before",
             "Insert content before an exact target.",
             "literal",
@@ -445,6 +453,7 @@ fn op(
 pub fn provider_metadata() -> Vec<ProviderMetadata> {
     let text_ops = vec![
         "replace",
+        "replace_sequence",
         "insert_before",
         "insert_after",
         "delete",
