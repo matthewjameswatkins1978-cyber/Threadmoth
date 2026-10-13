@@ -436,6 +436,88 @@ fn compact_cli_prepares_repeated_crlf_edits_and_guides_review_then_apply() {
     );
 }
 
+#[cfg(windows)]
+fn round_trip_powershell_command(
+    command: &str,
+    working_directory: &std::path::Path,
+) -> Vec<String> {
+    let script = r#"
+function threadmoth { $global:captured = @($args) }
+Invoke-Expression $env:THREADMOTH_RENDERED_COMMAND
+[Console]::Out.Write((ConvertTo-Json -InputObject @($global:captured) -Compress))
+"#;
+    let output = Command::new("powershell.exe")
+        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"])
+        .arg(script)
+        .env("THREADMOTH_RENDERED_COMMAND", command)
+        .current_dir(working_directory)
+        .output()
+        .expect("PowerShell is available on Windows");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).expect("PowerShell returns the captured argument array")
+}
+
+#[cfg(windows)]
+#[test]
+fn summary_review_and_apply_commands_round_trip_plan_path_in_powershell() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("source.txt"), b"old\n").unwrap();
+    let plan = temp
+        .path()
+        .join("plan-$(Set-Content -NoNewline marker.txt injected)-'quoted'.json");
+
+    let preparation = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args([
+            "prepare-text",
+            "source.txt",
+            "--edit",
+            "old",
+            "new",
+            "--output",
+        ])
+        .arg(&plan)
+        .args(["--summary"])
+        .output()
+        .unwrap();
+    assert!(
+        preparation.status.success(),
+        "{}",
+        String::from_utf8_lossy(&preparation.stderr)
+    );
+    let summary = String::from_utf8_lossy(&preparation.stdout);
+    let review = summary
+        .lines()
+        .find_map(|line| line.strip_prefix("Review         "))
+        .expect("summary contains a Review command");
+    let apply = summary
+        .lines()
+        .find_map(|line| line.strip_prefix("Apply          "))
+        .expect("summary contains an Apply command");
+    let expected_plan = plan.to_string_lossy().into_owned();
+
+    assert_eq!(
+        round_trip_powershell_command(review, temp.path()),
+        vec![
+            "explain",
+            "--plan",
+            expected_plan.as_str(),
+            "--format",
+            "diff"
+        ]
+    );
+    assert!(!temp.path().join("marker.txt").exists());
+    assert_eq!(
+        round_trip_powershell_command(apply, temp.path()),
+        vec!["apply-plan", "--plan", expected_plan.as_str()]
+    );
+    assert!(!temp.path().join("marker.txt").exists());
+}
+
 #[test]
 fn stale_plan_review_explains_repreparation_and_apply_refuses_without_overwrite() {
     let temp = TempDir::new().unwrap();

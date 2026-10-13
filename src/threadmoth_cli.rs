@@ -343,6 +343,10 @@ fn run_plan(args: PlanArgs) {
     }
 }
 
+fn quote_powershell_argument(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
 fn run_prepare_text(args: PrepareTextArgs) {
     if args.summary && args.output.is_none() {
         eprintln!("--summary requires --output so the prepared plan can be reviewed and applied");
@@ -462,14 +466,11 @@ fn run_prepare_text(args: PrepareTextArgs) {
                 println!("Newlines       {}", prepared.source_newline_profile);
                 println!("Exact edits    {}", prepared.resolved_edits);
                 println!("Plan ID        {}", prepared.plan.plan_id);
+                let quoted_plan_path = quote_powershell_argument(&output.display().to_string());
                 println!(
-                    "Review         threadmoth explain --plan \"{}\" --format diff",
-                    output.display()
+                    "Review         threadmoth explain --plan {quoted_plan_path} --format diff"
                 );
-                println!(
-                    "Apply          threadmoth apply-plan --plan \"{}\"",
-                    output.display()
-                );
+                println!("Apply          threadmoth apply-plan --plan {quoted_plan_path}");
             } else {
                 println!("{}", serde_json::to_string_pretty(&prepared).unwrap());
             }
@@ -1672,6 +1673,36 @@ mod tests {
             budget_suggestions(&certificate),
             vec!["max_changed_regions=3", "max_changed_lines=7"]
         );
+    }
+
+    #[test]
+    fn powershell_argument_uses_literal_single_quoted_syntax() {
+        let value = r#"path "double" 'single' $env:TEMP $(Get-Date) `tick`"#;
+        assert_eq!(
+            quote_powershell_argument(value),
+            r#"'path "double" ''single'' $env:TEMP $(Get-Date) `tick`'"#
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn powershell_command_parser_round_trips_quotes_and_interpolation_text() {
+        let value = r#"C:\Temp\plan "double" 'single' $env:TEMP $(throw 'executed') `tick`"#;
+        let script = format!(
+            "$value = {}; [Console]::Out.Write($value)",
+            quote_powershell_argument(value)
+        );
+        let output = std::process::Command::new("powershell.exe")
+            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"])
+            .arg(script)
+            .output()
+            .expect("PowerShell is available on Windows");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(output.stdout, value.as_bytes());
     }
 
     #[test]
