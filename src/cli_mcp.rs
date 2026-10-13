@@ -205,10 +205,10 @@ fn handle_mcp_message(
                 "id": id,
                 "result": {"tools": [
                     {"name": "threadmoth_mutate", "description": "Apply one typed Threadmoth mutation and return its certificate; target specificity must come from the user or evidence", "inputSchema": schema_for!(Request)},
-                    {"name": "threadmoth_preview", "description": "Preview one typed Threadmoth mutation without writing; do not invent target specificity", "inputSchema": schema_for!(Request)},
+                    {"name": "threadmoth_preview", "description": "Preview one typed Threadmoth mutation without writing; if approved, call threadmoth_mutate with the same request; do not invent target specificity", "inputSchema": schema_for!(Request)},
                     {"name": "threadmoth_plan", "description": "Prepare a deterministic guarded plan without writing; preserve unresolved target ambiguity", "inputSchema": schema_for!(Request)},
-                    {"name": "threadmoth_apply_plan", "description": "Apply an exact prepared plan after rechecking identity and assertions", "inputSchema": schema_for!(PreparedPlan)},
-                    {"name": "threadmoth_prepare_text", "description": "Prepare one or more exact text replacements against one observed source state; derives uniform line endings, refuses ambiguity, and never writes", "inputSchema": schema_for!(PrepareTextToolArgs)},
+                    {"name": "threadmoth_apply_plan", "description": "Apply an exact reviewed prepared plan after rechecking source identity, authority, budgets and assertions; return the mutation certificate", "inputSchema": schema_for!(PreparedPlan)},
+                    {"name": "threadmoth_prepare_text", "description": "Prepare exact text edits from one observed source state; derives uniform LF/CRLF, refuses ambiguity and never writes. Preview plan.operations[0].request with threadmoth_preview, then pass the unchanged returned plan to threadmoth_apply_plan after review.", "inputSchema": schema_for!(PrepareTextToolArgs)},
                     {"name": "threadmoth_inspect", "description": "Read unchanged identity facts or a bounded deterministic outline/expansion; observation handles are stale-safe read identities and never mutation authority", "inputSchema": schema_for!(InspectToolArgs)},
                     {"name": "threadmoth_suggest", "description": "Return deterministic request suggestions and candidate evidence; never choose among unresolved candidates", "inputSchema": schema_for!(SuggestToolArgs)},
                     {"name": "threadmoth_explain", "description": "Return stable metadata for a refusal or failure reason", "inputSchema": schema_for!(ExplainToolArgs)},
@@ -217,7 +217,7 @@ fn handle_mcp_message(
                     {"name": "threadmoth_transact", "description": "Prepare and commit a guarded transaction", "inputSchema": schema_for!(TransactionRequest)},
                     {"name": "threadmoth_exact_replace", "description": "Safely replace one exact text occurrence through the canonical pipeline after the occurrence is uniquely established", "inputSchema": schema_for!(ExactReplaceToolArgs)},
                     {"name": "threadmoth_set_value", "description": "Safely set one selected JSON, JSONC, TOML, YAML, INI or dotenv value through the canonical registry and Core pipeline; do not guess among plausible targets", "inputSchema": schema_for!(SetValueToolArgs)},
-                    {"name": "threadmoth_orient", "description": "Return the compact workspace-bound discovery workflow and exit-code map; does not select or change a workspace", "inputSchema": schema_for!(OrientToolArgs)}
+                    {"name": "threadmoth_orient", "description": "Return workspace-bound discovery, the compact prepare-text → review → apply-plan CLI path, MCP preparation/application tools and exit-code map; does not select or change a workspace", "inputSchema": schema_for!(OrientToolArgs)}
                 ]}
             }),
             Some("tools/call") => {

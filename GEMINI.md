@@ -10,6 +10,6 @@ threadmoth capabilities --for PATH --json
 threadmoth suggest PATH
 ```
 
-Threadmoth 1.14.0 adds source-aware preparation for ordered exact text replacements. It derives uniform LF/CRLF spelling from the observed file, refuses unresolved targets, and returns an existing portable plan for guarded application. Mixed newline files require explicit exact line endings. The existing inspect surface still provides bounded outlines and stale-safe expansion; treat `REFUSED` as a deliberate safety result and preserve the returned certificate.
+Threadmoth 1.15.0 provides a compact exact-text route: `threadmoth prepare-text PATH --edit OLD NEW --output PLAN --summary`, then review with `threadmoth explain --plan PLAN --format diff` and apply the reviewed plan with `threadmoth apply-plan --plan PLAN --summary`. It derives uniform LF/CRLF, refuses unresolved targets, and preserves stale checks, authority and certificates. Repeat `--edit` for ordered same-file changes; use `--request` for the full JSON form. Mixed newline files require explicit exact line endings. The inspect surface still provides bounded outlines and stale-safe expansion; treat `REFUSED` as a deliberate safety result and preserve the returned certificate.
 
 Do not silently downgrade a refused structured/syntax operation to a broader raw edit. Do not use Threadmoth for Git, builds, tests, formatter execution, package-manager semantics, Terraform semantics or general network work. The explicit CLI-only `threadmoth update` command is the maintenance exception.

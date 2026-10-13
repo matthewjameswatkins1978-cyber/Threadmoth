@@ -344,38 +344,186 @@ fn run_plan(args: PlanArgs) {
 }
 
 fn run_prepare_text(args: PrepareTextArgs) {
-    let input = match read_request_input(args.request.as_deref()) {
-        Ok(input) => input,
-        Err(RequestInputError::TooLarge(actual)) => {
-            eprintln!("source-aware request exceeds {MAX_REQUEST_BYTES} bytes (actual: {actual})");
-            std::process::exit(2);
-        }
-        Err(RequestInputError::Io(error)) => {
-            eprintln!("source-aware request read failed: {error}");
-            std::process::exit(3);
-        }
-    };
-    let request =
+    if args.summary && args.output.is_none() {
+        eprintln!("--summary requires --output so the prepared plan can be reviewed and applied");
+        std::process::exit(2);
+    }
+    let has_compact_intent = args.file.is_some() || !args.edits.is_empty();
+    if !has_compact_intent && args.newline_policy.is_some() {
+        eprintln!("--newline-policy applies to compact PATH/--edit input; set newline_policy in the JSON request");
+        std::process::exit(2);
+    }
+    if args.request.is_some() && has_compact_intent {
+        eprintln!("--request cannot be combined with PATH or --edit");
+        std::process::exit(2);
+    }
+    let request = if !has_compact_intent {
+        let input = match read_request_input(args.request.as_deref()) {
+            Ok(input) => input,
+            Err(RequestInputError::TooLarge(actual)) => {
+                eprintln!(
+                    "source-aware request exceeds {MAX_REQUEST_BYTES} bytes (actual: {actual})"
+                );
+                std::process::exit(2);
+            }
+            Err(RequestInputError::Io(error)) => {
+                eprintln!("source-aware request read failed: {error}");
+                std::process::exit(3);
+            }
+        };
         serde_json::from_str::<threadmoth::source_prepare::SourceAwareTextRequest>(&input)
             .unwrap_or_else(|error| {
                 eprintln!("invalid source-aware request: {error}");
                 std::process::exit(2);
-            });
+            })
+    } else {
+        let Some(file) = args.file else {
+            eprintln!("provide PATH and at least one --edit OLD NEW, or use --request");
+            std::process::exit(2);
+        };
+        if args.edits.is_empty() || args.edits.len() % 2 != 0 {
+            eprintln!("each --edit requires exactly OLD and NEW");
+            std::process::exit(2);
+        }
+        let edits = args
+            .edits
+            .chunks_exact(2)
+            .map(|pair| threadmoth::source_prepare::TextReplacementIntent {
+                old: pair[0].clone(),
+                new: pair[1].clone(),
+            })
+            .collect();
+        threadmoth::source_prepare::SourceAwareTextRequest {
+            file_path: file.to_string_lossy().into_owned(),
+            edits,
+            newline_policy: match args.newline_policy.unwrap_or_default() {
+                cli::PrepareTextNewlinePolicy::Source => {
+                    threadmoth::source_prepare::NewlinePolicy::Source
+                }
+                cli::PrepareTextNewlinePolicy::Exact => {
+                    threadmoth::source_prepare::NewlinePolicy::Exact
+                }
+            },
+        }
+    };
     let workspace = Workspace::new(env::current_dir().unwrap_or_else(|_| ".".into()))
         .unwrap_or_else(|error| {
             eprintln!("workspace initialization failed: {error}");
             std::process::exit(3);
         });
-    let result = threadmoth::source_prepare::prepare(&workspace, &request);
-    let output = match result {
+    match threadmoth::source_prepare::prepare(&workspace, &request) {
         threadmoth::source_prepare::SourcePreparationResult::Prepared(prepared) => {
-            serde_json::to_value(prepared).unwrap()
+            if let Some(output) = args.output.as_deref() {
+                if output_resolves_to_source(output, &request.file_path, &workspace) {
+                    eprintln!("plan output must resolve safely and must not overwrite the edited source file");
+                    std::process::exit(2);
+                }
+                let plan =
+                    serde_json::to_vec_pretty(&prepared.plan).expect("prepared plan serialises");
+                let mut file = match fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(output)
+                {
+                    Ok(file) => file,
+                    Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                        eprintln!(
+                            "plan output already exists; choose a new path: {}",
+                            output.display()
+                        );
+                        std::process::exit(2);
+                    }
+                    Err(error) => {
+                        eprintln!("cannot create plan {}: {error}", output.display());
+                        std::process::exit(3);
+                    }
+                };
+                if let Err(error) = file.write_all(&plan) {
+                    eprintln!("cannot write plan {}: {error}", output.display());
+                    std::process::exit(3);
+                }
+            }
+            if args.summary {
+                let output = args.output.as_deref().expect("summary requires output");
+                println!("THREADMOTH TEXT PREPARATION");
+                println!("Source SHA-256 {}", prepared.source_sha256);
+                println!("Newlines       {}", prepared.source_newline_profile);
+                println!("Exact edits    {}", prepared.resolved_edits);
+                println!("Plan ID        {}", prepared.plan.plan_id);
+                println!(
+                    "Review         threadmoth explain --plan \"{}\" --format diff",
+                    output.display()
+                );
+                println!(
+                    "Apply          threadmoth apply-plan --plan \"{}\"",
+                    output.display()
+                );
+            } else {
+                println!("{}", serde_json::to_string_pretty(&prepared).unwrap());
+            }
         }
         threadmoth::source_prepare::SourcePreparationResult::Refused { certificate } => {
-            serde_json::to_value(certificate).unwrap()
+            if args.summary {
+                print_prepare_refusal_summary(&certificate);
+            } else {
+                println!("{}", serde_json::to_string_pretty(&certificate).unwrap());
+            }
         }
+    }
+}
+
+fn print_prepare_refusal_summary(certificate: &Certificate) {
+    println!("THREADMOTH TEXT PREPARATION");
+    println!("Result       REFUSED");
+    if let Some(code) = certificate.reason_code.as_deref() {
+        println!("Reason       {code}");
+        if let Some(reason) = threadmoth::metadata::reason(code) {
+            println!("Recovery     {}", reason.why_refused);
+            if !reason.relevant_commands.is_empty() {
+                println!("Options      {}", reason.relevant_commands.join(", "));
+            }
+        }
+    }
+    println!("Source       unchanged");
+}
+
+fn output_resolves_to_source(output: &Path, source: &str, workspace: &Workspace) -> bool {
+    let Some(source_path) = workspace
+        .resolve_namespaced_path(source, &threadmoth::path::PathNamespace::Native)
+        .ok()
+        .and_then(|path| fs::canonicalize(path).ok())
+    else {
+        return true;
     };
-    println!("{}", serde_json::to_string_pretty(&output).unwrap());
+    let output_path = if output.is_absolute() {
+        output.to_path_buf()
+    } else {
+        let Ok(current_dir) = env::current_dir() else {
+            return true;
+        };
+        current_dir.join(output)
+    };
+    let canonical_output = if output_path.exists() {
+        fs::canonicalize(&output_path).ok()
+    } else {
+        output_path
+            .parent()
+            .and_then(|parent| fs::canonicalize(parent).ok())
+            .and_then(|parent| output_path.file_name().map(|name| parent.join(name)))
+    };
+    let Some(canonical_output) = canonical_output else {
+        return true;
+    };
+    #[cfg(windows)]
+    {
+        source_path
+            .to_string_lossy()
+            .eq_ignore_ascii_case(&canonical_output.to_string_lossy())
+    }
+    #[cfg(not(windows))]
+    {
+        source_path == canonical_output
+    }
 }
 
 fn run_apply_plan(args: ApplyPlanArgs) {
@@ -458,10 +606,11 @@ fn run_explain_plan(path: &Path, json: bool, format: Option<ExplainFormat>) {
     let refusal = workspace
         .as_ref()
         .and_then(|workspace| threadmoth::pipeline::check_prepared_plan(workspace, &plan).err());
-    let safe = refusal.is_none();
+    let safe = workspace.is_some() && refusal.is_none();
     if !json {
         if let Some(format) = format {
             render_plan_review(&plan, workspace.as_ref(), format);
+            println!("Next: {}", plan_next_action(path, safe));
             return;
         }
     }
@@ -474,6 +623,7 @@ fn run_explain_plan(path: &Path, json: bool, format: Option<ExplainFormat>) {
                 "operations": plan.operations.len(),
                 "assertions": plan.assertions.len(),
                 "safe_to_apply": safe,
+                "next_action": plan_next_action(path, safe),
                 "refusal_code": refusal.as_ref().map(|reason| reason.code()),
                 "refusal": refusal
             })
@@ -504,6 +654,15 @@ fn run_explain_plan(path: &Path, json: bool, format: Option<ExplainFormat>) {
         if let Some(reason) = refusal {
             println!("Reason: {} ({reason:?})", reason.code());
         }
+        println!("Next: {}", plan_next_action(path, safe));
+    }
+}
+
+fn plan_next_action(path: &Path, safe: bool) -> String {
+    if safe {
+        format!("threadmoth apply-plan --plan \"{}\"", path.display())
+    } else {
+        "prepare a new plan from the current source using the same intent, then review it".into()
     }
 }
 
@@ -964,6 +1123,18 @@ fn run_capabilities(args: CapabilitiesArgs) {
 }
 
 fn print_examples(topic: Option<&str>) {
+    if topic.is_some_and(|topic| topic == "source-text") {
+        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+            "topic": "source-text",
+            "intent": "Replace exact text using source-aware preparation.",
+            "prepare": "threadmoth prepare-text PATH --edit OLD NEW --output PLAN --summary",
+            "review": "threadmoth explain --plan PLAN --format diff",
+            "apply": "threadmoth apply-plan --plan PLAN --summary",
+            "recovery": "If review says stale, prepare again from current source with the same intent.",
+            "guarantees": ["exact unique targets", "source-derived uniform LF/CRLF", "source-read-only preparation", "stale-plan revalidation", "certificate on apply"]
+        })).unwrap());
+        return;
+    }
     let examples = threadmoth::metadata::examples(topic);
     if examples.is_empty() {
         eprintln!("no example topic matched");
@@ -1063,6 +1234,7 @@ fn run_orient(json_output: bool) {
             workspace.display()
         );
         println!("Workflow: preview → mutate → verify certificate");
+        println!("Text edits: prepare-text PATH --edit OLD NEW --output PLAN --summary → review with explain --plan PLAN --format diff → apply-plan --plan PLAN");
         println!("Discover: capabilities · suggest PATH · help TARGET");
         println!("Confinement: workspace and effect budget; refusals do not write");
         println!("Exit codes: success 0 · refusal 2 · runtime failure 3");

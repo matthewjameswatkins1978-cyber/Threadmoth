@@ -19,12 +19,50 @@ fn orientation_has_compact_human_and_json_forms() {
         serde_json::json!(["preview", "mutate", "verify"])
     );
     assert_eq!(parsed["confinement"], "workspace-and-budget");
+    assert_eq!(
+        parsed["text_edit"]["cli"],
+        "threadmoth prepare-text PATH --edit OLD NEW --output PLAN --summary"
+    );
+    assert_eq!(
+        parsed["text_edit"]["review"],
+        "threadmoth explain --plan PLAN --format diff"
+    );
+    assert_eq!(
+        parsed["text_edit"]["apply"],
+        "threadmoth apply-plan --plan PLAN --summary"
+    );
 
     let human = cli(&["orient"]);
     assert!(human.status.success());
     let text = String::from_utf8_lossy(&human.stdout);
     assert!(text.contains("preview → mutate → verify certificate"));
     assert!(text.contains("refusal 2"));
+}
+
+#[test]
+fn source_text_example_and_prepare_help_teach_the_short_route() {
+    let example = cli(&["examples", "source-text"]);
+    assert!(example.status.success());
+    let example: Value = serde_json::from_slice(&example.stdout).unwrap();
+    assert!(example["prepare"]
+        .as_str()
+        .unwrap()
+        .contains("--edit OLD NEW"));
+    assert!(example["review"]
+        .as_str()
+        .unwrap()
+        .contains("explain --plan"));
+    assert!(example["apply"]
+        .as_str()
+        .unwrap()
+        .contains("apply-plan --plan"));
+
+    let help = cli(&["prepare-text", "--help"]);
+    assert!(help.status.success());
+    let help = String::from_utf8_lossy(&help.stdout);
+    assert!(help.contains("--edit <OLD> <NEW>"));
+    assert!(help.contains("Then review:"));
+    assert!(help.contains("Then apply:"));
 }
 
 #[test]
