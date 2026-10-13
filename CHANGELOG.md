@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.15.0 - Guided source-aware text editing
+
+### Added
+
+- `threadmoth prepare-text PATH --edit OLD NEW --output PLAN --summary` provides a compact CLI path for ordinary exact text edits; repeated `--edit` values prepare ordered same-file changes.
+- Preparation summaries report the observed source hash and newline profile, write only the requested guarded plan, and print the exact review and apply commands.
+- Plan review identifies the next action; stale plans direct re-preparation. MCP preparation discovery documents previewing the prepared request and applying the unchanged plan.
+- `threadmoth examples source-text`, orient, help and agent documentation point to the same workflow.
+
+### Preserved
+
+- Exact matching, newline adaptation rules, refusal certificates, source-read-only preparation, workspace confinement, authority, budgets, stale checks and apply certificates.
+- The complete JSON request interface remains available for advanced callers.
+
+### Live agent comparison
+
+- Same isolated Pi 1.1.0 model and prompt on the same CRLF fixture: both tasks succeeded. The 1.14 baseline used 14 tool calls, one budget refusal/retry, 1,277 request JSON bytes and about 13,054 tokens. The 1.15 run used 9 tool calls, no Threadmoth refusal, about 422 bytes of prepare/review/apply command text and about 6,256 tokens.
+- The 1.15 agent still made three failed setup probes in the temporary workspace. It read the target once, used no line-ending hex inspection or raw edit fallback, and preserved the comment and all five CRLF line endings. These are single-run observations, not population estimates.
+
 ## 1.14.0 - Source-aware text preparation
 
 ### Added

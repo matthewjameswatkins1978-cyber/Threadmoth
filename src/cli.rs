@@ -8,7 +8,7 @@ pub const THREADMOTH_VERSION: &str = env!("CARGO_PKG_VERSION");
     version = THREADMOTH_VERSION,
     about = "Fast, deterministic structural search and rewrite for AI agents.",
     long_about = "Threadmoth changes exactly the state a request authorizes, refuses ambiguity, and returns a certificate describing what was observed and what actually changed.",
-    after_help = "Start with: threadmoth suggest PATH\nInspect capabilities: threadmoth capabilities\nPreview for a human: threadmoth preview --request request.json --summary\nGenerate shell completion: threadmoth completions <shell>\nRun checks: threadmoth benchmark --tough",
+    after_help = "Start a text edit: threadmoth prepare-text PATH --edit OLD NEW --output plan.json --summary\nReview it: threadmoth explain --plan plan.json --format diff\nApply it: threadmoth apply-plan --plan plan.json --summary\nDiscover structured edits: threadmoth suggest PATH\nInspect capabilities: threadmoth capabilities\nGenerate shell completion: threadmoth completions <shell>\nRun checks: threadmoth benchmark --tough",
     propagate_version = true,
     disable_help_subcommand = true,
     arg_required_else_help = true
@@ -60,8 +60,10 @@ pub enum Command {
     #[command(after_help = "Example: threadmoth apply-plan --plan plan.json --summary")]
     ApplyPlan(ApplyPlanArgs),
 
-    /// Prepare an exact text replacement sequence from the observed source without writing.
-    #[command(after_help = "Example: threadmoth prepare-text --request edits.json")]
+    /// Prepare exact text replacements from the observed source without changing it.
+    #[command(
+        after_help = "Example: threadmoth prepare-text settings.conf --edit OLD NEW --output plan.json --summary\nThen review: threadmoth explain --plan plan.json --format diff\nThen apply: threadmoth apply-plan --plan plan.json --summary\nUse --request for the complete source-aware JSON request."
+    )]
     PrepareText(PrepareTextArgs),
 
     /// Legacy alias for `transact --preview`.
@@ -78,6 +80,7 @@ pub enum Command {
     Capabilities(CapabilitiesArgs),
 
     /// Show request examples.
+    #[command(after_help = "Example: threadmoth examples source-text")]
     Examples {
         /// Optional example topic.
         topic: Option<String>,
@@ -304,9 +307,36 @@ pub struct ApplyPlanArgs {
     pub summary: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
+pub enum PrepareTextNewlinePolicy {
+    #[default]
+    Source,
+    Exact,
+}
+
 #[derive(Args, Debug)]
 pub struct PrepareTextArgs {
-    /// Read compact source-aware edit intent from this JSON file, or stdin when omitted.
+    /// Workspace-relative source file for compact exact text edits.
+    #[arg(value_name = "PATH", value_hint = ValueHint::FilePath)]
+    pub file: Option<std::path::PathBuf>,
+
+    /// Exact text to replace and its replacement; repeat for sequential edits.
+    #[arg(long = "edit", num_args = 2, action = clap::ArgAction::Append, value_names = ["OLD", "NEW"])]
+    pub edits: Vec<String>,
+
+    /// Derive uniform LF/CRLF from source, or require supplied bytes exactly for mixed endings.
+    #[arg(long, value_enum)]
+    pub newline_policy: Option<PrepareTextNewlinePolicy>,
+
+    /// Write the guarded prepared plan to this file for review and apply.
+    #[arg(short, long, value_hint = ValueHint::FilePath)]
+    pub output: Option<std::path::PathBuf>,
+
+    /// Print concise next steps instead of the full preparation response (requires --output).
+    #[arg(long)]
+    pub summary: bool,
+
+    /// Read the complete source-aware request from this JSON file, or stdin when omitted.
     #[arg(short = 'r', long, value_hint = ValueHint::FilePath)]
     pub request: Option<std::path::PathBuf>,
 }

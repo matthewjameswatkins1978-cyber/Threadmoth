@@ -330,6 +330,233 @@ fn workflow_comparison_measures_retries_calls_and_request_bytes() {
 }
 
 #[test]
+fn compact_cli_prepares_repeated_crlf_edits_and_guides_review_then_apply() {
+    let temp = TempDir::new().unwrap();
+    let source = temp.path().join("settings.conf");
+    let plan = temp.path().join("prepared-plan.json");
+    fs::write(
+        &source,
+        b"first=one\r\nsecond=two\r\n# keep this comment\r\n",
+    )
+    .unwrap();
+    let original = fs::read(&source).unwrap();
+
+    let preparation = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args(["prepare-text", "settings.conf", "--edit"])
+        .arg("first=one\n")
+        .arg("first=uno\n")
+        .arg("--edit")
+        .arg("second=two\n")
+        .arg("second=dos\n")
+        .arg("--output")
+        .arg(&plan)
+        .arg("--summary")
+        .output()
+        .unwrap();
+    assert!(preparation.status.success());
+    let preparation = String::from_utf8_lossy(&preparation.stdout);
+    assert!(preparation.contains("Newlines       crlf"));
+    assert!(preparation.contains("Exact edits    2"));
+    assert!(preparation.contains("threadmoth explain --plan"));
+    assert!(preparation.contains("threadmoth apply-plan --plan"));
+    assert_eq!(fs::read(&source).unwrap(), original);
+    let prepared_plan: serde_json::Value =
+        serde_json::from_slice(&fs::read(&plan).unwrap()).unwrap();
+    assert_eq!(
+        prepared_plan["operations"][0]["request"]["operation"]["operation"]["edits"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+
+    let review = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args(["explain", "--plan"])
+        .arg(&plan)
+        .args(["--format", "diff"])
+        .output()
+        .unwrap();
+    assert!(review.status.success());
+    let review = String::from_utf8_lossy(&review.stdout);
+    assert!(review.contains("state: FRESH"));
+    assert!(review.contains("Next: threadmoth apply-plan --plan"));
+
+    let apply = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args(["apply-plan", "--plan"])
+        .arg(&plan)
+        .args(["--summary"])
+        .output()
+        .unwrap();
+    assert!(apply.status.success());
+    assert!(String::from_utf8_lossy(&apply.stdout).contains("APPLIED"));
+    assert_eq!(
+        fs::read(&source).unwrap(),
+        b"first=uno\r\nsecond=dos\r\n# keep this comment\r\n"
+    );
+}
+
+#[test]
+fn stale_plan_review_explains_repreparation_and_apply_refuses_without_overwrite() {
+    let temp = TempDir::new().unwrap();
+    let source = temp.path().join("stale.txt");
+    let plan = temp.path().join("stale-plan.json");
+    fs::write(&source, b"old\n").unwrap();
+    let preparation = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args([
+            "prepare-text",
+            "stale.txt",
+            "--edit",
+            "old",
+            "new",
+            "--output",
+        ])
+        .arg(&plan)
+        .args(["--summary"])
+        .output()
+        .unwrap();
+    assert!(preparation.status.success());
+    fs::write(&source, b"external update\n").unwrap();
+
+    let review = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args(["explain", "--plan"])
+        .arg(&plan)
+        .args(["--format", "diff"])
+        .output()
+        .unwrap();
+    assert!(review.status.success());
+    let review = String::from_utf8_lossy(&review.stdout);
+    assert!(review.contains("state: STALE"));
+    assert!(review.contains("prepare a new plan from the current source"));
+
+    let apply = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args(["apply-plan", "--plan"])
+        .arg(&plan)
+        .args(["--summary"])
+        .output()
+        .unwrap();
+    assert_eq!(apply.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&apply.stdout).contains("PLAN_STALE"));
+    assert_eq!(fs::read(&source).unwrap(), b"external update\n");
+}
+
+#[test]
+fn compact_cli_requires_plan_output_for_summary_and_rejects_outside_path() {
+    let temp = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    fs::write(temp.path().join("inside.txt"), b"old\n").unwrap();
+    fs::write(outside.path().join("outside.txt"), b"old\n").unwrap();
+
+    let missing_output = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args([
+            "prepare-text",
+            "inside.txt",
+            "--edit",
+            "old",
+            "new",
+            "--summary",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(missing_output.status.code(), Some(2));
+    let explicit_json_policy = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args(["prepare-text", "--newline-policy", "exact"])
+        .stdin(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            let request =
+                serde_json::json!({"file_path":"inside.txt","edits":[{"old":"old","new":"new"}]})
+                    .to_string();
+            child.stdin.take().unwrap().write_all(request.as_bytes())?;
+            child.wait_with_output()
+        })
+        .unwrap();
+    assert_eq!(explicit_json_policy.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&explicit_json_policy.stderr)
+        .contains("set newline_policy in the JSON request"));
+
+    fs::write(temp.path().join("mixed.txt"), b"first\nsecond\r\n").unwrap();
+    let exact_policy = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args(["prepare-text", "mixed.txt", "--edit"])
+        .arg("first\n")
+        .arg("one\n")
+        .arg("--edit")
+        .arg("second\r\n")
+        .arg("two\r\n")
+        .args(["--newline-policy", "exact", "--output", "mixed-plan.json"])
+        .output()
+        .unwrap();
+    assert!(exact_policy.status.success());
+    assert_eq!(
+        fs::read(temp.path().join("mixed.txt")).unwrap(),
+        b"first\nsecond\r\n"
+    );
+
+    let output_conflict = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args([
+            "prepare-text",
+            "inside.txt",
+            "--edit",
+            "old",
+            "new",
+            "--output",
+            "inside.txt",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output_conflict.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output_conflict.stderr)
+        .contains("must not overwrite the edited source file"));
+    let source = temp.path().join("inside.txt");
+    assert_eq!(fs::read(&source).unwrap(), b"old\n");
+
+    let hard_link = temp.path().join("inside-hard-link.txt");
+    fs::hard_link(&source, &hard_link).unwrap();
+    let hard_link_output = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args([
+            "prepare-text",
+            "inside.txt",
+            "--edit",
+            "old",
+            "new",
+            "--output",
+        ])
+        .arg("inside-hard-link.txt")
+        .output()
+        .unwrap();
+    assert_eq!(hard_link_output.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&hard_link_output.stderr).contains("plan output already exists")
+    );
+    assert_eq!(fs::read(&source).unwrap(), b"old\n");
+    assert_eq!(fs::read(&hard_link).unwrap(), b"old\n");
+
+    let outside = outside.path().join("outside.txt");
+    let refused = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args(["prepare-text"])
+        .arg(&outside)
+        .args(["--edit", "old", "new"])
+        .output()
+        .unwrap();
+    assert!(refused.status.success());
+    let certificate: serde_json::Value = serde_json::from_slice(&refused.stdout).unwrap();
+    assert_eq!(certificate["reason_code"], "WORKSPACE_ROOT_MISMATCH");
+    assert_eq!(fs::read(outside).unwrap(), b"old\n");
+}
+
+#[test]
 fn cli_preparation_reads_compact_json_and_does_not_write_the_source() {
     let temp = TempDir::new().unwrap();
     fs::write(temp.path().join("cli.txt"), b"old\r\n").unwrap();

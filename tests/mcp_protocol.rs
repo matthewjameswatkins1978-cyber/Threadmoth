@@ -88,6 +88,20 @@ fn tools_list_exposes_preview_and_notification_has_no_response() {
             .iter()
             .any(|tool| tool["name"] == tool_name));
     }
+    let prepare = output[0]["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == "threadmoth_prepare_text")
+        .unwrap();
+    assert!(prepare["description"]
+        .as_str()
+        .unwrap()
+        .contains("threadmoth_preview"));
+    assert!(prepare["description"]
+        .as_str()
+        .unwrap()
+        .contains("threadmoth_apply_plan"));
     assert!(!output[0]["result"]["tools"]
         .as_array()
         .unwrap()
@@ -183,6 +197,14 @@ fn orientation_is_available_through_mcp_without_workspace_rebinding() {
     assert_eq!(orientation["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(orientation["confinement"], "workspace-and-budget");
     assert_eq!(
+        orientation["text_edit"]["mcp"],
+        json!([
+            "threadmoth_prepare_text",
+            "threadmoth_preview",
+            "threadmoth_apply_plan"
+        ])
+    );
+    assert_eq!(
         orientation["workflow"],
         json!(["preview", "mutate", "verify"])
     );
@@ -220,6 +242,8 @@ fn source_aware_text_preparation_is_read_only_and_returns_an_applicable_plan() {
     assert_eq!(content["outcome"], "PREPARED");
     assert_eq!(content["source_newline_profile"], "crlf");
     assert_eq!(content["resolved_edits"], 2);
+    assert!(content["plan"]["operations"][0]["request"].is_object());
+    assert!(content["operations"].is_null());
     assert_eq!(fs::read(&path).unwrap(), b"first=1\r\nsecond=2\r\n");
 
     let applied = call_mcp(

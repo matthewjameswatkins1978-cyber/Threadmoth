@@ -641,6 +641,13 @@ pub fn orientation(workspace: &str) -> Value {
         "workspace": workspace,
         "confinement": "workspace-and-budget",
         "workflow": ["preview", "mutate", "verify"],
+        "text_edit": {
+            "cli": "threadmoth prepare-text PATH --edit OLD NEW --output PLAN --summary",
+            "review": "threadmoth explain --plan PLAN --format diff",
+            "apply": "threadmoth apply-plan --plan PLAN --summary",
+            "mcp": ["threadmoth_prepare_text", "threadmoth_preview", "threadmoth_apply_plan"],
+            "sequences": "repeat --edit OLD NEW; each target must remain exact and unambiguous"
+        },
         "providers": provider_metadata().into_iter().map(|provider| provider.name).collect::<Vec<_>>(),
         "discovery": {
             "capabilities": "threadmoth capabilities",
@@ -2127,7 +2134,7 @@ pub fn command_help(command: &str) -> Option<String> {
     let text = match command {
         "mutate" | "preview" => "Reads a JSON Request from stdin or --request FILE and emits one Certificate. preview never writes; mutate commits only after validation and budget checks.",
         "capabilities" => "Use capabilities [PROVIDER] [PROVIDER.OPERATION] or --for PATH; add --json --all for the complete machine manifest.",
-        "examples" => "Use examples [TOPIC] to print current, schema-valid request patterns.",
+        "examples" => "Use examples source-text for the compact prepare → review → apply exact-text workflow; use examples [TOPIC] for complete request patterns.",
         "schema" => "Use schema [request|response|PROVIDER|OPERATION] [--json] [--pretty] to inspect the local contract and schema_id.",
         "explain" => "Use explain REASON_CODE [--json] to get meaning, evidence interpretation and safe recovery guidance.",
         "suggest" => "Use suggest FILE_PATH [--goal GOAL] [--selector SELECTOR] [--mode minimal|safe|full], or suggest --from-refusal CERTIFICATE.",

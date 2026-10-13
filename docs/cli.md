@@ -1,6 +1,6 @@
 # Threadmoth CLI
 
-Threadmoth 1.14.0 adds `prepare-text` for compact source-aware exact text sequences while keeping one structured command grammar for parsing, validation, completion, and manpage generation.
+Threadmoth 1.15.0 makes source-aware text preparation the shortest CLI route: `prepare-text PATH --edit OLD NEW --output PLAN --summary`, followed by plan review and guarded application. Repeated `--edit` values support same-file sequences; `--request` retains the complete JSON interface.
 
 Start with `threadmoth orient` (or `threadmoth orient --json`). Provider and operation help is generated from advertised metadata:
 
