@@ -1,5 +1,6 @@
 use serde_json::Value;
-use std::process::Command;
+use std::{fs, process::Command};
+use tempfile::TempDir;
 
 fn cli(args: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_threadmoth"))
@@ -22,6 +23,10 @@ fn orientation_has_compact_human_and_json_forms() {
     assert_eq!(
         parsed["text_edit"]["cli"],
         "threadmoth prepare-text PATH --edit OLD NEW --output PLAN --summary"
+    );
+    assert_eq!(
+        parsed["text_edit"]["cli_file_input"],
+        "threadmoth prepare-text PATH --edit-files OLD_FILE NEW_FILE --output PLAN --summary"
     );
     assert_eq!(
         parsed["text_edit"]["review"],
@@ -48,6 +53,10 @@ fn source_text_example_and_prepare_help_teach_the_short_route() {
         .as_str()
         .unwrap()
         .contains("--edit OLD NEW"));
+    assert!(example["prepare_from_files"]
+        .as_str()
+        .unwrap()
+        .contains("--edit-files OLD_FILE NEW_FILE"));
     assert!(example["review"]
         .as_str()
         .unwrap()
@@ -61,8 +70,52 @@ fn source_text_example_and_prepare_help_teach_the_short_route() {
     assert!(help.status.success());
     let help = String::from_utf8_lossy(&help.stdout);
     assert!(help.contains("--edit <OLD> <NEW>"));
+    assert!(help.contains("--edit-files <OLD_FILE> <NEW_FILE>"));
     assert!(help.contains("Then review:"));
     assert!(help.contains("Then apply:"));
+}
+
+#[test]
+fn inspect_json_alias_matches_default_for_identity_outline_and_expansion() {
+    let temp = TempDir::new().unwrap();
+    fs::write(
+        temp.path().join("sample.rs"),
+        "fn first() { let value = 1; }\nfn second() { let value = 2; }\n",
+    )
+    .unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+            .current_dir(temp.path())
+            .args(args)
+            .output()
+            .unwrap()
+    };
+
+    for (plain, with_json) in [
+        (
+            vec!["inspect", "sample.rs"],
+            vec!["inspect", "sample.rs", "--json"],
+        ),
+        (
+            vec!["inspect", "sample.rs", "--outline"],
+            vec!["inspect", "sample.rs", "--outline", "--json"],
+        ),
+    ] {
+        let plain = run(&plain);
+        let with_json = run(&with_json);
+        assert!(plain.status.success());
+        assert!(with_json.status.success());
+        assert_eq!(plain.stdout, with_json.stdout);
+    }
+
+    let outline: Value =
+        serde_json::from_slice(&run(&["inspect", "sample.rs", "--outline"]).stdout).unwrap();
+    let handle = outline["outline"]["entries"][0]["handle"].as_str().unwrap();
+    let plain = run(&["inspect", "sample.rs", "--expand", handle]);
+    let with_json = run(&["inspect", "sample.rs", "--expand", handle, "--json"]);
+    assert!(plain.status.success());
+    assert!(with_json.status.success());
+    assert_eq!(plain.stdout, with_json.stdout);
 }
 
 #[test]

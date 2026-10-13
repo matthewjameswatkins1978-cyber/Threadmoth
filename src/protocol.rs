@@ -181,6 +181,7 @@ pub struct EffectBudget {
     pub max_changed_regions: Option<usize>,
     pub max_changed_lines: Option<usize>,
     pub max_changed_bytes: Option<usize>,
+    #[serde(default)]
     pub allowed_path_prefixes: Vec<String>,
 }
 

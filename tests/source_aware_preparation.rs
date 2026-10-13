@@ -123,6 +123,7 @@ fn mixed_newline_source_requires_explicit_exact_policy() {
     );
     assert!(format!("{:?}", exact_refusal.refusal_reason)
         .contains("matching source region uses mixed LF and CRLF line endings"));
+
     assert_eq!(
         fs::read(temp.path().join("mixed.txt")).unwrap(),
         b"a=1\r\nb=2\n"
@@ -140,6 +141,43 @@ fn missing_and_duplicate_targets_refuse_without_guessing() {
         other => panic!("expected missing-target refusal, got {other:?}"),
     };
     assert_eq!(missing.reason_code.as_deref(), Some("TARGET_NOT_FOUND"));
+    let remedy = missing
+        .recovery
+        .as_ref()
+        .unwrap()
+        .remedies
+        .iter()
+        .find(|remedy| remedy.kind == "use_file_based_text_input")
+        .unwrap();
+    assert!(remedy
+        .description
+        .contains("does not establish that shell quoting caused"));
+    assert!(remedy
+        .description
+        .contains("threadmoth prepare-text PATH --edit-files OLD_FILE NEW_FILE"));
+    assert!(!remedy.description.contains("targets.txt"));
+
+    let shell_metachar_path = "config; echo unsafe.txt";
+    fs::write(temp.path().join(shell_metachar_path), b"present\n").unwrap();
+    let refusal = match prepare(
+        &workspace,
+        &request(shell_metachar_path, &[("absent", "replacement")]),
+    ) {
+        SourcePreparationResult::Refused { certificate } => certificate,
+        other => panic!("expected missing-target refusal, got {other:?}"),
+    };
+    let remedy = refusal
+        .recovery
+        .as_ref()
+        .unwrap()
+        .remedies
+        .iter()
+        .find(|remedy| remedy.kind == "use_file_based_text_input")
+        .unwrap();
+    assert!(!remedy.description.contains(shell_metachar_path));
+    assert!(remedy
+        .description
+        .contains("threadmoth prepare-text PATH --edit-files OLD_FILE NEW_FILE"));
 
     let duplicate = match prepare(&workspace, &request("targets.txt", &[("dup", "new")])) {
         SourcePreparationResult::Refused { certificate } => certificate,
@@ -550,10 +588,289 @@ fn compact_cli_requires_plan_output_for_summary_and_rejects_outside_path() {
         .args(["--edit", "old", "new"])
         .output()
         .unwrap();
-    assert!(refused.status.success());
+    assert_eq!(refused.status.code(), Some(2));
     let certificate: serde_json::Value = serde_json::from_slice(&refused.stdout).unwrap();
     assert_eq!(certificate["reason_code"], "WORKSPACE_ROOT_MISMATCH");
+
+    let summary = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args(["prepare-text"])
+        .arg(&outside)
+        .args([
+            "--edit",
+            "old",
+            "new",
+            "--output",
+            "refused-plan.json",
+            "--summary",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(summary.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&summary.stdout).contains("Result       REFUSED"));
+    assert!(!temp.path().join("refused-plan.json").exists());
     assert_eq!(fs::read(outside).unwrap(), b"old\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn cli_edit_files_rejects_non_unicode_input_paths() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("source.txt"), b"old\n").unwrap();
+    let non_unicode_path = std::ffi::OsStr::from_bytes(b"old-\xFF.txt");
+    fs::write(temp.path().join(non_unicode_path), b"old").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .arg("prepare-text")
+        .arg("source.txt")
+        .arg("--edit-files")
+        .arg(non_unicode_path)
+        .arg("new.txt")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("input path is not valid Unicode"));
+    assert_eq!(fs::read(temp.path().join("source.txt")).unwrap(), b"old\n");
+}
+
+#[test]
+fn cli_edit_files_preserves_powershell_text_and_orders_repeated_pairs() {
+    let temp = TempDir::new().unwrap();
+    let source = temp.path().join("source.txt");
+    let old_first = temp.path().join("old-first.txt");
+    let new_first = temp.path().join("new-first.txt");
+    let old_second = temp.path().join("old-second.txt");
+    let new_second = temp.path().join("new-second.txt");
+    let original = b"item=old\r\nquoted=\"value ${TOKEN} C:\\tmp\"\r\n";
+    fs::write(&source, original).unwrap();
+    fs::write(&old_first, "item=old\n").unwrap();
+    fs::write(&new_first, "item=new\n").unwrap();
+    fs::write(&old_second, r#"quoted="value ${TOKEN} C:\tmp""#).unwrap();
+    fs::write(&new_second, r#"quoted="next ${TOKEN} D:\data""#).unwrap();
+
+    let prepared = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args([
+            "prepare-text",
+            "source.txt",
+            "--edit-files",
+            "old-first.txt",
+            "new-first.txt",
+            "--edit-files",
+            "old-second.txt",
+            "new-second.txt",
+            "--output",
+            "plan.json",
+            "--summary",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        prepared.status.success(),
+        "{}",
+        String::from_utf8_lossy(&prepared.stderr)
+    );
+    assert!(String::from_utf8_lossy(&prepared.stdout).contains("Exact edits    2"));
+    assert_eq!(fs::read(&source).unwrap(), original);
+    assert_eq!(fs::read(&old_first).unwrap(), b"item=old\n");
+    assert_eq!(
+        fs::read(&new_second).unwrap(),
+        r#"quoted="next ${TOKEN} D:\data""#.as_bytes()
+    );
+
+    let applied = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args(["apply-plan", "--plan", "plan.json", "--summary"])
+        .output()
+        .unwrap();
+    assert!(
+        applied.status.success(),
+        "{}",
+        String::from_utf8_lossy(&applied.stderr)
+    );
+    assert_eq!(
+        fs::read(&source).unwrap(),
+        b"item=new\r\nquoted=\"next ${TOKEN} D:\\data\"\r\n"
+    );
+}
+
+#[test]
+fn cli_edit_files_refuses_invalid_utf8_oversize_and_outside_inputs() {
+    let temp = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    fs::write(temp.path().join("source.txt"), b"old\n").unwrap();
+    fs::write(temp.path().join("old.txt"), [0xff]).unwrap();
+    fs::write(temp.path().join("new.txt"), b"new").unwrap();
+
+    let invalid_utf8 = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args([
+            "prepare-text",
+            "source.txt",
+            "--edit-files",
+            "old.txt",
+            "new.txt",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(invalid_utf8.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&invalid_utf8.stderr).contains("not valid UTF-8"));
+
+    fs::write(outside.path().join("old.txt"), b"old").unwrap();
+    let outside_input = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args(["prepare-text", "source.txt", "--edit-files"])
+        .arg(outside.path().join("old.txt"))
+        .arg("new.txt")
+        .output()
+        .unwrap();
+    assert_eq!(outside_input.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&outside_input.stderr).contains("input path refused"));
+    assert_eq!(fs::read(temp.path().join("source.txt")).unwrap(), b"old\n");
+
+    let oversize = vec![b'x'; threadmoth::protocol::MAX_REQUEST_BYTES + 1];
+    fs::write(temp.path().join("large.txt"), oversize).unwrap();
+    let too_large = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args([
+            "prepare-text",
+            "source.txt",
+            "--edit-files",
+            "large.txt",
+            "new.txt",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(too_large.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&too_large.stderr).contains("exceeds"));
+}
+
+#[test]
+fn cli_edit_files_supports_explicit_exact_mixed_newlines() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("source.txt"), b"alpha\r\nbeta\n").unwrap();
+    fs::write(temp.path().join("old.txt"), b"alpha\r\nbeta\n").unwrap();
+    fs::write(temp.path().join("new.txt"), b"gamma\r\nbeta\n").unwrap();
+    let prepared = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args([
+            "prepare-text",
+            "source.txt",
+            "--edit-files",
+            "old.txt",
+            "new.txt",
+            "--newline-policy",
+            "exact",
+            "--output",
+            "plan.json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        prepared.status.success(),
+        "{}",
+        String::from_utf8_lossy(&prepared.stderr)
+    );
+    assert_eq!(
+        fs::read(temp.path().join("source.txt")).unwrap(),
+        b"alpha\r\nbeta\n"
+    );
+    let applied = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args(["apply-plan", "--plan", "plan.json"])
+        .output()
+        .unwrap();
+    assert!(
+        applied.status.success(),
+        "{}",
+        String::from_utf8_lossy(&applied.stderr)
+    );
+    assert_eq!(
+        fs::read(temp.path().join("source.txt")).unwrap(),
+        b"gamma\r\nbeta\n"
+    );
+}
+
+#[test]
+fn cli_prepare_text_rejects_mixed_inline_and_file_input_modes() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("source.txt"), b"old\n").unwrap();
+    fs::write(temp.path().join("old.txt"), b"old").unwrap();
+    fs::write(temp.path().join("new.txt"), b"new").unwrap();
+    let refused = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args([
+            "prepare-text",
+            "source.txt",
+            "--edit",
+            "old",
+            "new",
+            "--edit-files",
+            "old.txt",
+            "new.txt",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(refused.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("cannot be mixed"));
+    assert_eq!(fs::read(temp.path().join("source.txt")).unwrap(), b"old\n");
+}
+
+#[test]
+fn cli_refusal_reports_proven_newline_evidence_and_file_input_recovery() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("source.txt"), b"old\r\n").unwrap();
+    let refused = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args(["prepare-text", "source.txt", "--edit"])
+        .arg("old\n")
+        .arg("new")
+        .args(["--newline-policy", "exact"])
+        .output()
+        .unwrap();
+    assert_eq!(refused.status.code(), Some(2));
+    let certificate: serde_json::Value = serde_json::from_slice(&refused.stdout).unwrap();
+    assert_eq!(certificate["reason_code"], "TARGET_NOT_FOUND");
+    assert!(certificate["diff_summary"]
+        .as_str()
+        .unwrap()
+        .contains("line ending discrepancy"));
+    assert!(certificate["recovery"]["remedies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|remedy| remedy["kind"] == "use_file_based_text_input"));
+    assert_eq!(
+        fs::read(temp.path().join("source.txt")).unwrap(),
+        b"old\r\n"
+    );
+
+    let summary = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args(["prepare-text", "source.txt", "--edit"])
+        .arg("old\n")
+        .arg("new")
+        .args([
+            "--newline-policy",
+            "exact",
+            "--output",
+            "refused-plan.json",
+            "--summary",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(summary.status.code(), Some(2));
+    let summary = String::from_utf8_lossy(&summary.stdout);
+    assert!(summary.contains("line ending discrepancy"));
+    assert!(summary.contains("--edit-files OLD_FILE NEW_FILE"));
+    assert!(!temp.path().join("refused-plan.json").exists());
+    assert_eq!(
+        fs::read(temp.path().join("source.txt")).unwrap(),
+        b"old\r\n"
+    );
 }
 
 #[test]

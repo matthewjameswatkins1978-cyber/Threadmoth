@@ -62,7 +62,7 @@ pub enum Command {
 
     /// Prepare exact text replacements from the observed source without changing it.
     #[command(
-        after_help = "Example: threadmoth prepare-text settings.conf --edit OLD NEW --output plan.json --summary\nThen review: threadmoth explain --plan plan.json --format diff\nThen apply: threadmoth apply-plan --plan plan.json --summary\nUse --request for the complete source-aware JSON request."
+        after_help = "Example: threadmoth prepare-text settings.conf --edit OLD NEW --output plan.json --summary\nFor multiline text: threadmoth prepare-text settings.conf --edit-files old.txt new.txt --output plan.json --summary\nThen review: threadmoth explain --plan plan.json --format diff\nThen apply: threadmoth apply-plan --plan plan.json --summary\nUse --request for the complete source-aware JSON request."
     )]
     PrepareText(PrepareTextArgs),
 
@@ -134,7 +134,7 @@ pub enum Command {
 
     /// Inspect identity, a compact structural outline, or one bounded region.
     #[command(
-        after_help = "Examples:\n  threadmoth inspect PATH\n  threadmoth inspect PATH --outline\n  threadmoth inspect PATH --expand HANDLE"
+        after_help = "Examples:\n  threadmoth inspect PATH\n  threadmoth inspect PATH --json\n  threadmoth inspect PATH --outline\n  threadmoth inspect PATH --expand HANDLE"
     )]
     Inspect(InspectArgs),
 
@@ -200,6 +200,10 @@ pub struct InspectArgs {
     /// Maximum outline entries returned.
     #[arg(long, default_value_t = 64)]
     pub max_entries: usize,
+
+    /// Compatibility alias; inspect already emits JSON by default.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -323,6 +327,10 @@ pub struct PrepareTextArgs {
     /// Exact text to replace and its replacement; repeat for sequential edits.
     #[arg(long = "edit", num_args = 2, action = clap::ArgAction::Append, value_names = ["OLD", "NEW"])]
     pub edits: Vec<String>,
+
+    /// Read exact UTF-8 OLD and NEW text from files; repeat for sequential edits.
+    #[arg(long = "edit-files", num_args = 2, action = clap::ArgAction::Append, value_names = ["OLD_FILE", "NEW_FILE"], value_hint = ValueHint::FilePath)]
+    pub edit_files: Vec<std::path::PathBuf>,
 
     /// Derive uniform LF/CRLF from source, or require supplied bytes exactly for mixed endings.
     #[arg(long, value_enum)]

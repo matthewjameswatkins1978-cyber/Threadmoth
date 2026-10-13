@@ -177,7 +177,7 @@ threadmoth explain --plan plan.json --format diff
 threadmoth apply-plan --plan plan.json --summary
 ```
 
-Repeat `--edit OLD NEW` for ordered same-file edits. Uniform LF or CRLF is derived from the observed source, and LF-authored multiline text is adapted automatically. Use `--newline-policy exact` for mixed or newline-free sources when the supplied line endings are deliberately literal. Preparation reads the source but does not change it; the plan file is the explicit output. Review rechecks freshness and prints the apply step; application revalidates identity, authority, budgets and exact operations before writing, then returns the certificate.
+Repeat `--edit OLD NEW` for ordered same-file edits. For shell-safe multiline input, read exact UTF-8 text from workspace files with repeated `--edit-files OLD_FILE NEW_FILE` pairs; the combined input is bounded to 1 MiB and these pairs cannot be mixed with `--edit`. Uniform LF or CRLF is derived from the observed source, and LF-authored multiline text is adapted automatically. Use `--newline-policy exact` for mixed or newline-free sources when the supplied line endings are deliberately literal. Preparation reads the source and input files but does not change them; the new plan is the only file it creates. Review rechecks freshness and prints the apply step; application revalidates identity, authority, budgets and exact operations before writing, then returns the certificate.
 
 For MCP, `threadmoth_prepare_text` accepts `{file_path, edits:[{old,new}]}` and returns the same portable plan. Preview `plan.operations[0].request` with `threadmoth_preview`, then pass the unchanged plan to `threadmoth_apply_plan` after review. Missing and duplicate exact targets keep their refusal certificates. The complete `--request` JSON form remains available for advanced callers.
 
@@ -261,7 +261,7 @@ PHP includes PHP source and embedded PHP parsing. HCL support is source syntax o
 
 Unsupported languages do not make an ordinary UTF-8 text file unusable. Threadmoth can still offer explicit exact text, strict patch, bounded pattern or desired-state routes where applicable. It never silently downgrades a structured request to a weaker route.
 
-See [Coverage](docs/coverage.md) for the full 1.15.0 model and current refusal boundaries.
+See [Coverage](docs/coverage.md) for the full 1.16.0 model and current refusal boundaries.
 
 Providers locate candidates.
 
@@ -419,7 +419,7 @@ It does one job:
 
 Download the appropriate standalone binary from the **[latest GitHub release](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/releases/latest)** and put `threadmoth` on your `PATH`.
 
-Threadmoth **1.15.0** adds a compact `prepare-text PATH --edit OLD NEW` route, plan-file output, and actionable review/apply guidance for exact source-aware edits. It preserves caller-supplied targets, source-derived uniform line endings, guarded plans, stale checks and certificates. The latest-release page remains authoritative for published artifacts, including archive checksums and the release manifest.
+Threadmoth **1.16.0** adds bounded UTF-8 file inputs for exact source-aware edits, ordered `--edit-files` pairs, refusal exit code 2, structured exact-match recovery, and compatibility for `inspect --json` and omitted empty path-prefix budgets. It preserves 1.15 source-aware preparation, exact matching, guarded plans, stale checks and certificates; the protocol remains 1.4.0. The latest-release page remains authoritative for published artifacts, including archive checksums and the release manifest.
 
 Check the installation:
 

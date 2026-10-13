@@ -1,3 +1,4 @@
+use std::fs;
 use tempfile::TempDir;
 use threadmoth::engine::compute_sha256;
 use threadmoth::lifecycle::FileOperation;
@@ -31,6 +32,63 @@ fn text_request(path: &str, prefix: &str) -> Request {
             replacement: "after".into(),
         }),
     }
+}
+
+#[test]
+fn omitted_path_prefixes_match_empty_prefix_semantics_without_escaping_workspace() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("omitted.txt"), b"before\n").unwrap();
+    fs::write(temp.path().join("explicit.txt"), b"before\n").unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let mut omitted_request = text_request("omitted.txt", "allowed");
+    omitted_request.budget = EffectBudget::default();
+    let mut omitted_value = serde_json::to_value(&omitted_request).unwrap();
+    omitted_value["budget"]
+        .as_object_mut()
+        .unwrap()
+        .remove("allowed_path_prefixes");
+    let omitted: Request = serde_json::from_value(omitted_value).unwrap();
+    assert!(omitted.budget.allowed_path_prefixes.is_empty());
+
+    let mut explicit = text_request("explicit.txt", "allowed");
+    explicit.budget = EffectBudget::default();
+    let explicit: Request =
+        serde_json::from_value(serde_json::to_value(explicit).unwrap()).unwrap();
+    assert!(explicit.budget.allowed_path_prefixes.is_empty());
+
+    let omitted_result = execute_request(&workspace, &omitted, false);
+    let explicit_result = execute_request(&workspace, &explicit, false);
+    assert_eq!(omitted_result.outcome, Outcome::Applied);
+    assert_eq!(explicit_result.outcome, Outcome::Applied);
+    assert_eq!(
+        fs::read(temp.path().join("omitted.txt")).unwrap(),
+        fs::read(temp.path().join("explicit.txt")).unwrap()
+    );
+
+    let outside = TempDir::new().unwrap();
+    let outside_path = outside.path().join("outside.txt");
+    fs::write(&outside_path, b"before\n").unwrap();
+    let mut outside_omitted = text_request(&outside_path.to_string_lossy(), "allowed");
+    outside_omitted.budget = EffectBudget::default();
+    let mut outside_value = serde_json::to_value(&outside_omitted).unwrap();
+    outside_value["budget"]
+        .as_object_mut()
+        .unwrap()
+        .remove("allowed_path_prefixes");
+    let outside_omitted: Request = serde_json::from_value(outside_value).unwrap();
+    let mut outside_explicit = text_request(&outside_path.to_string_lossy(), "allowed");
+    outside_explicit.budget = EffectBudget::default();
+
+    for request in [&outside_omitted, &outside_explicit] {
+        let refused = execute_request(&workspace, request, false);
+        assert_eq!(refused.outcome, Outcome::Refused);
+        assert_eq!(
+            refused.reason_code.as_deref(),
+            Some("WORKSPACE_ROOT_MISMATCH")
+        );
+    }
+    assert_eq!(fs::read(outside_path).unwrap(), b"before\n");
 }
 
 fn assert_refused_unchanged(workspace: &Workspace, base: &std::path::Path, path: &str) {

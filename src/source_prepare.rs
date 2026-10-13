@@ -128,9 +128,25 @@ pub fn prepare(workspace: &Workspace, request: &SourceAwareTextRequest) -> Sourc
             resolved_edits: request.edits.len(),
             plan,
         })),
-        Err(certificate) => SourcePreparationResult::Refused {
-            certificate: Box::new(certificate),
-        },
+        Err(mut certificate) => {
+            if certificate.reason_code.as_deref() == Some("TARGET_NOT_FOUND") {
+                let recovery =
+                    certificate
+                        .recovery
+                        .get_or_insert_with(|| crate::protocol::RecoveryInfo {
+                            requires_choice: true,
+                            remedies: Vec::new(),
+                        });
+                recovery.remedies.push(crate::protocol::RecoveryRemedy {
+                    kind: "use_file_based_text_input".into(),
+                    description: "If multiline CLI arguments may have been altered by shell quoting, place the exact UTF-8 old and new text in workspace files and retry with: threadmoth prepare-text PATH --edit-files OLD_FILE NEW_FILE --output PLAN --summary. This is an alternate input route, not a fuzzy target search; the refusal does not establish that shell quoting caused the mismatch.".into(),
+                    request_patch: None,
+                });
+            }
+            SourcePreparationResult::Refused {
+                certificate: Box::new(certificate),
+            }
+        }
     }
 }
 
