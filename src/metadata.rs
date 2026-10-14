@@ -644,6 +644,7 @@ pub fn orientation(workspace: &str) -> Value {
         "text_edit": {
             "cli": "threadmoth prepare-text PATH --edit OLD NEW --output PLAN --summary",
             "cli_file_input": "threadmoth prepare-text PATH --edit-files OLD_FILE NEW_FILE --output PLAN --summary",
+            "cli_multi_file": "threadmoth prepare-edits CHANGES --output PLAN --summary",
             "review": "threadmoth explain --plan PLAN --format diff",
             "apply": "threadmoth apply-plan --plan PLAN --summary",
             "mcp": ["threadmoth_prepare_text", "threadmoth_preview", "threadmoth_apply_plan"],

@@ -24,8 +24,8 @@ use threadmoth::{
 use cli::{
     ApplyPlanArgs, BenchmarkArgs, BenchmarkProfile, CapabilitiesArgs, Cli, Command,
     CompletionShell, CreateFileArgs, DoctorArgs, ExplainFormat, HelpArgs, InspectArgs, PlanArgs,
-    PrepareTextArgs, RecoverArgs, ReplaceExactArgs, SchemaArgs, SetStringArgs, SetValueArgs,
-    SuggestArgs, UpdateArgs, THREADMOTH_VERSION,
+    PrepareEditsArgs, PrepareTextArgs, RecoverArgs, ReplaceExactArgs, SchemaArgs, SetStringArgs,
+    SetValueArgs, SuggestArgs, UpdateArgs, THREADMOTH_VERSION,
 };
 
 fn main() {
@@ -43,6 +43,7 @@ fn main() {
         Command::Plan(args) => run_plan(args),
         Command::ApplyPlan(args) => run_apply_plan(args),
         Command::PrepareText(args) => run_prepare_text(args),
+        Command::PrepareEdits(args) => run_prepare_edits(args),
         Command::TransactionPreview(args) => {
             run_transaction(args.request.as_deref(), true, args.summary)
         }
@@ -528,6 +529,162 @@ fn run_prepare_text(args: PrepareTextArgs) {
             }
             exit_for_outcome(certificate.outcome);
         }
+    }
+}
+
+fn run_prepare_edits(args: PrepareEditsArgs) {
+    if args.summary && args.output.is_none() {
+        eprintln!("--summary requires --output so the prepared plan can be reviewed and applied");
+        std::process::exit(2);
+    }
+    if args.document.is_absolute()
+        || args.document.components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::ParentDir
+                    | std::path::Component::RootDir
+                    | std::path::Component::Prefix(_)
+            )
+        })
+    {
+        eprintln!("changes document must be named by a workspace-relative path without `..`");
+        std::process::exit(2);
+    }
+    let workspace = Workspace::new(env::current_dir().unwrap_or_else(|_| ".".into()))
+        .unwrap_or_else(|error| {
+            eprintln!("workspace initialization failed: {error}");
+            std::process::exit(3)
+        });
+    let document_path = args.document.to_string_lossy().replace('\\', "/");
+    let document_path = match workspace
+        .resolve_namespaced_path(&document_path, &threadmoth::path::PathNamespace::Native)
+    {
+        Ok(path) => path,
+        Err(error) => {
+            eprintln!("changes document path refused: {error}");
+            std::process::exit(2)
+        }
+    };
+    let bytes = workspace.read_file(&document_path).unwrap_or_else(|error| {
+        eprintln!("cannot read changes document {document_path}: {error}");
+        std::process::exit(3)
+    });
+    if bytes.len() > threadmoth::protocol::MAX_REQUEST_BYTES {
+        eprintln!(
+            "changes document exceeds {} bytes (actual: {})",
+            threadmoth::protocol::MAX_REQUEST_BYTES,
+            bytes.len()
+        );
+        std::process::exit(2);
+    }
+    let document = String::from_utf8(bytes).unwrap_or_else(|_| {
+        eprintln!("changes document must be valid UTF-8");
+        std::process::exit(2)
+    });
+    let prepared = match threadmoth::edit_document::prepare(&workspace, &document) {
+        Ok(prepared) => prepared,
+        Err(threadmoth::edit_document::EditDocumentFailure::Invalid(diagnostic)) => {
+            if args.summary {
+                println!("THREADMOTH EDIT PREPARATION");
+                println!("Result       REFUSED");
+                println!("Reason       {}", diagnostic.reason_code);
+                println!("Line         {}", diagnostic.line);
+                println!("Next step    {}", diagnostic.message);
+            } else {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "outcome": "REFUSED",
+                        "reason_code": diagnostic.reason_code,
+                        "line": diagnostic.line,
+                        "message": diagnostic.message
+                    }))
+                    .unwrap()
+                );
+            }
+            std::process::exit(2)
+        }
+        Err(threadmoth::edit_document::EditDocumentFailure::Refused(certificate)) => {
+            emit_transaction_certificate(&certificate, true, args.summary);
+            exit_for_outcome(certificate.outcome.clone());
+            unreachable!()
+        }
+    };
+
+    let serialized_plan_bytes = serde_json::to_vec_pretty(&prepared.plan)
+        .expect("prepared plan serialises")
+        .len();
+    if serialized_plan_bytes > threadmoth::protocol::MAX_PLAN_BYTES {
+        eprintln!(
+            "prepared plan exceeds {} bytes (actual: {})",
+            threadmoth::protocol::MAX_PLAN_BYTES,
+            serialized_plan_bytes
+        );
+        std::process::exit(2);
+    }
+
+    if let Some(output) = args.output.as_deref() {
+        if output_resolves_to_source(output, &document_path, &workspace)
+            || prepared.plan.operations.iter().any(|operation| {
+                output_resolves_to_source(output, &operation.file_path, &workspace)
+            })
+        {
+            eprintln!(
+                "plan output must not resolve to the changes document or any edited source file"
+            );
+            std::process::exit(2);
+        }
+        let plan = serde_json::to_vec_pretty(&prepared.plan).expect("prepared plan serialises");
+        let mut file = match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(output)
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                eprintln!(
+                    "plan output already exists; choose a new path: {}",
+                    output.display()
+                );
+                std::process::exit(2);
+            }
+            Err(error) => {
+                eprintln!("cannot create plan {}: {error}", output.display());
+                std::process::exit(3);
+            }
+        };
+        if let Err(error) = file.write_all(&plan) {
+            eprintln!("cannot write plan {}: {error}", output.display());
+            std::process::exit(3);
+        }
+        if args.summary {
+            println!("THREADMOTH EDIT PREPARATION");
+            println!("Files          {}", prepared.file_count);
+            println!("Exact edits    {}", prepared.edit_count);
+            println!("Input bytes    {}", prepared.input_bytes);
+            println!("Plan ID        {}", prepared.plan.plan_id);
+            print_edit_plan_commands(output);
+        } else {
+            println!("{}", serde_json::to_string_pretty(&prepared.plan).unwrap());
+        }
+    } else {
+        println!("{}", serde_json::to_string_pretty(&prepared.plan).unwrap());
+    }
+}
+
+fn print_edit_plan_commands(output: &Path) {
+    if let Some(quoted_plan_path) = quote_plan_output_path(output) {
+        println!(
+            "Review ({PLAN_COMMAND_SHELL}): threadmoth explain --plan {quoted_plan_path} --format diff"
+        );
+        println!("Apply ({PLAN_COMMAND_SHELL}): threadmoth apply-plan --plan {quoted_plan_path}");
+    } else {
+        println!(
+            "Review ({PLAN_COMMAND_SHELL}): unavailable (not executable; plan path cannot be represented faithfully as a safe single-line command)"
+        );
+        println!(
+            "Apply ({PLAN_COMMAND_SHELL}): unavailable (not executable; plan path cannot be represented faithfully as a safe single-line command)"
+        );
     }
 }
 
@@ -1255,6 +1412,7 @@ fn print_examples(topic: Option<&str>) {
             "intent": "Replace exact text using source-aware preparation.",
             "prepare": "threadmoth prepare-text PATH --edit OLD NEW --output PLAN --summary",
             "prepare_from_files": "threadmoth prepare-text PATH --edit-files OLD_FILE NEW_FILE --output PLAN --summary",
+            "prepare_multiple_files": "threadmoth prepare-edits CHANGES --output PLAN --summary",
             "review": "threadmoth explain --plan PLAN --format diff",
             "apply": "threadmoth apply-plan --plan PLAN --summary",
             "recovery": "If review says stale, prepare again from current source with the same intent.",
@@ -1363,6 +1521,7 @@ fn run_orient(json_output: bool) {
         println!("Workflow: preview → mutate → verify certificate");
         println!("Text edits: prepare-text PATH --edit OLD NEW --output PLAN --summary → review with explain --plan PLAN --format diff → apply-plan --plan PLAN");
         println!("Multiline intent: use --edit-files OLD_FILE NEW_FILE for faithful UTF-8 input.");
+        println!("Multi-file intent: prepare-edits CHANGES --output PLAN --summary; exact SEARCH/REPLACE blocks remain guarded.");
         println!("Discover: capabilities · suggest PATH · help TARGET");
         println!("Confinement: workspace and effect budget; refusals do not write");
         println!("Exit codes: success 0 · refusal 2 · runtime failure 3");

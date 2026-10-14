@@ -8,7 +8,7 @@ pub const THREADMOTH_VERSION: &str = env!("CARGO_PKG_VERSION");
     version = THREADMOTH_VERSION,
     about = "Fast, deterministic structural search and rewrite for AI agents.",
     long_about = "Threadmoth changes exactly the state a request authorizes, refuses ambiguity, and returns a certificate describing what was observed and what actually changed.",
-    after_help = "Start a text edit: threadmoth prepare-text PATH --edit OLD NEW --output plan.json --summary\nReview it: threadmoth explain --plan plan.json --format diff\nApply it: threadmoth apply-plan --plan plan.json --summary\nDiscover structured edits: threadmoth suggest PATH\nInspect capabilities: threadmoth capabilities\nGenerate shell completion: threadmoth completions <shell>\nRun checks: threadmoth benchmark --tough",
+    after_help = "Start a text edit: threadmoth prepare-text PATH --edit OLD NEW --output plan.json --summary\nReview it: threadmoth explain --plan plan.json --format diff\nApply it: threadmoth apply-plan --plan plan.json --summary\nFor several files: threadmoth prepare-edits changes.tm --output plan.json --summary\nDiscover structured edits: threadmoth suggest PATH\nInspect capabilities: threadmoth capabilities\nGenerate shell completion: threadmoth completions <shell>\nRun checks: threadmoth benchmark --tough",
     propagate_version = true,
     disable_help_subcommand = true,
     arg_required_else_help = true
@@ -65,6 +65,12 @@ pub enum Command {
         after_help = "Example: threadmoth prepare-text settings.conf --edit OLD NEW --output plan.json --summary\nFor multiline text: threadmoth prepare-text settings.conf --edit-files old.txt new.txt --output plan.json --summary\nThen review: threadmoth explain --plan plan.json --format diff\nThen apply: threadmoth apply-plan --plan plan.json --summary\nUse --request for the complete source-aware JSON request."
     )]
     PrepareText(PrepareTextArgs),
+
+    /// Prepare strict exact edits across several workspace files without writing them.
+    #[command(
+        after_help = "Input: threadmoth prepare-edits changes.tm --output plan.json --summary\nReview: threadmoth explain --plan plan.json --format diff\nApply: threadmoth apply-plan --plan plan.json --summary\nUse one *** File: PATH section per workspace-relative file and ordered SEARCH/REPLACE blocks within it."
+    )]
+    PrepareEdits(PrepareEditsArgs),
 
     /// Legacy alias for `transact --preview`.
     #[command(hide = true)]
@@ -347,6 +353,21 @@ pub struct PrepareTextArgs {
     /// Read the complete source-aware request from this JSON file, or stdin when omitted.
     #[arg(short = 'r', long, value_hint = ValueHint::FilePath)]
     pub request: Option<std::path::PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct PrepareEditsArgs {
+    /// Workspace-relative UTF-8 changes.tm document.
+    #[arg(value_name = "DOCUMENT", value_hint = ValueHint::FilePath)]
+    pub document: std::path::PathBuf,
+
+    /// Write the guarded multi-file plan to this new file.
+    #[arg(short, long, value_hint = ValueHint::FilePath)]
+    pub output: Option<std::path::PathBuf>,
+
+    /// Print compact review/apply commands instead of the complete plan (requires --output).
+    #[arg(long)]
+    pub summary: bool,
 }
 
 #[derive(Args, Debug)]

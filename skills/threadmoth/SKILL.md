@@ -7,7 +7,7 @@ compatibility: >-
   Works with any agent that can read files and run local commands.
 metadata:
   author: matthewjameswatkins1978-cyber
-  version: "1.16.1"
+  version: "1.17.0"
 ---
 
 # Threadmoth
