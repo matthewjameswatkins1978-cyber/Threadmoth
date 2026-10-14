@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.18.0 - Source-aware multi-file review
+
+### Added
+
+- `prepare-edits --review` displays the existing bounded source diff during preparation while leaving application as a separate command. Truncated reviews include an explicit full-review command.
+- `threadmoth schema <scope>` now returns only the selected request, response, certificate, transaction, or metadata contract; the no-scope form still returns the complete schema bundle.
+
+### Compatibility
+
+- Exact matching, mutation engine, protocol 1.4.0, MCP interfaces, source guards, and certificate formats are unchanged.
+
 ## 1.17.0 - Compact exact multi-file edit documents
 
 ### Added

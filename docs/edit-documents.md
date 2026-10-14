@@ -2,9 +2,10 @@
 
 The prepare-edits command accepts one compact UTF-8 document for an ordered, guarded transaction across workspace files. Preparation never writes source files; the resulting plan is reviewed and applied through the existing plan workflow.
 
-    threadmoth prepare-edits changes.tm --output prepared.json --summary
-    threadmoth explain --plan prepared.json --format diff
+    threadmoth prepare-edits changes.tm --output prepared.json --review
     threadmoth apply-plan --plan prepared.json --summary
+
+`--review` prepares the plan, shows the existing bounded diff, and prints the separate Apply command. Preparation still does not write source files. If a diff is truncated, Threadmoth marks it and prints a shell-safe `explain --plan ... --format diff --full` command for the complete review. Applying remains a separate action.
 
 A document uses one file section per workspace-relative target. Put edits for the same file in execution order within its section:
 

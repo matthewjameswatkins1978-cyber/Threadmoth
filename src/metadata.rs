@@ -644,8 +644,8 @@ pub fn orientation(workspace: &str) -> Value {
         "text_edit": {
             "cli": "threadmoth prepare-text PATH --edit OLD NEW --output PLAN --summary",
             "cli_file_input": "threadmoth prepare-text PATH --edit-files OLD_FILE NEW_FILE --output PLAN --summary",
-            "cli_multi_file": "threadmoth prepare-edits CHANGES --output PLAN --summary",
-            "review": "threadmoth explain --plan PLAN --format diff",
+            "cli_multi_file": "threadmoth prepare-edits CHANGES --output PLAN --review",
+            "review": "prepare-edits --review shows the bounded diff; use explain --plan PLAN --format diff --full if truncated",
             "apply": "threadmoth apply-plan --plan PLAN --summary",
             "mcp": ["threadmoth_prepare_text", "threadmoth_preview", "threadmoth_apply_plan"],
             "sequences": "repeat --edit OLD NEW; each target must remain exact and unambiguous"
@@ -1779,12 +1779,25 @@ fn digest_without_id(value: &Value) -> String {
         .into()
 }
 
+pub fn is_schema_scope(scope: &str) -> bool {
+    matches!(
+        scope,
+        "all"
+            | "request"
+            | "response"
+            | "certificate"
+            | "transaction_request"
+            | "transaction_certificate"
+            | "metadata"
+    )
+}
+
 pub fn schema(scope: Option<&str>) -> Value {
     let mut document = json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": format!("Threadmoth {} Protocol Schemas", env!("CARGO_PKG_VERSION")),
         "protocol_version": PROTOCOL_VERSION,
-        "scope": scope.unwrap_or("all"),
+        "scope": "all",
         "request": schema_for!(Request),
         "response": schema_for!(crate::protocol::Certificate),
         "certificate": schema_for!(crate::protocol::Certificate),
@@ -1792,6 +1805,17 @@ pub fn schema(scope: Option<&str>) -> Value {
         "transaction_certificate": schema_for!(crate::protocol::TransactionCertificate),
         "metadata": capabilities(),
     });
+    if let Some(scope) = scope.filter(|scope| *scope != "all" && is_schema_scope(scope)) {
+        let selected = document[scope].clone();
+        let mut scoped = json!({
+            "$schema": document["$schema"],
+            "title": document["title"],
+            "protocol_version": document["protocol_version"],
+            "scope": scope,
+        });
+        scoped[scope] = selected;
+        document = scoped;
+    }
     let schema_id = digest_without_id(&document);
     document["schema_id"] = Value::String(schema_id);
     document
