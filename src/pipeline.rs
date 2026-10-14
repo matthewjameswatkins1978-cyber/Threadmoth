@@ -3711,20 +3711,24 @@ fn request_id(r: &Request) -> String {
     }
 }
 
-fn effect_usage(
-    original: &[u8],
-    candidate: &[u8],
-    edits: &[ByteEdit],
-    _budget: &EffectBudget,
-) -> EffectUsage {
-    let changed_bytes = edits
+pub(crate) fn changed_byte_effect(edits: &[ByteEdit]) -> usize {
+    edits
         .iter()
         .map(|edit| {
             edit.end
                 .saturating_sub(edit.start)
                 .max(edit.replacement.len())
         })
-        .sum();
+        .sum()
+}
+
+fn effect_usage(
+    original: &[u8],
+    candidate: &[u8],
+    edits: &[ByteEdit],
+    _budget: &EffectBudget,
+) -> EffectUsage {
+    let changed_bytes = changed_byte_effect(edits);
     let changed_lines = changed_line_count(original, candidate);
     EffectUsage {
         files: usize::from(original != candidate),

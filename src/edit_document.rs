@@ -12,7 +12,7 @@ use crate::{
         TransactionRequest, MAX_PLAN_BYTES, MAX_PLAN_OPERATIONS, MAX_REQUEST_BYTES,
         PROTOCOL_VERSION,
     },
-    provider::text::{NewlinePolicy, TextOperation, TextReplacementIntent},
+    provider::text::{NewlinePolicy, TextOperation, TextProvider, TextReplacementIntent},
     workspace::Workspace,
 };
 use serde::{Deserialize, Serialize};
@@ -20,6 +20,7 @@ use std::collections::HashSet;
 
 pub const MAX_EDIT_DOCUMENT_FILES: usize = 64;
 pub const MAX_EDIT_DOCUMENT_EDITS: usize = MAX_PLAN_OPERATIONS;
+pub const MAX_EDIT_DOCUMENT_EDITS_PER_FILE: usize = crate::source_prepare::MAX_SOURCE_EDITS;
 
 const FILE_PREFIX: &str = "*** File: ";
 const SEARCH: &str = "<<<<<<< SEARCH";
@@ -142,6 +143,14 @@ pub fn parse(document: &str) -> Result<Vec<EditDocumentFile>, EditDocumentDiagno
             index += 1;
             edits.push(TextReplacementIntent { old, new });
             total_edits += 1;
+            if edits.len() > MAX_EDIT_DOCUMENT_EDITS_PER_FILE {
+                return Err(diagnostic(
+                    edit_line,
+                    format!(
+                        "file section exceeds the per-file edit limit of {MAX_EDIT_DOCUMENT_EDITS_PER_FILE}"
+                    ),
+                ));
+            }
             if total_edits > MAX_EDIT_DOCUMENT_EDITS {
                 return Err(diagnostic(
                     edit_line,
@@ -231,6 +240,32 @@ fn workspace_scope(path: &str) -> String {
         .unwrap_or_default()
 }
 
+fn path_scope_refusal(
+    workspace: &Workspace,
+    request: &Request,
+    authority_root: &str,
+) -> EditDocumentFailure {
+    let mut scoped_request = request.clone();
+    scoped_request.budget.allowed_path_prefixes = vec![authority_root.into()];
+    let transaction = TransactionRequest {
+        version: PROTOCOL_VERSION.into(),
+        transaction_id: format!("{}-scope-check", request.request_id),
+        requests: vec![scoped_request],
+        budget: EffectBudget {
+            max_files: Some(1),
+            allowed_path_prefixes: vec![authority_root.into()],
+            ..EffectBudget::default()
+        },
+    };
+    match prepare_transaction_plan(workspace, &transaction, Vec::new()) {
+        Err(certificate) => EditDocumentFailure::Refused(Box::new(certificate)),
+        Ok(_) => EditDocumentFailure::Invalid(diagnostic(
+            1,
+            "target resolves outside its validated file-section authority root",
+        )),
+    }
+}
+
 fn diagnostic(line: usize, message: impl Into<String>) -> EditDocumentDiagnostic {
     EditDocumentDiagnostic {
         reason_code: "INVALID_INPUT".into(),
@@ -283,13 +318,24 @@ pub fn prepare(
                 ),
             )));
         }
-        allowed_paths.push(workspace_scope(&path));
-        let changed_bytes = file
-            .edits
-            .iter()
-            .map(|edit| edit.old.len().saturating_add(edit.new.len()))
-            .sum::<usize>()
-            .max(1);
+        let authority_root = workspace_scope(&path);
+        let source = workspace.read_file(&path).ok();
+        let expected_pre_hash = source.as_deref().map(compute_sha256);
+        let changed_bytes = source
+            .as_deref()
+            .and_then(|source| {
+                TextProvider::plan(
+                    source,
+                    &TextOperation::ReplaceSequence {
+                        edits: file.edits.clone(),
+                        newline_policy: NewlinePolicy::Source,
+                    },
+                    &Cardinality::ExactlyOne,
+                )
+                .ok()
+            })
+            .map(|edits| crate::pipeline::changed_byte_effect(&edits))
+            .unwrap_or_default();
         let changed_lines = file
             .edits
             .iter()
@@ -305,15 +351,15 @@ pub fn prepare(
             max_changed_regions: Some(changed_lines.max(file.edits.len())),
             max_changed_lines: Some(changed_lines),
             max_changed_bytes: Some(changed_bytes),
-            allowed_path_prefixes: vec![workspace_scope(&path)],
+            allowed_path_prefixes: vec![path.clone()],
         };
-        requests.push(Request {
+        let request = Request {
             version: PROTOCOL_VERSION.into(),
             request_id: format!("{transaction_id}-{}", file_index + 1),
             allow_generated: false,
-            file_path: path,
+            file_path: path.clone(),
             namespace: crate::path::PathNamespace::Native,
-            expected_pre_hash: None,
+            expected_pre_hash,
             region_guard: None,
             candidate_guard: None,
             cardinality: Cardinality::ExactlyOne,
@@ -322,20 +368,21 @@ pub fn prepare(
                 edits: file.edits.clone(),
                 newline_policy: NewlinePolicy::Source,
             }),
-        });
+        };
+        if !matches!(
+            workspace.is_within_allowed_prefix(&path, &authority_root),
+            Ok(true)
+        ) {
+            return Err(path_scope_refusal(workspace, &request, &authority_root));
+        }
+        allowed_paths.push(path);
+        requests.push(request);
     }
 
     let changed_bytes = requests
         .iter()
-        .flat_map(|request| match &request.operation {
-            OperationPayload::Text(TextOperation::ReplaceSequence { edits, .. }) => edits
-                .iter()
-                .map(|edit| edit.old.len().saturating_add(edit.new.len()))
-                .collect::<Vec<_>>(),
-            _ => Vec::new(),
-        })
-        .sum::<usize>()
-        .max(1);
+        .map(|request| request.budget.max_changed_bytes.unwrap_or_default())
+        .sum::<usize>();
     let changed_lines = requests
         .iter()
         .map(|request| request.budget.max_changed_lines.unwrap_or_default())

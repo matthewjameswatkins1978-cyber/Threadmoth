@@ -57,12 +57,34 @@ fn utf8_and_escaped_delimiters_round_trip_as_literal_content() {
 
 #[test]
 fn parser_enforces_file_edit_and_document_bounds() {
-    use threadmoth::edit_document::{MAX_EDIT_DOCUMENT_EDITS, MAX_EDIT_DOCUMENT_FILES};
-    let mut many_edits = String::from("*** File: x.txt\n");
-    for _ in 0..=MAX_EDIT_DOCUMENT_EDITS {
-        many_edits.push_str(&block("x", "y"));
+    use threadmoth::edit_document::{
+        MAX_EDIT_DOCUMENT_EDITS, MAX_EDIT_DOCUMENT_EDITS_PER_FILE, MAX_EDIT_DOCUMENT_FILES,
+    };
+    let mut excessive_per_file = String::from("*** File: x.txt\n");
+    for _ in 0..=MAX_EDIT_DOCUMENT_EDITS_PER_FILE {
+        excessive_per_file.push_str(&block("x", "y"));
     }
-    assert!(threadmoth::edit_document::parse(&many_edits).is_err());
+    let per_file_error = threadmoth::edit_document::parse(&excessive_per_file).unwrap_err();
+    assert_eq!(
+        per_file_error.line,
+        2 + MAX_EDIT_DOCUMENT_EDITS_PER_FILE * 5
+    );
+    assert!(per_file_error.message.contains("per-file edit limit of 64"));
+
+    let mut many_edits = String::new();
+    let mut remaining = MAX_EDIT_DOCUMENT_EDITS + 1;
+    let mut file_index = 0;
+    while remaining > 0 {
+        let file_edits = remaining.min(MAX_EDIT_DOCUMENT_EDITS_PER_FILE);
+        many_edits.push_str(&format!("*** File: {file_index}.txt\n"));
+        for _ in 0..file_edits {
+            many_edits.push_str(&block("x", "y"));
+        }
+        remaining -= file_edits;
+        file_index += 1;
+    }
+    let total_error = threadmoth::edit_document::parse(&many_edits).unwrap_err();
+    assert!(total_error.message.contains("edit count exceeds"));
 
     let many_files = (0..=MAX_EDIT_DOCUMENT_FILES)
         .map(|index| format!("*** File: {index}.txt\n{}", block("x", "y")))

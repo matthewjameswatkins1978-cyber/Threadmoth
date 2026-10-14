@@ -310,6 +310,191 @@ fn junction_escape_is_refused_and_safe_internal_junction_is_allowed() {
 }
 
 #[test]
+fn crlf_and_lf_multiline_edits_use_exact_prepared_effect_budgets() {
+    use threadmoth::protocol::TransactionCertificate;
+
+    let temp = TempDir::new().unwrap();
+    fs::create_dir_all(temp.path().join("src")).unwrap();
+    fs::write(temp.path().join("crlf.txt"), b"x\r\nuntouched\r\n").unwrap();
+    fs::write(temp.path().join("lf.txt"), b"y\nkeep\n").unwrap();
+    let document = format!(
+        "{}{}",
+        section("crlf.txt", &[("x", "a\nb\nc\nd\ne")]),
+        section("lf.txt", &[("y", "1\n2\n3\n4\n5")]),
+    );
+    fs::write(temp.path().join("changes.tm"), document).unwrap();
+
+    let prepare = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .args([
+            "prepare-edits",
+            "changes.tm",
+            "--output",
+            "plan.json",
+            "--summary",
+        ])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    assert!(
+        prepare.status.success(),
+        "{}",
+        String::from_utf8_lossy(&prepare.stdout)
+    );
+    let plan: threadmoth::protocol::PreparedPlan =
+        serde_json::from_slice(&fs::read(temp.path().join("plan.json")).unwrap()).unwrap();
+    assert_eq!(plan.operations.len(), 2);
+    let expected_effects = [13, 9];
+    for (operation, expected) in plan.operations.iter().zip(expected_effects) {
+        let observed_effect = operation
+            .edits
+            .iter()
+            .map(|edit| edit.delete_len.max(edit.replacement.len()))
+            .sum::<usize>();
+        assert_eq!(observed_effect, expected);
+        assert_eq!(operation.request.budget.max_changed_bytes, Some(expected));
+        assert_eq!(
+            operation.request.expected_pre_hash.as_deref(),
+            Some(operation.pre_hash.as_str())
+        );
+    }
+    assert_eq!(plan.budget.max_changed_bytes, Some(22));
+
+    let review = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .args(["explain", "--plan", "plan.json", "--format", "diff"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    assert!(
+        review.status.success(),
+        "{}",
+        String::from_utf8_lossy(&review.stderr)
+    );
+    let review_text = String::from_utf8_lossy(&review.stdout);
+    assert!(review_text.contains("-x"), "{review_text}");
+    assert!(review_text.contains("+a"), "{review_text}");
+    assert!(review_text.contains("+1"), "{review_text}");
+
+    let apply = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .args(["apply-plan", "--plan", "plan.json"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    assert!(
+        apply.status.success(),
+        "{}",
+        String::from_utf8_lossy(&apply.stdout)
+    );
+    let certificate: TransactionCertificate = serde_json::from_slice(&apply.stdout).unwrap();
+    assert_eq!(certificate.outcome, Outcome::Applied);
+    assert_eq!(
+        certificate.transaction_guarantee,
+        "transactional_with_rollback"
+    );
+    assert_eq!(certificate.certificates.len(), 2);
+    assert_eq!(certificate.certificates[0].effect.changed_bytes, 13);
+    assert_eq!(certificate.certificates[1].effect.changed_bytes, 9);
+    assert_eq!(
+        certificate
+            .certificates
+            .iter()
+            .map(|item| item.effect.changed_bytes)
+            .sum::<usize>(),
+        22
+    );
+    for item in &certificate.certificates {
+        assert!(item.effect.passed);
+        assert!(!item.preservation.unrelated_bytes_changed);
+    }
+    assert_eq!(
+        fs::read(temp.path().join("crlf.txt")).unwrap(),
+        b"a\r\nb\r\nc\r\nd\r\ne\r\nuntouched\r\n"
+    );
+    assert_eq!(
+        fs::read(temp.path().join("lf.txt")).unwrap(),
+        b"1\n2\n3\n4\n5\nkeep\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn exact_file_scopes_allow_multiple_siblings_and_internal_aliases() {
+    use threadmoth::edit_document::EditDocumentFailure;
+
+    let temp = TempDir::new().unwrap();
+    fs::create_dir_all(temp.path().join("src/real")).unwrap();
+    fs::write(temp.path().join("src/one.txt"), b"old\n").unwrap();
+    fs::write(temp.path().join("src/two.txt"), b"old\n").unwrap();
+    fs::write(temp.path().join("src/real/target.txt"), b"old\n").unwrap();
+    fs::write(temp.path().join("src/sibling.txt"), b"keep\n").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(
+        temp.path().join("src/real"),
+        temp.path().join("src/internal-alias"),
+    )
+    .unwrap();
+    #[cfg(windows)]
+    {
+        let link = temp.path().join("src/internal-alias");
+        let target = temp.path().join("src/real");
+        let command = format!(r#"mklink /J "{}" "{}""#, link.display(), target.display());
+        let output = Command::new("cmd").args(["/C", &command]).output().unwrap();
+        assert!(
+            output.status.success(),
+            "junction setup failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let workspace = Workspace::new(temp.path()).unwrap();
+    let document = format!(
+        "{}{}{}",
+        section("src/one.txt", &[("old", "one")]),
+        section("src/two.txt", &[("old", "two")]),
+        section("src/internal-alias/target.txt", &[("old", "alias")]),
+    );
+    let prepared = prepared(&workspace, &document);
+    let expected_scopes = [
+        "src/one.txt",
+        "src/two.txt",
+        "src/internal-alias/target.txt",
+    ];
+    assert_eq!(prepared.plan.budget.allowed_path_prefixes.len(), 3);
+    for (operation, expected_scope) in prepared.plan.operations.iter().zip(expected_scopes) {
+        assert_eq!(
+            operation.request.budget.allowed_path_prefixes,
+            vec![String::from(expected_scope)]
+        );
+        assert!(!workspace
+            .is_within_allowed_prefix("src/sibling.txt", expected_scope)
+            .unwrap());
+    }
+    assert_eq!(prepared.plan.budget.allowed_path_prefixes, expected_scopes);
+    assert!(workspace
+        .is_within_allowed_prefix(
+            "src/internal-alias/target.txt",
+            "src/internal-alias/target.txt"
+        )
+        .unwrap());
+    assert!(
+        matches!(apply_prepared_plan(&workspace, &prepared.plan), PlanApplyResult::Transaction(certificate) if certificate.outcome == Outcome::Applied)
+    );
+    assert_eq!(
+        fs::read(temp.path().join("src/real/target.txt")).unwrap(),
+        b"alias\n"
+    );
+
+    let duplicate_canonical_target = format!(
+        "{}{}",
+        section("src/real/target.txt", &[("old", "real")]),
+        section("src/internal-alias/target.txt", &[("old", "alias")]),
+    );
+    assert!(matches!(
+        threadmoth::edit_document::prepare(&workspace, &duplicate_canonical_target),
+        Err(EditDocumentFailure::Invalid(diagnostic))
+            if diagnostic.message.contains("same workspace target")
+    ));
+}
+
+#[test]
 fn stale_source_refuses_whole_multifile_plan_without_partial_commit() {
     let temp = TempDir::new().unwrap();
     fs::write(temp.path().join("a.txt"), b"a=old\n").unwrap();
