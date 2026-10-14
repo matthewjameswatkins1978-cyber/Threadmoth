@@ -653,6 +653,143 @@ fn summary_omits_commands_for_newline_and_non_utf8_plan_paths() {
 }
 
 #[test]
+fn prepare_edits_review_shows_diff_and_keeps_apply_separate() {
+    let temp = TempDir::new().unwrap();
+    let source = temp.path().join("settings.txt");
+    fs::write(&source, b"mode=old\nkeep=exact\n").unwrap();
+    fs::write(
+        temp.path().join("changes.tm"),
+        "*** File: settings.txt\n<<<<<<< SEARCH\nmode=old\n=======\nmode=new\n>>>>>>> REPLACE\n",
+    )
+    .unwrap();
+
+    let preparation = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args([
+            "prepare-edits",
+            "changes.tm",
+            "--output",
+            "plan.json",
+            "--review",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        preparation.status.success(),
+        "{}",
+        String::from_utf8_lossy(&preparation.stderr)
+    );
+    let review = String::from_utf8_lossy(&preparation.stdout);
+    assert!(review.contains("state: FRESH"), "{review}");
+    assert!(review.contains("-mode=old"), "{review}");
+    assert!(review.contains("+mode=new"), "{review}");
+    let apply_label = if cfg!(windows) {
+        "Apply (PowerShell):"
+    } else {
+        "Apply (POSIX shell):"
+    };
+    assert!(review.contains(apply_label), "{review}");
+    assert_eq!(fs::read(&source).unwrap(), b"mode=old\nkeep=exact\n");
+    assert!(temp.path().join("plan.json").exists());
+
+    let applied = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args(["apply-plan", "--plan", "plan.json"])
+        .output()
+        .unwrap();
+    assert!(
+        applied.status.success(),
+        "{}",
+        String::from_utf8_lossy(&applied.stdout)
+    );
+    let certificate: threadmoth::protocol::Certificate =
+        serde_json::from_slice(&applied.stdout).unwrap();
+    assert_eq!(certificate.outcome, Outcome::Applied);
+    assert_eq!(fs::read(&source).unwrap(), b"mode=new\nkeep=exact\n");
+}
+
+#[test]
+fn prepare_edits_review_marks_truncation_and_offers_full_review() {
+    let temp = TempDir::new().unwrap();
+    let replacement = "x".repeat(5_000);
+    fs::write(temp.path().join("large.txt"), b"old\n").unwrap();
+    fs::write(
+        temp.path().join("changes.tm"),
+        format!(
+            "*** File: large.txt\n<<<<<<< SEARCH\nold\n=======\n{replacement}\n>>>>>>> REPLACE\n"
+        ),
+    )
+    .unwrap();
+    let preparation = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args([
+            "prepare-edits",
+            "changes.tm",
+            "--output",
+            "plan.json",
+            "--review",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        preparation.status.success(),
+        "{}",
+        String::from_utf8_lossy(&preparation.stderr)
+    );
+    let review = String::from_utf8_lossy(&preparation.stdout);
+    assert!(review.contains("review output truncated"), "{review}");
+    assert!(review.contains("Full review ("), "{review}");
+    assert!(review.contains("--format diff --full"), "{review}");
+
+    let full = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args([
+            "explain",
+            "--plan",
+            "plan.json",
+            "--format",
+            "diff",
+            "--full",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        full.status.success(),
+        "{}",
+        String::from_utf8_lossy(&full.stderr)
+    );
+    let full = String::from_utf8_lossy(&full.stdout);
+    assert!(!full.contains("review output truncated"));
+    assert!(full.contains(&format!("+{replacement}")));
+    assert_eq!(fs::read(temp.path().join("large.txt")).unwrap(), b"old\n");
+}
+
+#[test]
+fn prepare_edits_review_requires_plan_output_and_conflicts_with_summary() {
+    let temp = TempDir::new().unwrap();
+    let missing_output = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args(["prepare-edits", "changes.tm", "--review"])
+        .output()
+        .unwrap();
+    assert_eq!(missing_output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&missing_output.stderr).contains("--output"));
+
+    let conflict = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args([
+            "prepare-edits",
+            "changes.tm",
+            "--output",
+            "plan.json",
+            "--review",
+            "--summary",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(conflict.status.code(), Some(2));
+}
+#[test]
 fn stale_plan_review_explains_repreparation_and_apply_refuses_without_overwrite() {
     let temp = TempDir::new().unwrap();
     let source = temp.path().join("stale.txt");

@@ -1,6 +1,6 @@
 # Threadmoth CLI
 
-Threadmoth makes exact, source-aware editing, including guarded multi-file workflows, straightforward to prepare and review: `prepare-text PATH --edit OLD NEW --output PLAN --summary`, followed by plan review and guarded application. Repeat `--edit` for inline same-file sequences, or use repeated `--edit-files OLD_FILE NEW_FILE` pairs for faithful multiline UTF-8 input. The two input modes cannot be mixed; for several files use prepare-edits CHANGES --output PLAN --summary; `--request` retains the complete JSON interface. See the edit-documents.md guide for grammar and exactness rules.
+Threadmoth makes exact, source-aware editing, including guarded multi-file workflows, straightforward to prepare and review: `prepare-text PATH --edit OLD NEW --output PLAN --summary`, followed by plan review and guarded application. Repeat `--edit` for inline same-file sequences, or use repeated `--edit-files OLD_FILE NEW_FILE` pairs for faithful multiline UTF-8 input. The two input modes cannot be mixed; for several files use `prepare-edits CHANGES --output PLAN --review` to see the guarded diff during preparation; `--request` retains the complete JSON interface. See the edit-documents.md guide for grammar and exactness rules.
 
 Start with `threadmoth orient` (or `threadmoth orient --json`). Provider and operation help is generated from advertised metadata:
 

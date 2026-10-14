@@ -29,8 +29,12 @@ fn orientation_has_compact_human_and_json_forms() {
         "threadmoth prepare-text PATH --edit-files OLD_FILE NEW_FILE --output PLAN --summary"
     );
     assert_eq!(
+        parsed["text_edit"]["cli_multi_file"],
+        "threadmoth prepare-edits CHANGES --output PLAN --review"
+    );
+    assert_eq!(
         parsed["text_edit"]["review"],
-        "threadmoth explain --plan PLAN --format diff"
+        "prepare-edits --review shows the bounded diff; use explain --plan PLAN --format diff --full if truncated"
     );
     assert_eq!(
         parsed["text_edit"]["apply"],
@@ -75,6 +79,27 @@ fn source_text_example_and_prepare_help_teach_the_short_route() {
     assert!(help.contains("Then apply:"));
 }
 
+#[test]
+fn schema_scope_returns_only_the_requested_contract_and_rejects_unknown_scope() {
+    let request = cli(&["schema", "request", "--json"]);
+    assert!(request.status.success());
+    let request_schema: Value = serde_json::from_slice(&request.stdout).unwrap();
+    assert_eq!(request_schema["scope"], "request");
+    assert!(request_schema.get("request").is_some());
+    assert!(request_schema.get("response").is_none());
+
+    let all = cli(&["schema", "--json"]);
+    assert!(all.status.success());
+    let all_schema: Value = serde_json::from_slice(&all.stdout).unwrap();
+    assert_eq!(all_schema["scope"], "all");
+    assert!(all_schema.get("request").is_some());
+    assert!(all_schema.get("response").is_some());
+    assert!(request.stdout.len() < all.stdout.len());
+
+    let invalid = cli(&["schema", "edits", "--json"]);
+    assert_eq!(invalid.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("unknown schema scope"));
+}
 #[test]
 fn inspect_json_alias_matches_default_for_identity_outline_and_expansion() {
     let temp = TempDir::new().unwrap();

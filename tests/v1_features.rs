@@ -275,8 +275,11 @@ fn capability_and_schema_fingerprints_are_deterministic_and_scoped() {
     assert_eq!(first.capability_set_id, second.capability_set_id);
     let view = threadmoth::metadata::capability_view(Some("json.set"));
     assert_eq!(view["selected_operation"]["name"], "set");
-    let schema = threadmoth::metadata::schema(Some("json"));
+    let schema = threadmoth::metadata::schema(Some("request"));
     assert_eq!(schema["protocol_version"], PROTOCOL_VERSION);
+    assert_eq!(schema["scope"], "request");
+    assert!(schema.get("request").is_some());
+    assert!(schema.get("response").is_none());
     assert!(schema["schema_id"].as_str().is_some());
 }
 

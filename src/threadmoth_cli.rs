@@ -59,9 +59,10 @@ fn main() {
             plan,
             json,
             format,
+            full,
         } => {
             if let Some(plan) = plan {
-                run_explain_plan(&plan, json, format);
+                run_explain_plan(&plan, json, format, full);
             } else if let Some(code) = code {
                 print_explain(&code, json);
             }
@@ -657,7 +658,19 @@ fn run_prepare_edits(args: PrepareEditsArgs) {
             eprintln!("cannot write plan {}: {error}", output.display());
             std::process::exit(3);
         }
-        if args.summary {
+        if args.review {
+            println!("THREADMOTH EDIT PREPARATION");
+            println!("Files          {}", prepared.file_count);
+            println!("Exact edits    {}", prepared.edit_count);
+            println!("Input bytes    {}", prepared.input_bytes);
+            println!("Plan ID        {}", prepared.plan.plan_id);
+            let truncated =
+                render_plan_review(&prepared.plan, Some(&workspace), ExplainFormat::Diff, false);
+            if truncated {
+                print_review_command(output, true);
+            }
+            print_apply_command(output);
+        } else if args.summary {
             println!("THREADMOTH EDIT PREPARATION");
             println!("Files          {}", prepared.file_count);
             println!("Exact edits    {}", prepared.edit_count);
@@ -673,15 +686,28 @@ fn run_prepare_edits(args: PrepareEditsArgs) {
 }
 
 fn print_edit_plan_commands(output: &Path) {
+    print_review_command(output, false);
+    print_apply_command(output);
+}
+
+fn print_review_command(output: &Path, full: bool) {
+    let label = if full { "Full review" } else { "Review" };
+    let full_option = if full { " --full" } else { "" };
     if let Some(quoted_plan_path) = quote_plan_output_path(output) {
         println!(
-            "Review ({PLAN_COMMAND_SHELL}): threadmoth explain --plan {quoted_plan_path} --format diff"
+            "{label} ({PLAN_COMMAND_SHELL}): threadmoth explain --plan {quoted_plan_path} --format diff{full_option}"
         );
-        println!("Apply ({PLAN_COMMAND_SHELL}): threadmoth apply-plan --plan {quoted_plan_path}");
     } else {
         println!(
-            "Review ({PLAN_COMMAND_SHELL}): unavailable (not executable; plan path cannot be represented faithfully as a safe single-line command)"
+            "{label} ({PLAN_COMMAND_SHELL}): unavailable (not executable; plan path cannot be represented faithfully as a safe single-line command)"
         );
+    }
+}
+
+fn print_apply_command(output: &Path) {
+    if let Some(quoted_plan_path) = quote_plan_output_path(output) {
+        println!("Apply ({PLAN_COMMAND_SHELL}): threadmoth apply-plan --plan {quoted_plan_path}");
+    } else {
         println!(
             "Apply ({PLAN_COMMAND_SHELL}): unavailable (not executable; plan path cannot be represented faithfully as a safe single-line command)"
         );
@@ -861,7 +887,7 @@ fn run_apply_plan(args: ApplyPlanArgs) {
     exit_for_outcome(outcome);
 }
 
-fn run_explain_plan(path: &Path, json: bool, format: Option<ExplainFormat>) {
+fn run_explain_plan(path: &Path, json: bool, format: Option<ExplainFormat>, full: bool) {
     let input = match fs::read(path) {
         Ok(input) => input,
         Err(error) => {
@@ -892,7 +918,10 @@ fn run_explain_plan(path: &Path, json: bool, format: Option<ExplainFormat>) {
     let safe = workspace.is_some() && refusal.is_none();
     if !json {
         if let Some(format) = format {
-            render_plan_review(&plan, workspace.as_ref(), format);
+            let truncated = render_plan_review(&plan, workspace.as_ref(), format, full);
+            if truncated && !full {
+                print_review_command(path, true);
+            }
             println!("Next: {}", plan_next_action(path, safe));
             return;
         }
@@ -949,7 +978,12 @@ fn plan_next_action(path: &Path, safe: bool) -> String {
     }
 }
 
-fn render_plan_review(plan: &PreparedPlan, workspace: Option<&Workspace>, format: ExplainFormat) {
+fn render_plan_review(
+    plan: &PreparedPlan,
+    workspace: Option<&Workspace>,
+    format: ExplainFormat,
+    full: bool,
+) -> bool {
     let title = match format {
         ExplainFormat::Diff => "Threadmoth plan diff",
         ExplainFormat::Markdown => "# Threadmoth plan review",
@@ -958,6 +992,7 @@ fn render_plan_review(plan: &PreparedPlan, workspace: Option<&Workspace>, format
         "{title}\nPlan: {}\nProtocol: {}",
         plan.plan_id, plan.protocol_version
     );
+    let mut truncated = false;
     for operation in &plan.operations {
         let Some(workspace) = workspace else {
             println!("\n{}\nstate: UNAVAILABLE", operation.file_path);
@@ -1009,7 +1044,7 @@ fn render_plan_review(plan: &PreparedPlan, workspace: Option<&Workspace>, format
                 state,
                 operation.pre_hash,
                 operation.prospective_hash,
-                bounded_review(&diff),
+                bounded_review(&diff, full),
             ),
             ExplainFormat::Markdown => println!(
                 "\n## {}\n\n- Provider: `{}`\n- State: **{}**\n- Pre-image: `{}`\n- Prospective: `{}`\n- Edits: `{}`\n\n```diff\n{}\n```",
@@ -1019,16 +1054,21 @@ fn render_plan_review(plan: &PreparedPlan, workspace: Option<&Workspace>, format
                 operation.pre_hash,
                 operation.prospective_hash,
                 operation.edits.len(),
-                bounded_review(&diff),
+                bounded_review(&diff, full),
             ),
         }
+        truncated |= !full && diff.chars().count() > 4096;
     }
+    truncated
 }
 
-fn bounded_review(value: &str) -> String {
+fn bounded_review(value: &str, full: bool) -> String {
+    if full {
+        return value.to_string();
+    }
     let mut result = value.chars().take(4096).collect::<String>();
     if value.chars().count() > 4096 {
-        result.push_str("\n... review output truncated ...");
+        result.push_str("\n... review output truncated; use the Full review command ...");
     }
     result
 }
@@ -1412,8 +1452,8 @@ fn print_examples(topic: Option<&str>) {
             "intent": "Replace exact text using source-aware preparation.",
             "prepare": "threadmoth prepare-text PATH --edit OLD NEW --output PLAN --summary",
             "prepare_from_files": "threadmoth prepare-text PATH --edit-files OLD_FILE NEW_FILE --output PLAN --summary",
-            "prepare_multiple_files": "threadmoth prepare-edits CHANGES --output PLAN --summary",
-            "review": "threadmoth explain --plan PLAN --format diff",
+            "prepare_multiple_files": "threadmoth prepare-edits CHANGES --output PLAN --review",
+            "review": "prepare-edits --review shows the bounded diff; use explain --plan PLAN --format diff --full if truncated",
             "apply": "threadmoth apply-plan --plan PLAN --summary",
             "recovery": "If review says stale, prepare again from current source with the same intent.",
             "guarantees": ["exact unique targets", "source-derived uniform LF/CRLF", "source-read-only preparation", "stale-plan revalidation", "certificate on apply"]
@@ -1521,7 +1561,7 @@ fn run_orient(json_output: bool) {
         println!("Workflow: preview → mutate → verify certificate");
         println!("Text edits: prepare-text PATH --edit OLD NEW --output PLAN --summary → review with explain --plan PLAN --format diff → apply-plan --plan PLAN");
         println!("Multiline intent: use --edit-files OLD_FILE NEW_FILE for faithful UTF-8 input.");
-        println!("Multi-file intent: prepare-edits CHANGES --output PLAN --summary; exact SEARCH/REPLACE blocks remain guarded.");
+        println!("Multi-file intent: prepare-edits CHANGES --output PLAN --review; exact SEARCH/REPLACE blocks remain guarded.");
         println!("Discover: capabilities · suggest PATH · help TARGET");
         println!("Confinement: workspace and effect budget; refusals do not write");
         println!("Exit codes: success 0 · refusal 2 · runtime failure 3");
@@ -1633,6 +1673,14 @@ fn run_inspect(args: InspectArgs) {
 }
 
 fn run_schema(args: SchemaArgs) {
+    if let Some(scope) = args.scope.as_deref() {
+        if !threadmoth::metadata::is_schema_scope(scope) {
+            eprintln!(
+                "unknown schema scope '{scope}'; choose all, request, response, certificate, transaction_request, transaction_certificate, or metadata"
+            );
+            std::process::exit(2);
+        }
+    }
     let out = threadmoth::metadata::schema(args.scope.as_deref());
     if args.json && !args.pretty {
         println!("{}", serde_json::to_string(&out).unwrap());

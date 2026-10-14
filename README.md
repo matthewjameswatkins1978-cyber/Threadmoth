@@ -261,7 +261,7 @@ PHP includes PHP source and embedded PHP parsing. HCL support is source syntax o
 
 Unsupported languages do not make an ordinary UTF-8 text file unusable. Threadmoth can still offer explicit exact text, strict patch, bounded pattern or desired-state routes where applicable. It never silently downgrades a structured request to a weaker route.
 
-See [Coverage](docs/coverage.md) for the full 1.17.0 model and current refusal boundaries.
+See [Coverage](docs/coverage.md) for the full 1.18.0 model and current refusal boundaries.
 
 Providers locate candidates.
 

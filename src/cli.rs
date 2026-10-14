@@ -68,7 +68,7 @@ pub enum Command {
 
     /// Prepare strict exact edits across several workspace files without writing them.
     #[command(
-        after_help = "Input: threadmoth prepare-edits changes.tm --output plan.json --summary\nReview: threadmoth explain --plan plan.json --format diff\nApply: threadmoth apply-plan --plan plan.json --summary\nUse one *** File: PATH section per workspace-relative file and ordered SEARCH/REPLACE blocks within it."
+        after_help = "Review during preparation: threadmoth prepare-edits changes.tm --output plan.json --review\nCompact commands only: threadmoth prepare-edits changes.tm --output plan.json --summary\nFull review if truncated: threadmoth explain --plan plan.json --format diff --full\nApply separately: threadmoth apply-plan --plan plan.json --summary\nUse one *** File: PATH section per workspace-relative file and ordered SEARCH/REPLACE blocks within it."
     )]
     PrepareEdits(PrepareEditsArgs),
 
@@ -130,6 +130,9 @@ pub enum Command {
         /// Render a prepared plan as a bounded diff or Markdown review.
         #[arg(long, value_enum)]
         format: Option<ExplainFormat>,
+        /// Show the complete diff when a bounded review is truncated (may be large).
+        #[arg(long, requires_all = ["plan", "format"], conflicts_with = "json")]
+        full: bool,
     },
 
     /// Suggest a safe request shape for a workspace file or refusal.
@@ -145,6 +148,9 @@ pub enum Command {
     Inspect(InspectArgs),
 
     /// Print protocol or request schemas.
+    #[command(
+        after_help = "Examples: threadmoth schema request --json  |  threadmoth schema --json"
+    )]
     Schema(SchemaArgs),
 
     /// Check runtime and CLI installation health.
@@ -366,8 +372,12 @@ pub struct PrepareEditsArgs {
     pub output: Option<std::path::PathBuf>,
 
     /// Print compact review/apply commands instead of the complete plan (requires --output).
-    #[arg(long)]
+    #[arg(long, conflicts_with = "review")]
     pub summary: bool,
+
+    /// Show the bounded source diff after preparing the plan; applying remains separate.
+    #[arg(long, requires = "output", conflicts_with = "summary")]
+    pub review: bool,
 }
 
 #[derive(Args, Debug)]
@@ -480,7 +490,7 @@ pub struct SuggestArgs {
 
 #[derive(Args, Debug)]
 pub struct SchemaArgs {
-    /// Optional schema scope, for example request.
+    /// Schema scope: all, request, response, certificate, transaction_request, transaction_certificate, or metadata.
     pub scope: Option<String>,
 
     /// Emit compact machine-readable JSON.
