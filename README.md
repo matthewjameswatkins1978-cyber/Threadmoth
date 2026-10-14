@@ -261,7 +261,7 @@ PHP includes PHP source and embedded PHP parsing. HCL support is source syntax o
 
 Unsupported languages do not make an ordinary UTF-8 text file unusable. Threadmoth can still offer explicit exact text, strict patch, bounded pattern or desired-state routes where applicable. It never silently downgrades a structured request to a weaker route.
 
-See [Coverage](docs/coverage.md) for the full 1.16.1 model and current refusal boundaries.
+See [Coverage](docs/coverage.md) for the full 1.17.0 model and current refusal boundaries.
 
 Providers locate candidates.
 
@@ -418,6 +418,8 @@ It does one job:
 ## Install
 
 Download the appropriate standalone binary from the **[latest GitHub release](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/releases/latest)** and put `threadmoth` on your `PATH`.
+
+Threadmoth 1.17.0 adds a concise multi-file SEARCH/REPLACE document that prepares ordered, exact edits into a guarded transaction plan. It preserves source line endings and existing transaction certificates, and refuses ambiguity or unsafe paths.
 
 Threadmoth **1.16.1** corrects generated Review and Apply command quoting for PowerShell and POSIX shells, with regression tests for special-character filenames. The mutation contract and protocol are unchanged.
 

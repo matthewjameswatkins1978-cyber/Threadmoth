@@ -4,6 +4,7 @@ pub mod benchmark;
 pub mod build_info;
 pub mod capabilities;
 pub mod diff_planner;
+pub mod edit_document;
 pub mod engine;
 pub mod lifecycle;
 pub mod metadata;

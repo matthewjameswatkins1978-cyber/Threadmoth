@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.17.0 - Compact exact multi-file edit documents
+
+### Added
+
+- prepare-edits accepts concise multi-file documents with ordered exact SEARCH/REPLACE blocks and prepares one guarded transaction without writing source files.
+- Uniform LF or CRLF is derived from each source; mixed-newline files and ambiguous, missing, stale, or unsafe targets fail closed.
+- Regression fixtures cover dependent and multi-file edits, 24 edits, escaped delimiters, UTF-8, budgets, path confinement, links, and comparative input size.
+
+### Compatibility
+
+- This adds a CLI authoring format only. Protocol 1.4.0, MCP surfaces, exact operations, prepared plans, certificates, and updater behavior retain their existing contracts.
+
 ## 1.16.1 - Safe plan commands across shells
 
 ### Fixed
