@@ -21,7 +21,7 @@ If a request gets WORKSPACE_ROOT_MISMATCH, the absolute target is outside the wo
 
 Before constructing a mutation request, apply the canonical ambiguity rule from `skills/threadmoth/SKILL.md`: **preserve ambiguity when shaping mutation requests; do not add identifying information that was not supplied by the user or established by evidence. Narrow from evidence, never from imagination.** If multiple plausible targets remain, inspect or suggest candidates and ask the user to choose, or stop with a clear refusal.
 
-## 1.9 coverage discovery
+## Coverage discovery
 
 Before choosing a mutation route for an unfamiliar path, prefer:
 
@@ -37,7 +37,7 @@ Start with `threadmoth orient` or `threadmoth orient --json`. For ordinary exact
 
 The MCP server binds its workspace root at process startup. A refusal reports the configured root and a checkout-local CLI recovery choice; neither a request path nor MCP `roots/list` changes authority. MCP uses `file_path` for the physical target and `selector` for a structured location. Previous `path`, `file` and `for_path` spellings remain accepted as input aliases.
 
-## Context economy in 1.10
+## Context-efficient inspection
 
 The existing `inspect` surface now has bounded views; no additional MCP tool is
 required:
@@ -133,7 +133,7 @@ identity-only behaviour. A long-lived MCP process may reuse a bounded
 process-local outline cache only after re-reading the current source identity;
 the cache is not persisted and does not authorize mutation.
 
-The 1.9/1.10 MCP tools include:
+The MCP discovery and inspection tools include:
 
 ```text
 threadmoth_capabilities
