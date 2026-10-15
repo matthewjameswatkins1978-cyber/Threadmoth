@@ -93,6 +93,12 @@ pub fn parse(document: &str) -> Result<Vec<EditDocumentFile>, EditDocumentDiagno
     let mut total_edits = 0usize;
     let mut index = 0usize;
     while index < lines.len() {
+        while index < lines.len() && lines[index].trim().is_empty() {
+            index += 1;
+        }
+        if index >= lines.len() {
+            break;
+        }
         let header_line = index + 1;
         let Some(path) = lines[index].strip_prefix(FILE_PREFIX) else {
             return Err(diagnostic(
@@ -120,6 +126,10 @@ pub fn parse(document: &str) -> Result<Vec<EditDocumentFile>, EditDocumentDiagno
         index += 1;
         let mut edits = Vec::new();
         while index < lines.len() && !lines[index].starts_with(FILE_PREFIX) {
+            if lines[index].trim().is_empty() {
+                index += 1;
+                continue;
+            }
             let edit_line = index + 1;
             if lines[index] != SEARCH {
                 return Err(diagnostic(
@@ -174,6 +184,9 @@ pub fn parse(document: &str) -> Result<Vec<EditDocumentFile>, EditDocumentDiagno
                 format!("file count exceeds the limit of {MAX_EDIT_DOCUMENT_FILES}"),
             ));
         }
+    }
+    if files.is_empty() {
+        return Err(diagnostic(1, "expected a `*** File: PATH` header"));
     }
     Ok(files)
 }

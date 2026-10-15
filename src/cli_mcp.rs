@@ -93,6 +93,25 @@ struct SetValueToolArgs {
 #[serde(deny_unknown_fields)]
 struct OrientToolArgs {}
 
+#[derive(Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct EditToolArgs {
+    #[serde(default)]
+    #[serde(rename = "file_path", alias = "path", alias = "target", alias = "file")]
+    file_path: Option<String>,
+    #[serde(default)]
+    #[serde(rename = "search", alias = "old")]
+    search: Option<String>,
+    #[serde(default)]
+    #[serde(rename = "replace", alias = "new")]
+    replace: Option<String>,
+    #[serde(default)]
+    #[serde(rename = "document", alias = "content")]
+    document: Option<String>,
+    #[serde(default)]
+    plan: bool,
+}
+
 fn default_suggestion_mode() -> String {
     "safe".into()
 }
@@ -204,6 +223,7 @@ fn handle_mcp_message(
                 "jsonrpc": "2.0",
                 "id": id,
                 "result": {"tools": [
+                    {"name": "threadmoth_edit", "description": "Apply or preview an exact verified edit in one invocation. For a single file, provide file_path, search and replace. For multi-file changes, provide document content or document file_path. Set plan: true to preview without mutating.", "inputSchema": schema_for!(EditToolArgs)},
                     {"name": "threadmoth_mutate", "description": "Apply one typed Threadmoth mutation and return its certificate; target specificity must come from the user or evidence", "inputSchema": schema_for!(Request)},
                     {"name": "threadmoth_preview", "description": "Preview one typed Threadmoth mutation without writing; if approved, call threadmoth_mutate with the same request; do not invent target specificity", "inputSchema": schema_for!(Request)},
                     {"name": "threadmoth_plan", "description": "Prepare a deterministic guarded plan without writing; preserve unresolved target ambiguity", "inputSchema": schema_for!(Request)},
@@ -348,6 +368,10 @@ fn call_tool(
     observation_cache: &mut threadmoth::metadata::ObservationCache,
 ) -> Result<Value, String> {
     match name {
+        "threadmoth_edit" => {
+            let args = serde_json::from_value::<EditToolArgs>(arguments).map_err(schema_error)?;
+            execute_mcp_edit(workspace, args)
+        }
         "threadmoth_exact_replace" => {
             let args =
                 serde_json::from_value::<ExactReplaceToolArgs>(arguments).map_err(schema_error)?;
@@ -517,6 +541,152 @@ fn call_tool(
         }
         _ => Err("unknown Threadmoth tool".into()),
     }
+}
+
+fn execute_mcp_edit(workspace: &Workspace, args: EditToolArgs) -> Result<Value, String> {
+    let has_search = args.search.is_some();
+    let has_replace = args.replace.is_some();
+    let has_document = args.document.is_some();
+    let has_file = args.file_path.is_some();
+
+    if has_document && (has_search || has_replace) {
+        return Err(
+            "contradictory parameters: cannot combine multi-file `document` with inline `search`/`replace`"
+                .into(),
+        );
+    }
+
+    if has_document && has_file {
+        return Err(
+            "contradictory parameters: provide either `document` content or a `file_path` to an edit document, not both"
+                .into(),
+        );
+    }
+
+    if has_search != has_replace {
+        if has_search {
+            return Err("incomplete inline edit: `search` was provided without `replace`".into());
+        } else {
+            return Err("incomplete inline edit: `replace` was provided without `search`".into());
+        }
+    }
+
+    if let (Some(search), Some(replace)) = (args.search, args.replace) {
+        let Some(file_path) = args.file_path else {
+            return Err(
+                "single-file inline edit requires `file_path` alongside `search` and `replace`"
+                    .into(),
+            );
+        };
+        let request = threadmoth::source_prepare::SourceAwareTextRequest {
+            file_path,
+            edits: vec![threadmoth::source_prepare::TextReplacementIntent {
+                old: search,
+                new: replace,
+            }],
+            newline_policy: threadmoth::source_prepare::NewlinePolicy::Source,
+        };
+        return match threadmoth::source_prepare::prepare(workspace, &request) {
+            threadmoth::source_prepare::SourcePreparationResult::Prepared(prepared) => {
+                if args.plan {
+                    serde_json::to_value(&prepared.plan).map_err(|e| e.to_string())
+                } else {
+                    let result =
+                        threadmoth::pipeline::apply_prepared_plan(workspace, &prepared.plan);
+                    match result {
+                        threadmoth::protocol::PlanApplyResult::Certificate(certificate) => {
+                            serde_json::to_value(certificate).map_err(|e| e.to_string())
+                        }
+                        threadmoth::protocol::PlanApplyResult::Transaction(certificate) => {
+                            serde_json::to_value(certificate).map_err(|e| e.to_string())
+                        }
+                    }
+                }
+            }
+            threadmoth::source_prepare::SourcePreparationResult::Refused { certificate } => {
+                serde_json::to_value(certificate).map_err(|e| e.to_string())
+            }
+        };
+    }
+
+    if let Some(document) = args.document {
+        return match threadmoth::edit_document::prepare(workspace, &document) {
+            Ok(prepared) => {
+                if args.plan {
+                    serde_json::to_value(&prepared.plan).map_err(|e| e.to_string())
+                } else {
+                    let result =
+                        threadmoth::pipeline::apply_prepared_plan(workspace, &prepared.plan);
+                    match result {
+                        threadmoth::protocol::PlanApplyResult::Certificate(certificate) => {
+                            serde_json::to_value(certificate).map_err(|e| e.to_string())
+                        }
+                        threadmoth::protocol::PlanApplyResult::Transaction(certificate) => {
+                            serde_json::to_value(certificate).map_err(|e| e.to_string())
+                        }
+                    }
+                }
+            }
+            Err(threadmoth::edit_document::EditDocumentFailure::Invalid(diagnostic)) => {
+                Ok(serde_json::json!({
+                    "outcome": "REFUSED",
+                    "reason_code": diagnostic.reason_code,
+                    "line": diagnostic.line,
+                    "message": diagnostic.message
+                }))
+            }
+            Err(threadmoth::edit_document::EditDocumentFailure::Refused(certificate)) => {
+                serde_json::to_value(certificate).map_err(|e| e.to_string())
+            }
+        };
+    }
+
+    if let Some(doc_path) = args.file_path {
+        let resolved = workspace
+            .resolve_namespaced_path(&doc_path, &threadmoth::path::PathNamespace::Native)
+            .map_err(|e| e.to_string())?;
+        let bytes = workspace.read_file(&resolved).map_err(|e| e.to_string())?;
+        let document = String::from_utf8(bytes).map_err(|e| e.to_string())?;
+        if !document.lines().any(|line| line.starts_with("*** File: ")) {
+            return Err(format!(
+                "single-file editing requires `search` and `replace`. File `{doc_path}` does not contain edit document `*** File: ` headers"
+            ));
+        }
+        return match threadmoth::edit_document::prepare(workspace, &document) {
+            Ok(prepared) => {
+                if args.plan {
+                    serde_json::to_value(&prepared.plan).map_err(|e| e.to_string())
+                } else {
+                    let result =
+                        threadmoth::pipeline::apply_prepared_plan(workspace, &prepared.plan);
+                    match result {
+                        threadmoth::protocol::PlanApplyResult::Certificate(certificate) => {
+                            serde_json::to_value(certificate).map_err(|e| e.to_string())
+                        }
+                        threadmoth::protocol::PlanApplyResult::Transaction(certificate) => {
+                            serde_json::to_value(certificate).map_err(|e| e.to_string())
+                        }
+                    }
+                }
+            }
+            Err(threadmoth::edit_document::EditDocumentFailure::Invalid(diagnostic)) => {
+                Ok(serde_json::json!({
+                    "outcome": "REFUSED",
+                    "reason_code": diagnostic.reason_code,
+                    "line": diagnostic.line,
+                    "message": diagnostic.message
+                }))
+            }
+            Err(threadmoth::edit_document::EditDocumentFailure::Refused(certificate)) => {
+                serde_json::to_value(certificate).map_err(|e| e.to_string())
+            }
+        };
+    }
+
+    Err(
+        "empty edit request: provide `file_path` with `search` and `replace`, or a multi-file `document`"
+            .into(),
+    )
 }
 
 fn json_rpc_error(id: Value, code: i32, message: String) -> Value {
