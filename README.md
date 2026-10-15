@@ -3,339 +3,236 @@
 </p>
 
 <h1 align="center">Threadmoth</h1>
+<p align="center"><strong>Deterministic, source-preserving file editing for AI agents.</strong></p>
+<p align="center"><strong>Find the exact thing. Change only that thing. Prove what happened.</strong></p>
 
-<p align="center"><strong>Deterministic file mutation for AI agents.</strong></p>
-
-<p align="center">Find the exact thing. Change only that thing. Prove what happened.</p>
-
----
-
-AI is good at deciding **what should change**.
-
-The dangerous part is what it has to do last: actually change the files.
-
-Coding agents routinely fall back to direct writes, regex replacement, patch tools, shell commands and one-off scripts. Each has different behaviour around ambiguity, stale files, formatting, path safety and failure. An agent can make the right decision and still land the wrong edit.
-
-**Threadmoth puts one deterministic boundary between AI intent and your source tree.**
-
-The model decides the change.
-
-Threadmoth decides whether that exact change can be made safely.
-
-If it can, Threadmoth applies it and proves what landed.
-
-If it cannot, it refuses.
-
-```text
-AI intent
-   ↓
-Threadmoth
-   ↓
-OBSERVE
-IDENTIFY
-GUARD
-PLAN
-VERIFY
-MUTATE
-VERIFY
-CERTIFY
-   ↓
-Source tree
-```
-
-## Why this is needed
-
-Most editing tools were built for humans.
-
-Humans notice when a replacement hit the wrong function, a formatter rewrote half a file, a patch landed somewhere unexpected, or another process changed the file underneath them.
-
-Autonomous agents need those assumptions turned into machinery.
-
-Threadmoth gives them that machinery.
-
-### Threadmoth will not silently:
-
-- choose the first of several matches;
-- relocate a stale edit somewhere "close enough";
-- rewrite unrelated formatting;
-- follow a path outside the workspace;
-- ignore a changed pre-image;
-- exceed the authorised effect budget;
-- report success before reading the result back.
-
-Ambiguity is not something Threadmoth tries to be clever about.
-
-**Ambiguity is a refusal.**
-
-That is the point.
+<p align="center">
+  <a href="#start-here">Start here</a> ·
+  <a href="#why-threadmoth-exists">Why it exists</a> ·
+  <a href="#what-makes-it-different">What makes it different</a> ·
+  <a href="#how-it-compares">How it compares</a> ·
+  <a href="#capabilities">Capabilities</a> ·
+  <a href="#install">Install</a>
+</p>
 
 ---
 
-## The core idea
+## The problem is not writing code. It is landing the right change.
 
-Parsers are allowed to **locate** structure.
+An AI agent might correctly decide to update one setting, one function or three related files. But the final step is surprisingly easy to get wrong: the editing tool matches the wrong occurrence, rewrites unrelated formatting, uses a stale copy of the file, changes too much or declares success before anyone checks what landed.
 
-They are not allowed to rewrite the file.
+We have excellent editors, patches, structural search tools and coding agents. They solve many parts of this problem. What is often missing is a *consistent mutation contract* between an agent's intent and the bytes on disk.
 
-> The parser gets to point at the cloth. It doesn't get to re-weave it.
+**Threadmoth is that contract.**
 
-Providers identify exact byte ranges. Threadmoth Core owns the mutation.
+Threadmoth is an open-source, MIT-licensed Rust command-line tool and MCP server. It is **not an AI model** and does not decide what the user wants. It takes a bounded edit request, identifies what it can actually prove, and either applies and verifies the intended change or refuses to guess.
 
-That means a structured edit does not require parsing a file, modifying an AST and printing the whole thing back out.
+~~~text
+Human or agent decides what needs changing
+                    |
+                    v
+              Threadmoth
+     OBSERVE -> IDENTIFY -> GUARD
+       PLAN -> VERIFY PROSPECTIVE
+      MUTATE -> VERIFY COMMITTED
+                -> CERTIFY
+                    |
+                    v
+        Exact change or clear refusal
+~~~
 
-Unrelated bytes stay unrelated.
+It is deliberately usable by *any* capable coding agent, not tied to one model, provider, editor or orchestration framework.
 
-Comments stay comments.
+## Start here
 
-Line endings stay line endings.
+For an ordinary text edit, the common case is now one command:
 
-Formatting outside the authorised edit stays untouched.
+~~~bash
+threadmoth edit config.txt --search "mode=development" --replace "mode=production"
+~~~
 
----
+Threadmoth checks that the exact target is unambiguous and permitted, prepares the change, applies it through the guarded Core, reads back the result and returns a certificate. There is no mandatory intermediate plan file or second application command.
 
-## What you get
+To see the proposed edit **without modifying the source**:
 
-### Deterministic targeting
+~~~bash
+threadmoth edit config.txt --search "mode=development" --replace "mode=production" --plan
+~~~
 
-The same request against the same bytes produces the same decision.
+To get machine-readable output, add `--json`.
 
-### Refusal-first safety
+For multiline edits and several files, use a compact edit document:
 
-Two valid targets means two candidates, not an arbitrary winner.
+~~~text
+*** File: frontend.txt
+<<<<<<< SEARCH
+VERSION=1.0.0
+=======
+VERSION=2.0.0
+>>>>>>> REPLACE
 
-### Source preservation
+*** File: backend.txt
+<<<<<<< SEARCH
+VERSION=1.0.0
+=======
+VERSION=2.0.0
+>>>>>>> REPLACE
+~~~
 
-Only authorised byte ranges change.
+Save that as `changes.tm`, then run:
 
-### Stale-state protection
+~~~bash
+threadmoth edit changes.tm
+# Or: threadmoth edit changes.tm --plan
+# Or pipe the document into: threadmoth edit -
+~~~
 
-Requests and prepared plans are tied to the exact bytes they were created against.
+The document is prepared as one guarded content transaction. The source bytes and the certificate, not the agent's optimism, determine success.
 
-### Effect budgets
+A file's format matters. For JSON, TOML, YAML and other recognised structured formats, the general exact-text route may refuse rather than compromise source-preservation guarantees. Discover the right provider or use a structured shorthand:
 
-A caller can bound files, matches, changed regions, lines and bytes.
+~~~bash
+threadmoth suggest config.json
+threadmoth capabilities --for config.json
+threadmoth set-value config.json '$.server.port' 8080
+threadmoth set-string .env.local API_HOST 127.0.0.1
+~~~
 
-### Postconditions
+`set-value` treats its value as JSON; `set-string` takes a literal string. No silent type guessing.
 
-A mutation can require facts to be true afterwards, such as:
+## Why Threadmoth exists
 
-```text
-file exists
-file is absent
-SHA-256 matches
-literal occurs exactly N times
-```
+Most software-editing commands answer: **“Can I perform this replacement?”**
 
-These are checked before commit against the prospective state and again after the committed bytes are read back.
+Threadmoth asks a stricter question:
 
-### Transactions and recovery
+> **“Can I prove that this particular replacement is the one authorised, against the file that actually exists now, without changing anything else?”**
 
-Multi-file changes are staged, journalled and verified as one guarded operation, with recovery state for interrupted commits.
+Those are different jobs.
 
-### Proof
+An ordinary search-and-replace command can happily touch every match. A patch can apply successfully even when the caller's larger assumptions are wrong. An AST-aware rewrite can identify a sophisticated code pattern without needing to provide a transaction certificate. A serializer can make a perfectly valid configuration change while also reformatting the whole file.
 
-A successful mutation returns evidence including:
+Those tools are useful. Threadmoth addresses the narrower but crucial last mile: *turn an already-decided change into a bounded, inspectable, verified mutation.*
 
-```text
-pre-image hash
-post-image hash
-changed ranges
-effect usage
-structural validation
-commit verification
-```
+## What makes it different
 
-Success means more than "the write call returned OK."
+### 1. Parsers find the target. Core controls the bytes.
 
-It means the requested change was observed, bounded, committed, read back and verified.
+A parser may recognise a JSON key, a TOML table, a Markdown heading, an HTML node or a function in a supported language. But it does not get permission to reprint or regenerate the whole file.
 
----
+**Providers locate and validate. Threadmoth Core decides what may be written.**
 
-## Prepared plans
+Only the proven, authorised byte ranges are changed. Comments, spacing, ordering and line endings outside those ranges are left alone. Where a requested operation cannot preserve the relevant representation, Threadmoth can refuse instead of pretending otherwise.
 
-Threadmoth can separate **deciding an exact mutation** from **committing it**.
+### 2. Ambiguity is evidence, not an invitation to guess.
 
-```bash
-threadmoth plan --request request.json --output plan.json
-threadmoth explain --plan plan.json
-threadmoth apply-plan --plan plan.json
-```
+If `status = "pending"` occurs twice, Threadmoth does not arbitrarily pick the first one.
 
-For supervisor or human review, `threadmoth explain --plan plan.json --format diff` and `--format markdown` provide read-only plan summaries with files, operations, hashes, assertions, effect size, and current stale/fresh state.
+It returns a refusal such as `TARGET_AMBIGUOUS`, with grounded candidate evidence when available, so the agent can inspect the file, provide exact surrounding context or explicitly select a justified target. It never invents certainty just to keep moving.
 
-A plan contains the resolved targets, expected pre-images, exact edits, budgets and assertions.
+### 3. Stale plans do not get a second life by guesswork.
 
-It can be inspected by another agent or a human before anything is written.
+A prepared edit is tied to the observed source. Application rechecks source identity, operation guards and exact edits. If the file changed in the meantime, the plan refuses with `PLAN_STALE` rather than silently relocating to something “close enough”.
 
-When applied, the plan is treated as untrusted input. Threadmoth re-reads reality and re-checks everything.
+That matters when other agents, developers, formatters or background tools may be touching the same checkout.
 
-For the common CLI path, supply only the file and exact replacement intent:
+### 4. Changes have boundaries.
 
-```text
-threadmoth prepare-text src/config.txt --edit old new --output plan.json --summary
+Requests can limit the number of files, matches, regions, changed lines and bytes, and can constrain allowed paths. Workspace containment, source checks and prospective assertions sit on the mutation path, not only in a prompt.
+
+Threadmoth uses a bounded workspace lock to coordinate cooperating mutators. It does not claim to control unrelated external writers or replace the sandbox or operating-system permissions around an agent.
+
+### 5. A commit has a verifiable result.
+
+A certificate records outcomes and relevant evidence, including source/result hashes, the affected range or effect, guard/budget decisions, and verification details.
+
+Outcomes distinguish `APPLIED`, `NO_CHANGE`, `REFUSED` and `FAILED`. Failure reporting includes recovery state: if rollback needs manual attention, Threadmoth says so rather than declaring the source unchanged.
+
+There is a meaningful difference between *a command returned zero* and *the expected bytes were read back and verified*.
+
+### 6. One easy door, with deeper machinery behind it.
+
+Version **1.19.0** introduces the unified `threadmoth edit` CLI and `threadmoth_edit` MCP tool. A routine, exact edit can take one invocation instead of the older prepare/apply sequence. Both routes use the same prepared-plan execution authority.
+
+More demanding work still has explicit, inspectable steps:
+
+~~~bash
+threadmoth prepare-text config.txt --edit OLD NEW --output plan.json --summary
 threadmoth explain --plan plan.json --format diff
 threadmoth apply-plan --plan plan.json --summary
-```
+~~~
 
-Repeat `--edit OLD NEW` for ordered same-file edits. For shell-safe multiline input, read exact UTF-8 text from workspace files with repeated `--edit-files OLD_FILE NEW_FILE` pairs; the combined input is bounded to 1 MiB and these pairs cannot be mixed with `--edit`. Uniform LF or CRLF is derived from the observed source, and LF-authored multiline text is adapted automatically. Use `--newline-policy exact` for mixed or newline-free sources when the supplied line endings are deliberately literal. Preparation reads the source and input files but does not change them; the new plan is the only file it creates. Review rechecks freshness and prints the apply step; application revalidates identity, authority, budgets and exact operations before writing, then returns the certificate.
+Plans can be persisted for human or supervisor review. A `--plan` preview **without** `--output` is in memory only and does not leave a saved plan behind.
 
-For MCP, `threadmoth_prepare_text` accepts `{file_path, edits:[{old,new}]}` and returns the same portable plan. Preview `plan.operations[0].request` with `threadmoth_preview`, then pass the unchanged plan to `threadmoth_apply_plan` after review. Missing and duplicate exact targets keep their refusal certificates. The complete `--request` JSON form remains available for advanced callers.
+The CLI, MCP integration, concise orientation, capability discovery, source inspection and contextual refusal guidance are designed to let capable agents teach themselves the tool, without a wizard or a giant mandatory prompt.
 
-Example request for `threadmoth prepare-text --request edits.json`:
+## How it compares
 
-```json
-{
-  "file_path": "src/config.txt",
-  "edits": [
-    {"old": "first=1\nsecond=2\n", "new": "first=3\nsecond=2\n"},
-    {"old": "second=2", "new": "second=4"}
-  ]
-}
-```
+Threadmoth does not claim to win every editing task. These are different tools with different strengths:
 
-If the repository changed:
+| Approach | Where it shines | What Threadmoth adds or does differently |
+| --- | --- | --- |
+| **`sed`, regex, scripts and direct writes** | Flexible, familiar, powerful for ad-hoc transformations | Exact-target cardinality, stale-source checks, effect budgets, guarded application and result certificates under a common contract |
+| **[`git apply`](https://git-scm.com/docs/git-apply) and patch tools** | Applying diffs with context, checking patch applicability, Git-integrated workflows | Provider-aware targeting beyond patches, explicit effect budgets, source-preserving structured edits, and one consistent certificate interface; `git apply --check` remains valuable |
+| **[ast-grep](https://ast-grep.github.io/) and [Comby](https://comby.dev/)** | Rich syntactic or structural pattern matching and large-scale refactoring | A different emphasis: authoritative bounded writes, cross-format provider discovery, source identity, multi-file content transactions and verifiable outcomes. These tools can be excellent ways to *find* or design an edit |
+| **`jq`, `yq` and format-specific writers** | Powerful data queries, transformations and format-aware manipulation | Small source-local edits with a common preservation and verification contract, when supported; Threadmoth is not a substitute for complex format-specific transformations |
+| **[Aider](https://aider.chat/docs/) and other coding agents** | Reasoning about code, deciding changes, editing across a project, running tests and integrating with Git | Not a replacement. Threadmoth is the deterministic mutation layer such agents can choose to use |
 
-```text
-PLAN_STALE
-```
+**Where Threadmoth has a genuine advantage:** when an automated edit must be *precise, bounded, minimally invasive, auditable and repeatable across file types*, with a clear refusal if those conditions cannot be established.
 
-No fuzzy relocation. No automatic repair. No guessing.
+**Where another tool may be better:** whole-project semantic refactors, generated code, complex data transformations, interactive editing, formatting, compilation, testing and Git history management.
 
----
+This comparison describes design goals and documented behaviour, **not a measured claim that Threadmoth is faster or more reliable than every alternative**. Reproducible head-to-head agent studies are still needed.
 
-## What Threadmoth can target
+## Capabilities
 
-| Provider | Purpose |
-|---|---|
-| **Text** | Exact replacement, byte ranges and idempotent exact-text operations |
-| **JSON / JSONC** | Source-preserving structural value edits |
-| **TOML** | Structure-aware dotted-key edits |
-| **YAML** | Conservative nested map/sequence scalar edits with source-local preservation |
-| **INI** | Source-preserving section/key edits for `.ini`, `setup.cfg`, `tox.ini`, `pytest.ini` and `.editorconfig` |
-| **Markdown** | Heading/list/fenced-region bounded changes |
-| **dotenv** | Key edits while preserving comments and surrounding lines |
-| **Pattern** | Bounded regex operations |
-| **Patch** | Exact unified-diff application with no fuzzy relocation |
-| **Code** | Tree-sitter structural targeting |
-| **Web** | Structural HTML, CSS and XML targeting |
-| **Filesystem** | Guarded create, delete, rename and move |
-| **Desired state** | Bounded deterministic change from observed bytes to supplied desired bytes |
+Threadmoth's Target Registry classifies files by the level of understanding and preservation it can actually provide.
 
-### Syntax-aware source coverage
+| Level | Coverage |
+| --- | --- |
+| **Structured** | JSON, JSONC, TOML, YAML, INI-style files, dotenv |
+| **Syntax-aware** | JavaScript, TypeScript, JSX/TSX, Python, Rust, Go, C, C++, Java, C#, PHP, Bash, PowerShell, SQL and HCL |
+| **Web/markup syntax** | HTML, CSS, XML |
+| **Bounded document regions** | Markdown headings, lists and fenced regions |
+| **Exact** | Explicit text replacements, strict patches, bounded patterns and desired-state operations for suitable UTF-8 files |
+| **Opaque/refused** | Unsupported encodings, binary-like content or operations whose preservation guarantees cannot be established |
 
-Programming and declarative syntax:
+Support for a language means **syntax-aware locating and validation**, not full compiler understanding or semantic refactoring. HCL coverage is syntax-aware, not Terraform state or provider semantics. YAML and other formats deliberately refuse some constructs.
 
-```text
-JavaScript
-TypeScript
-Python
-Rust
-Go
-C
-C++
-Java
-C#
-PHP
-Bash / Shell
-PowerShell
-SQL
-HCL / Terraform syntax
-```
+Other supported operations include guarded file creation, deletion, renaming and moving; bounded pre/postconditions; and ordered multi-file **content** transactions with journaling and recovery reporting.
 
-Syntax variants:
+**Current boundary:** file lifecycle operations are not composed with multi-file content replacements into one native atomic transaction. A rename plus reference rewrites is therefore **not** one guaranteed atomic Threadmoth operation today. Do not assume it is.
 
-```text
-JSX
-TSX
-```
+Find the installed capabilities rather than memorising this table:
 
-Web / markup syntax:
-
-```text
-HTML
-CSS
-XML
-```
-
-PHP includes PHP source and embedded PHP parsing. HCL support is source syntax only; Threadmoth does not claim Terraform resource, provider, state or dependency semantics.
-
-Unsupported languages do not make an ordinary UTF-8 text file unusable. Threadmoth can still offer explicit exact text, strict patch, bounded pattern or desired-state routes where applicable. It never silently downgrades a structured request to a weaker route.
-
-See [Coverage](docs/coverage.md) for the coverage model and current refusal boundaries.
-
-Providers locate candidates.
-
-**Core commits them.**
-
----
-
-## Built for agents
-
-Threadmoth is designed to be discovered rather than memorised.
-
-Start here:
-
-```bash
+~~~bash
+threadmoth orient
 threadmoth capabilities
 threadmoth capabilities --for PATH --json
-threadmoth suggest PATH
-threadmoth inspect PATH
 threadmoth inspect PATH --outline
-threadmoth inspect PATH --expand HANDLE
-```
+threadmoth suggest PATH
+threadmoth schema
+~~~
 
-Then:
+See [Coverage](docs/coverage.md), [Target Registry](docs/target-registry.md), [CLI](docs/cli.md), [Edit documents](docs/edit-documents.md), [Protocol](docs/protocol.md) and [Architecture](docs/architecture.md).
 
-```bash
-threadmoth preview --request request.json
-threadmoth mutate --request request.json
-```
+## Made for independent agents
 
-For multi-file work:
+Threadmoth has **no embedded language model, subscription, model router or token meter**. It does not plan a feature, judge the quality of code or take control of the agent.
 
-```bash
-threadmoth transact --request transaction.json --preview
-threadmoth transact --request transaction.json
-```
+The agent can inspect a file, discover an operation, try Threadmoth, read a certificate and continue. If Threadmoth lacks a suitable operation, the agent may choose another **authorised** tool. A tool's limitation is not a universal permission boundary; a real workspace or security boundary still applies across all tools.
 
-For prepared work:
+This is an AI-first design choice: **make ordinary software observable and self-explanatory to capable agents, rather than forcing agents through special rails.**
 
-```bash
-threadmoth plan --request request.json --output plan.json
-threadmoth explain --plan plan.json
-threadmoth apply-plan --plan plan.json
-```
+For CLI users, the ordinary operation is `threadmoth edit`. For MCP clients:
 
-For compact source-aware text edits, pass the small intent request on stdin or with `--request`; this command prints a prepared plan and never writes the source:
-
-```bash
-threadmoth prepare-text --request edits.json
-```
-
-Apply the returned plan through `threadmoth apply-plan` or the MCP `threadmoth_apply_plan` tool. The default `newline_policy` is `source`; use `exact` for mixed-ending files or when literal line endings are intentional.
-
-When Threadmoth refuses something:
-
-```bash
-threadmoth explain REASON
-threadmoth suggest --from-refusal refusal.json
-```
-
-Machine-facing mutation output is structured JSON. Diagnostics stay separate. Exit behaviour distinguishes success/no-change, refusal and runtime failure.
-
----
-
-## MCP
-
-Threadmoth also runs as a native MCP stdio server:
-
-```bash
+~~~bash
 threadmoth mcp
-```
+~~~
 
-Minimal configuration:
+Example MCP stdio configuration (the client must launch it with the intended checkout as its working directory):
 
-```json
+~~~json
 {
   "mcpServers": {
     "threadmoth": {
@@ -344,167 +241,70 @@ Minimal configuration:
     }
   }
 }
-```
+~~~
 
-The MCP interface exposes the same guarded Core used by the CLI. It does not get a weaker safety path.
+MCP and CLI share the same mutation engine. The server binds its workspace root **when the process starts**; an MCP request cannot silently rebind that authority. Restart a client after changing its binary or workspace configuration.
 
----
-
-## OpenAI and Codex
-
-Threadmoth is designed for AI coding agents. When an agent needs a precise bounded file mutation, its packaged skill and local MCP interface can provide a deterministic mutation boundary rather than a direct write or ad-hoc script.
-
-OpenAI packaging and platform limits are documented in [docs/openai-integration.md](docs/openai-integration.md).
-
----
-
-## A better last mile for coding agents
-
-Without Threadmoth, an agent's mutation layer often looks like this:
-
-```text
-sed
-regex
-apply_patch
-PowerShell
-Python script
-direct write
-jq / yq
-AST rewrite
-whatever seemed convenient this time
-```
-
-Every path comes with different assumptions.
-
-Threadmoth reduces that surface to:
-
-```text
-agent decides
-      ↓
-one mutation boundary
-      ↓
-verified source tree
-```
-
-Threadmoth does not replace formatters, compilers, test runners or the model. Those tools can decide **what the desired result should be**. Threadmoth exists to make sure the authorised result is the result that actually lands.
-
----
-
-## What Threadmoth deliberately does not do
-
-Threadmoth is not:
-
-```text
-an AI
-a coding agent
-a formatter
-a compiler
-a test runner
-a shell
-a Git client
-a build system
-a package manager
-a Terraform engine
-```
-
-It does not invent code. It does not decide which ambiguous target you meant. It does not run arbitrary commands to determine whether an edit was successful.
-
-It does one job:
-
-> **Make bounded file mutation deterministic, inspectable and difficult to get wrong.**
-
----
+See [Agent integration](docs/agent-integration.md) and [OpenAI/Codex integration](docs/openai-integration.md).
 
 ## Install
 
-Download the appropriate standalone binary from the **[latest GitHub release](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/releases/latest)** and put `threadmoth` on your `PATH`.
+Download a platform archive from the **[latest published GitHub release](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/releases/latest)** and put the extracted `threadmoth` executable on `PATH`.
 
-For everyday exact edits, start with `threadmoth edit FILE --search OLD --replace NEW`. For compact ordered multi-file changes, run `threadmoth edit changes.tm` or pipe a document to `threadmoth edit -`. These verify and commit unambiguous authorised changes in one call; `--plan` previews without modifying source files. The original `prepare-text` and `prepare-edits` review flows remain available. See the [CLI guide](docs/cli.md), [Edit documents](docs/edit-documents.md), and [Changelog](CHANGELOG.md) for details. The latest-release page is authoritative for published artifacts, checksums, and manifests.
+Published release archives have SHA-256 files and a release manifest. Check the archive against the release's checksum before installing. Windows and Linux have portable x86-64 builds and optional x86-64-v3 builds; macOS has Apple Silicon and x86-64 packages. Prefer portable unless you know the newer CPU baseline is supported.
 
-Check the installation:
-
-```bash
+~~~bash
 threadmoth --version
-threadmoth doctor
-threadmoth capabilities
-```
-
-Standalone installations can update explicitly:
-
-```bash
-threadmoth update --check
-threadmoth update
-```
-
-The release pipeline publishes portable Windows x86-64, Linux x86-64, macOS Apple Silicon and macOS x86-64 archives, with checksums and a release manifest. Windows and Linux also have explicit `-v3` modern artifacts built for the `x86-64-v3` CPU baseline. Portable remains the compatibility default.
-
-Local maximum-performance builds can use `target-cpu=native` through the checked-in build scripts. Native builds are tuned to the machine that compiles them and are never presented as universal downloads. See [Performance builds](docs/performance-builds.md) and [Performance results](docs/performance-results.md).
-
-For common safe edits, these small commands compile into the same guarded Core pipeline as canonical requests:
-
-```bash
-threadmoth replace-exact config.txt OLD NEW
-threadmoth set-value config.json $.server.port 8080
-threadmoth set-value setup.cfg metadata.version 0.2.0 --string
-threadmoth set-string .env.local API_HOST 127.0.0.1
-threadmoth create-file notes.txt "managed file"
 threadmoth doctor --json
-```
+threadmoth capabilities
+~~~
 
-`set-value` parses its value strictly as JSON. Use `--string` or `set-string` when the intended value is a literal string; Threadmoth does not silently coerce invalid JSON. The Target Registry is the canonical classifier for extensions, special filenames and filename families, and the CLI and MCP shorthands use the same resolver.
+**The application version and wire protocol are separate.** The 1.19.0 release branch uses application version `1.19.0` and protocol `1.4.0`. Repository code can be newer than the latest *published* release; the release page is the authority for downloads.
 
-Shorthands authorize one file, one target and one changed region. They refuse ambiguity and stale state. When a refusal includes deterministic `recovery` remedies, `threadmoth suggest --from-refusal refusal.json` emits complete guarded next-request templates; the caller still chooses among candidates.
+Build from source with Rust:
 
-Before choosing an edit route, agents can inspect Threadmoth's coverage model with `threadmoth capabilities --for PATH --json` or `threadmoth inspect PATH`. For large syntax-aware files, `inspect --outline` returns a compact deterministic map and `inspect --expand HANDLE` returns one bounded exact region after rechecking the source hash. Files are classified as structured, syntax-aware, bounded regions, exact text, or opaque/refused. Unknown valid UTF-8 remains available through explicit exact mutation; binary and unsupported encodings do not silently fall back.
-
-The current protocol is **1.4.0** and remains compatible with 1.3.1, 1.3.0, 1.2.0 and 1.1.0 requests. Mutation, plan application, transaction, filesystem lifecycle and recovery writes use a bounded cooperating-process workspace lock and refuse with `WORKSPACE_BUSY` rather than waiting indefinitely. Unrelated external writers remain covered by stale-state and landed-byte verification, but are not controlled by that lock.
-
-Mutation operations remain local. The explicit update command is the only normal Threadmoth operation that needs network access.
-
-To build from source:
-
-```bash
+~~~bash
 git clone https://github.com/matthewjameswatkins1978-cyber/Threadmoth.git
 cd Threadmoth
-cargo build --release --locked
-```
+cargo build --locked --release
+~~~
 
----
+Update an existing standalone installation explicitly:
 
-## Test it yourself
+~~~bash
+threadmoth update --check
+threadmoth update
+~~~
 
-Threadmoth ships its own correctness and adversarial checks:
+Mutation is local. The explicit updater is the normal network-using exception. Do not overwrite an executable used by an active MCP process; identify its path and restart the client safely before relying on a changed installation.
 
-```bash
+## Testing and limits
+
+Threadmoth ships unit and integration tests, schema/release checks and built-in adversarial benchmark profiles:
+
+~~~bash
+cargo test --locked
 threadmoth benchmark --quick
 threadmoth benchmark --tough
 threadmoth benchmark --torture
-```
+~~~
 
-The important benchmark number is not merely speed.
+Benchmarks report their own correctness and refusal outcomes, including `wrong_applied`. Previous local runs have reported `wrong_applied: 0`; that is **observed test evidence, not a universal proof of zero bugs or a head-to-head competitor victory**. See [Performance results](docs/performance-results.md).
 
-It is:
-
-```text
-wrong successful mutations: 0
-```
-
-Because a mutation tool that is extremely fast at changing the wrong thing is not extremely useful.
-
----
+Threadmoth's cooperative lock is not an OS-wide ban on external writes, and even journalled transaction recovery can require manual attention after exceptional failure. Binary formats and unsupported source constructs can refuse. **Exactness is more important than pretending every request is supported.**
 
 ## The contract
 
-Threadmoth's contract is deliberately simple:
-
-```text
-If the requested mutation is exact, bounded and still valid:
-    apply it
-    verify it
-    prove it
+~~~text
+If the requested change is exact, within scope and still valid:
+    apply only the authorised edit
+    read back and verify what landed
+    return the evidence
 
 Otherwise:
-    refuse
-```
+    refuse clearly, or report failure and recovery state
+~~~
 
-That is Threadmoth.
+**Find the exact thing. Change only that thing. Prove what happened.**
+
+MIT licensed. Built in Rust. Designed to be useful to *any* agent, and predictable enough to trust with the last mile.
