@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.18.1 - Single application release version
+
+### Changed
+
+- Removed the redundant version from agent skill metadata; the installed `threadmoth --version` is authoritative.
+- Current-use documentation describes capabilities without stale release-number headings. Version histories remain in this changelog.
+- Integration manifests retain version fields required by their hosts, synchronized with the Cargo package version and checked in release tests. Internal wire-protocol versions remain distinct for compatibility, not as product release numbers.
+
+
 ## 1.18.0 - Source-aware multi-file review
 
 ### Added
