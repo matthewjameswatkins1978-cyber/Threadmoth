@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.19.0 - Unified editing interface and progressive discovery
+
+### Added
+
+- `threadmoth edit FILE --search OLD --replace NEW` provides a unified editing interface for everyday mutations, applying and verifying unambiguous edits in a single invocation.
+- `threadmoth edit FILE.tm` and `threadmoth edit -` execute compact multi-file edit documents and piped changes directly.
+- `--plan` on `threadmoth edit` enables explicit non-mutating preview and in-memory review.
+- `threadmoth_edit` MCP tool provides one-call editing with strict input-shape validation.
+- Progressive recovery discovery surfaces grounded candidate line numbers and context snippets on target ambiguity refusals without guessing.
+
+### Fixed
+
+- Outcome reporting distinguishes `APPLIED`, `NO_CHANGE`, `REFUSED`, and `FAILED`. `NO_CHANGE` results exit 0 and are never reported as `REFUSED`.
+- Strict validation rejects incomplete `--search`/`--replace` pairs, contradictory arguments, and malformed MCP requests before filesystem access.
+- In-memory plans previewed without an output path explicitly notify callers that no artifact was written to disk.
+- Cleaned up stale version references across documentation and agent skills; skills discover version from installed runtime rather than redundant frontmatter.
+
+### Compatibility
+
+- Core deterministic mutation engine, protocol 1.4.0, exact matching, source guards, and certificates are fully preserved.
+
 ## 1.18.0 - Source-aware multi-file review
 
 ### Added

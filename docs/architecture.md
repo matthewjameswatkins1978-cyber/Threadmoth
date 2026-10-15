@@ -1,6 +1,6 @@
 # Architecture
 
-Threadmoth 1.18.0 keeps one mutation authority:
+Threadmoth keeps one mutation authority:
 
 ```text
 OBSERVE -> IDENTIFY -> GUARD -> PLAN -> VERIFY PROSPECTIVE -> MUTATE -> VERIFY COMMITTED -> CERTIFY
