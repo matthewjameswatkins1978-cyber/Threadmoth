@@ -1,11 +1,16 @@
 # Edit documents
 
-The prepare-edits command accepts one compact UTF-8 document for an ordered, guarded transaction across workspace files. Preparation never writes source files; the resulting plan is reviewed and applied through the existing plan workflow.
+A compact UTF-8 edit document describes ordered, exact edits across workspace files. For an authorised, unambiguous change, the everyday route prepares, applies and certifies the complete transaction in one invocation:
+
+    threadmoth edit changes.tm
+    cat changes.tm | threadmoth edit -
+
+To preview without mutating, run `threadmoth edit changes.tm --plan`. Add `--output prepared.json` to save a prepared plan, which can be applied later with `threadmoth apply-plan --plan prepared.json` after any required review. The original explicitly reviewed route remains available:
 
     threadmoth prepare-edits changes.tm --output prepared.json --review
     threadmoth apply-plan --plan prepared.json --summary
 
-`--review` prepares the plan, shows the existing bounded diff, and prints the separate Apply command. Preparation still does not write source files. If a diff is truncated, Threadmoth marks it and prints a shell-safe `explain --plan ... --format diff --full` command for the complete review. Applying remains a separate action.
+`--review` prepares and shows the existing bounded diff without modifying source files. If the diff is truncated, Threadmoth marks it and prints a shell-safe `explain --plan ... --format diff --full` command for the complete review. Applying a saved plan remains a separate action.
 
 A document uses one file section per workspace-relative target. Put edits for the same file in execution order within its section:
 
@@ -18,7 +23,7 @@ A document uses one file section per workspace-relative target. Put edits for th
 
 Each SEARCH must match exactly once at that point in the evolving source. A missing, duplicate, overlapping, out-of-workspace, or stale target refuses the plan without partial source changes. Later SEARCH text may match the result of an earlier block.
 
-Delimiter lines are syntax. If a block body needs a line that is exactly one of the three delimiters, prefix that literal line with one backslash; the parser removes that escape. The delimiter's own terminating newline is syntax. Add an extra blank line immediately before a delimiter when the intended body itself ends in a newline.
+Delimiter lines are syntax. Harmless empty framing lines between edit blocks, file sections, and at document boundaries are accepted; blank lines **inside** SEARCH and REPLACE bodies remain exact content. If a block body needs a line that is exactly one of the three delimiters, prefix that literal line with one backslash; the parser removes that escape. The delimiter's own terminating newline is syntax. Add an extra blank line immediately before a delimiter when the intended body itself ends in a newline.
 
 The document may use LF or CRLF. Threadmoth normalizes the document framing, then adapts replacement text to a uniformly LF or CRLF source through the existing source-aware exact text provider. Mixed-newline source files are refused because a uniform source policy cannot preserve their line-ending pattern. Use the existing exact text preparation route when an operation needs explicit mixed-ending bytes.
 
