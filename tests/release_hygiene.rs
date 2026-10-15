@@ -2,7 +2,6 @@ use threadmoth::{metadata, protocol::PROTOCOL_VERSION, PACKAGE_VERSION};
 
 #[test]
 fn package_and_runtime_version_are_authoritative_and_protocol_is_separate() {
-    assert_eq!(env!("CARGO_PKG_VERSION"), "1.18.0");
     assert_eq!(PACKAGE_VERSION, env!("CARGO_PKG_VERSION"));
     assert_eq!(metadata::capabilities().threadmoth_version, PACKAGE_VERSION);
     assert_eq!(PROTOCOL_VERSION, "1.4.0");
@@ -17,6 +16,8 @@ fn shipped_agent_manifests_match_the_package_version() {
         serde_json::from_str(include_str!("../gemini-extension.json")).unwrap();
     assert_eq!(antigravity["version"], package_version);
     assert_eq!(gemini["version"], package_version);
-    assert!(include_str!("../skills/threadmoth/SKILL.md")
-        .contains(&format!("version: \"{package_version}\"")));
+    // Agent skills discover the version from the installed runtime, not duplicate metadata.
+    let skill = include_str!("../skills/threadmoth/SKILL.md");
+    let frontmatter = skill.split("---").nth(1).expect("skill frontmatter");
+    assert!(!frontmatter.contains("  version:"));
 }

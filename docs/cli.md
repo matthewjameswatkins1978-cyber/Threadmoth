@@ -1,6 +1,15 @@
 # Threadmoth CLI
 
-Threadmoth makes exact, source-aware editing, including guarded multi-file workflows, straightforward to prepare and review: `prepare-text PATH --edit OLD NEW --output PLAN --summary`, followed by plan review and guarded application. Repeat `--edit` for inline same-file sequences, or use repeated `--edit-files OLD_FILE NEW_FILE` pairs for faithful multiline UTF-8 input. The two input modes cannot be mixed; for several files use `prepare-edits CHANGES --output PLAN --review` to see the guarded diff during preparation; `--request` retains the complete JSON interface. See the edit-documents.md guide for grammar and exactness rules.
+For everyday exact edits, start with `threadmoth edit PATH --search OLD --replace NEW`. An unambiguous, authorised edit is prepared, applied and certified in one invocation. For ordered or multi-file changes, use `threadmoth edit changes.tm` or pipe a UTF-8 edit document to `threadmoth edit -`. Pass `--plan` to preview without editing, optionally with `--output plan.json` to save the guarded plan; `--json` returns structured results. The existing two-step `prepare-text` / `prepare-edits` plus `apply-plan` commands remain available for explicit review workflows. See [Edit documents](edit-documents.md) for exact framing and body semantics.
+
+```text
+threadmoth edit src/main.rs --search OLD --replace NEW
+threadmoth edit changes.tm
+threadmoth edit changes.tm --plan
+threadmoth edit src/main.rs --search OLD --replace NEW --json
+```
+
+For multiline single-file edits, use a compact edit document or stdin instead of shell-sensitive quoting. For structured files, an exact-text route may refuse rather than silently weakening preservation: use `threadmoth suggest PATH` or `threadmoth capabilities --for PATH` to discover the appropriate structured operation. The legacy `prepare-text PATH --edit OLD NEW --output PLAN --summary` workflow supports ordered `--edit` pairs and faithful multiline `--edit-files OLD_FILE NEW_FILE` inputs; `prepare-edits CHANGES --output PLAN --review` handles multi-file documents. `--request` retains the full JSON interface.
 
 Start with `threadmoth orient` (or `threadmoth orient --json`). Provider and operation help is generated from advertised metadata:
 
