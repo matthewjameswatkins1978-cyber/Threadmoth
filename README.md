@@ -419,11 +419,7 @@ It does one job:
 
 Download the appropriate standalone binary from the **[latest GitHub release](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/releases/latest)** and put `threadmoth` on your `PATH`.
 
-Threadmoth 1.17.0 adds a concise multi-file SEARCH/REPLACE document that prepares ordered, exact edits into a guarded transaction plan. It preserves source line endings and existing transaction certificates, and refuses ambiguity or unsafe paths.
-
-Threadmoth **1.16.1** corrects generated Review and Apply command quoting for PowerShell and POSIX shells, with regression tests for special-character filenames. The mutation contract and protocol are unchanged.
-
-Threadmoth **1.16.0** adds bounded UTF-8 file inputs for exact source-aware edits, ordered `--edit-files` pairs, refusal exit code 2, structured exact-match recovery, and compatibility for `inspect --json` and omitted empty path-prefix budgets. It preserves 1.15 source-aware preparation, exact matching, guarded plans, stale checks and certificates; the protocol remains 1.4.0. The latest-release page remains authoritative for published artifacts, including archive checksums and the release manifest.
+For everyday exact edits, start with `threadmoth edit FILE --search OLD --replace NEW`. For compact ordered multi-file changes, run `threadmoth edit changes.tm` or pipe a document to `threadmoth edit -`. These verify and commit unambiguous authorised changes in one call; `--plan` previews without modifying source files. The original `prepare-text` and `prepare-edits` review flows remain available. See the [CLI guide](docs/cli.md), [Edit documents](docs/edit-documents.md), and [Changelog](CHANGELOG.md) for details. The latest-release page is authoritative for published artifacts, checksums, and manifests.
 
 Check the installation:
 
