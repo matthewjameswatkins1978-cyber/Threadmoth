@@ -1963,7 +1963,7 @@ dependencies = [
 
 [[package]]
 name = "threadmoth"
-version = "1.18.0"
+version = "1.18.1"
 dependencies = [
  "atomic-write-file",
  "clap",
