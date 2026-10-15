@@ -6,14 +6,11 @@ For most coding-agent setups, start with this minimal instruction:
 
 ```text
 Threadmoth is installed and available for deterministic, source-preserving file mutation.
-Prefer it for bounded structural edits when its capabilities apply.
-Discover usage with:
-  threadmoth --help
-  threadmoth capabilities
-  threadmoth capabilities --for PATH
-  threadmoth suggest PATH
-Preview before committing when uncertain.
-Do not bypass a Threadmoth refusal with a broader raw edit unless the user explicitly authorizes it.
+Prefer it for everyday exact edits and guarded structured edits when suitable.
+Discover usage with threadmoth --help or threadmoth orient.
+Start simple: threadmoth edit PATH --search OLD --replace NEW.
+Use threadmoth suggest PATH for structured files; use --plan when uncertain.
+A tool limitation is not a permission boundary: use authorised alternative tools when needed, but respect actual workspace and authority restrictions across every route.
 ```
 
 That is intentionally small. The point is to test Threadmoth's discovery surfaces rather than preload the model with its protocol.
@@ -33,7 +30,7 @@ threadmoth suggest PATH --goal GOAL --at SELECTOR
 
 The path-scoped result describes the detected target kind, provider, detection basis, confidence class, understanding level, preservation level, alternatives and explicit fallback routes. A weaker route being listed is not permission to use it automatically.
 
-Start with `threadmoth orient` or `threadmoth orient --json`. For ordinary exact text edits, the compact CLI is `threadmoth prepare-text PATH --edit OLD NEW --output PLAN --summary`; it derives uniform LF/CRLF, writes only the requested plan file, and prints review/apply commands. Repeat `--edit` for ordered same-file changes. For shell-safe multiline input, CLI also accepts repeated `--edit-files OLD_FILE NEW_FILE` pairs, reading bounded UTF-8 files confined to the workspace; this remains an input adapter over the same exact preparation pipeline. MCP continues to accept structured `edits:[{old,new}]` text. Review with `threadmoth explain --plan PLAN --format diff`; a fresh review names the apply command, while a stale review directs re-preparation. In MCP, call `threadmoth_prepare_text`, preview `plan.operations[0].request` with `threadmoth_preview`, then apply the unchanged plan with `threadmoth_apply_plan`. The full JSON request remains available for advanced operations. Mixed endings use explicit exact policy. Structured formats, parser-grounded syntax, bounded regions, exact text and opaque/refused content remain distinct capability levels.
+Start with `threadmoth orient` or `threadmoth orient --json`. For ordinary exact text edits, prefer `threadmoth edit PATH --search OLD --replace NEW` (MCP: `threadmoth_edit`), which prepares, applies and certifies unambiguous authorised edits in one invocation. For multi-file or shell-sensitive multiline edits, use `threadmoth edit changes.tm` or `threadmoth edit -` with a piped document. Use `--plan` to preview without mutation; with `--output PLAN` it saves the plan for the existing `apply-plan` flow. The two-step `prepare-text` and `prepare-edits` routes, `--edit-files` inputs, and full JSON requests remain available for explicit review and advanced operations. Mixed-newline files require explicit exact handling. On structured-file refusal, discover a suitable provider rather than silently weakening the edit guarantee. Distinguish missing tool capability from actual authority denial: an alternative authorised tool may solve an unsupported operation, but do not bypass a protected path, explicit scope limit, or other real permission boundary.
 
 The MCP server binds its workspace root at process startup. A refusal reports the configured root and a checkout-local CLI recovery choice; neither a request path nor MCP `roots/list` changes authority. MCP uses `file_path` for the physical target and `selector` for a structured location. Previous `path`, `file` and `for_path` spellings remain accepted as input aliases.
 
