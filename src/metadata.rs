@@ -642,6 +642,7 @@ pub fn orientation(workspace: &str) -> Value {
         "confinement": "workspace-and-budget",
         "workflow": ["preview", "mutate", "verify"],
         "text_edit": {
+            "edit": "threadmoth edit PATH --search OLD --replace NEW",
             "cli": "threadmoth prepare-text PATH --edit OLD NEW --output PLAN --summary",
             "cli_file_input": "threadmoth prepare-text PATH --edit-files OLD_FILE NEW_FILE --output PLAN --summary",
             "cli_multi_file": "threadmoth prepare-edits CHANGES --output PLAN --review",

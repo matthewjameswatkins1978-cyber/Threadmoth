@@ -585,3 +585,46 @@ fn cli_prepares_reviewable_multifile_plan_without_mutating_sources() {
     assert_eq!(fs::read(temp.path().join("a.txt")).unwrap(), b"a=new\r\n");
     assert_eq!(fs::read(temp.path().join("b.txt")).unwrap(), b"b=new\n");
 }
+
+#[test]
+fn parser_accepts_harmless_empty_framing_lines_and_preserves_body_whitespace() {
+    let document = "
+
+*** File: file.txt
+
+<<<<<<< SEARCH
+  leading spaces
+  and blank body line:
+
+=======
+  replacement
+  with blank line:
+
+>>>>>>> REPLACE
+
+
+*** File: second.txt
+<<<<<<< SEARCH
+old
+=======
+new
+>>>>>>> REPLACE
+
+
+";
+    let files = threadmoth::edit_document::parse(document).unwrap();
+    assert_eq!(files.len(), 2);
+    assert_eq!(files[0].path, "file.txt");
+    assert_eq!(
+        files[0].edits[0].old,
+        "  leading spaces\n  and blank body line:\n"
+    );
+    assert_eq!(
+        files[0].edits[0].new,
+        "  replacement\n  with blank line:\n"
+    );
+    assert_eq!(files[1].path, "second.txt");
+    assert_eq!(files[1].edits[0].old, "old");
+    assert_eq!(files[1].edits[0].new, "new");
+}
+

@@ -8,7 +8,7 @@ pub const THREADMOTH_VERSION: &str = env!("CARGO_PKG_VERSION");
     version = THREADMOTH_VERSION,
     about = "Fast, deterministic structural search and rewrite for AI agents.",
     long_about = "Threadmoth changes exactly the state a request authorizes, refuses ambiguity, and returns a certificate describing what was observed and what actually changed.",
-    after_help = "Start a text edit: threadmoth prepare-text PATH --edit OLD NEW --output plan.json --summary\nReview it: threadmoth explain --plan plan.json --format diff\nApply it: threadmoth apply-plan --plan plan.json --summary\nFor several files: threadmoth prepare-edits changes.tm --output plan.json --summary\nDiscover structured edits: threadmoth suggest PATH\nInspect capabilities: threadmoth capabilities\nGenerate shell completion: threadmoth completions <shell>\nRun checks: threadmoth benchmark --tough",
+    after_help = "Edit a file: threadmoth edit PATH --search OLD --replace NEW\nFor several files: threadmoth edit changes.tm\nReview before applying: threadmoth edit PATH --search OLD --replace NEW --plan\nStart a text edit: threadmoth prepare-text PATH --edit OLD NEW --output plan.json --summary\nReview it: threadmoth explain --plan plan.json --format diff\nApply it: threadmoth apply-plan --plan plan.json --summary\nDiscover structured edits: threadmoth suggest PATH\nInspect capabilities: threadmoth capabilities\nGenerate shell completion: threadmoth completions <shell>\nRun checks: threadmoth benchmark --tough",
     propagate_version = true,
     disable_help_subcommand = true,
     arg_required_else_help = true
@@ -20,6 +20,12 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
+    /// Edit one file or apply an edit document in one verified atomic invocation.
+    #[command(
+        after_help = "Single file: threadmoth edit file.txt --search OLD --replace NEW\nChanges document: threadmoth edit changes.tm\nFrom stdin: cat changes.tm | threadmoth edit -\nPreview only: threadmoth edit file.txt --search OLD --replace NEW --plan\nMachine output: threadmoth edit file.txt --search OLD --replace NEW --json"
+    )]
+    Edit(EditArgs),
+
     /// Replace exactly one literal occurrence using the canonical text pipeline.
     ReplaceExact(ReplaceExactArgs),
 
@@ -378,6 +384,33 @@ pub struct PrepareEditsArgs {
     /// Show the bounded source diff after preparing the plan; applying remains separate.
     #[arg(long, requires = "output", conflicts_with = "summary")]
     pub review: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct EditArgs {
+    /// Workspace-relative target file or changes document (or '-' for stdin).
+    #[arg(value_name = "TARGET", value_hint = ValueHint::FilePath)]
+    pub target: std::path::PathBuf,
+
+    /// Exact text to search for (used with --replace for single-file editing).
+    #[arg(short = 's', long, alias = "old", value_name = "OLD", requires = "replace")]
+    pub search: Option<String>,
+
+    /// Replacement text (used with --search for single-file editing).
+    #[arg(short = 'r', long, alias = "new", value_name = "NEW", requires = "search")]
+    pub replace: Option<String>,
+
+    /// Prepare and review the plan without mutating sources.
+    #[arg(long)]
+    pub plan: bool,
+
+    /// Emit machine-readable JSON output instead of human-friendly presentation.
+    #[arg(short = 'j', long)]
+    pub json: bool,
+
+    /// Write prepared plan to this file (used with --plan).
+    #[arg(short = 'o', long, value_name = "PLAN_PATH", requires = "plan", value_hint = ValueHint::FilePath)]
+    pub output: Option<std::path::PathBuf>,
 }
 
 #[derive(Args, Debug)]
