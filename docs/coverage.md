@@ -1,6 +1,6 @@
 # Coverage model
 
-Threadmoth 1.18.0 classifies a discovered file before mutation. The Target
+Threadmoth classifies a discovered file before mutation. The Target
 Registry is the single classification authority used by discovery, inspect,
 capabilities, suggest, CLI shorthands and MCP shorthands. The level is an
 honest description of what the selected provider can prove, not a promise to
@@ -32,7 +32,7 @@ TOML uses structure-aware dotted-key targeting and narrows candidate changes to 
 
 ### YAML
 
-The 1.9 YAML provider supports useful nested paths through mappings and sequence indexes while keeping conservative source-preservation rules. It targets local scalar values and supports set, ensure-present, delete and ensure-absent where locality is provable.
+The YAML provider supports useful nested paths through mappings and sequence indexes while keeping conservative source-preservation rules. It targets local scalar values and supports set, ensure-present, delete and ensure-absent where locality is provable.
 
 Anchors, aliases, explicit tags, merge keys and directives remain outside the local preservation envelope and fail closed. Flow-style destructive edits and non-scalar targets can also refuse when Threadmoth cannot prove a safe local range. Multi-document boundaries are not guessed across.
 
@@ -55,7 +55,7 @@ INI and other structured providers.
 
 ## Syntax-aware source
 
-Programming and declarative syntax targets in 1.10.0 are:
+Supported programming and declarative syntax targets are:
 
 - JavaScript and TypeScript
 - Python
