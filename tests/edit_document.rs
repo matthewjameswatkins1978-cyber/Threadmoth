@@ -619,12 +619,8 @@ new
         files[0].edits[0].old,
         "  leading spaces\n  and blank body line:\n"
     );
-    assert_eq!(
-        files[0].edits[0].new,
-        "  replacement\n  with blank line:\n"
-    );
+    assert_eq!(files[0].edits[0].new, "  replacement\n  with blank line:\n");
     assert_eq!(files[1].path, "second.txt");
     assert_eq!(files[1].edits[0].old, "old");
     assert_eq!(files[1].edits[0].new, "new");
 }
-

@@ -23,9 +23,9 @@ use threadmoth::{
 
 use cli::{
     ApplyPlanArgs, BenchmarkArgs, BenchmarkProfile, CapabilitiesArgs, Cli, Command,
-    CompletionShell, CreateFileArgs, DoctorArgs, EditArgs, ExplainFormat, HelpArgs, InspectArgs, PlanArgs,
-    PrepareEditsArgs, PrepareTextArgs, RecoverArgs, ReplaceExactArgs, SchemaArgs, SetStringArgs,
-    SetValueArgs, SuggestArgs, UpdateArgs, THREADMOTH_VERSION,
+    CompletionShell, CreateFileArgs, DoctorArgs, EditArgs, ExplainFormat, HelpArgs, InspectArgs,
+    PlanArgs, PrepareEditsArgs, PrepareTextArgs, RecoverArgs, ReplaceExactArgs, SchemaArgs,
+    SetStringArgs, SetValueArgs, SuggestArgs, UpdateArgs, THREADMOTH_VERSION,
 };
 
 fn main() {
@@ -696,9 +696,20 @@ fn run_edit(args: EditArgs) {
     let target_str = args.target.to_string_lossy().into_owned();
     let is_stdin = target_str == "-";
 
+    if args.search.is_some() != args.replace.is_some() {
+        if args.search.is_some() {
+            eprintln!("single-file editing with --search requires --replace");
+        } else {
+            eprintln!("single-file editing with --replace requires --search");
+        }
+        std::process::exit(2);
+    }
+
     if let (Some(search), Some(replace)) = (&args.search, &args.replace) {
         if is_stdin {
-            eprintln!("single-file editing with --search and --replace requires a target file, not '-'");
+            eprintln!(
+                "single-file editing with --search and --replace requires a target file, not '-'"
+            );
             std::process::exit(2);
         }
         let request = threadmoth::source_prepare::SourceAwareTextRequest {
@@ -713,26 +724,26 @@ fn run_edit(args: EditArgs) {
         match threadmoth::source_prepare::prepare(&workspace, &request) {
             threadmoth::source_prepare::SourcePreparationResult::Prepared(prepared) => {
                 if args.plan {
-                    handle_edit_plan_output(&prepared.plan, args.output.as_deref(), args.json, &workspace);
+                    handle_edit_plan_output(
+                        &prepared.plan,
+                        args.output.as_deref(),
+                        args.json,
+                        &workspace,
+                    );
                 } else {
-                    let apply_result = threadmoth::pipeline::apply_prepared_plan(&workspace, &prepared.plan);
+                    let apply_result =
+                        threadmoth::pipeline::apply_prepared_plan(&workspace, &prepared.plan);
                     match apply_result {
                         PlanApplyResult::Certificate(certificate) => {
                             if args.json {
                                 println!("{}", serde_json::to_string_pretty(&certificate).unwrap());
-                            } else if certificate.outcome == Outcome::Applied {
-                                println!("THREADMOTH EDIT COMMITTED");
-                                println!("File         {}", certificate.file_path);
-                                println!("Result       APPLIED");
-                                println!(
-                                    "Change       {} line(s), {} byte(s), {} match(es)",
-                                    certificate.effect.changed_lines,
-                                    certificate.effect.changed_bytes,
-                                    certificate.effect.matches
-                                );
-                                println!("Guarantee    {}", certificate.commit.mode);
                             } else {
-                                print_edit_refusal(&certificate, &workspace, &target_str, Some(search));
+                                print_edit_certificate(
+                                    &certificate,
+                                    &workspace,
+                                    &target_str,
+                                    Some(search),
+                                );
                             }
                             exit_for_outcome(certificate.outcome);
                         }
@@ -740,7 +751,7 @@ fn run_edit(args: EditArgs) {
                             if args.json {
                                 println!("{}", serde_json::to_string_pretty(&certificate).unwrap());
                             } else {
-                                print_transaction_summary(&certificate, false);
+                                print_edit_transaction(&certificate);
                             }
                             exit_for_outcome(certificate.outcome);
                         }
@@ -751,7 +762,7 @@ fn run_edit(args: EditArgs) {
                 if args.json {
                     println!("{}", serde_json::to_string_pretty(&certificate).unwrap());
                 } else {
-                    print_edit_refusal(&certificate, &workspace, &target_str, Some(search));
+                    print_edit_certificate(&certificate, &workspace, &target_str, Some(search));
                 }
                 exit_for_outcome(certificate.outcome);
             }
@@ -812,33 +823,29 @@ fn run_edit(args: EditArgs) {
         match threadmoth::edit_document::prepare(&workspace, &document) {
             Ok(prepared) => {
                 if args.plan {
-                    handle_edit_plan_output(&prepared.plan, args.output.as_deref(), args.json, &workspace);
+                    handle_edit_plan_output(
+                        &prepared.plan,
+                        args.output.as_deref(),
+                        args.json,
+                        &workspace,
+                    );
                 } else {
-                    let apply_result = threadmoth::pipeline::apply_prepared_plan(&workspace, &prepared.plan);
+                    let apply_result =
+                        threadmoth::pipeline::apply_prepared_plan(&workspace, &prepared.plan);
                     match apply_result {
                         PlanApplyResult::Transaction(certificate) => {
                             if args.json {
                                 println!("{}", serde_json::to_string_pretty(&certificate).unwrap());
-                            } else if certificate.outcome == Outcome::Applied {
-                                println!("THREADMOTH TRANSACTION COMMITTED");
-                                println!("Files        {}", certificate.certificates.len());
-                                println!("Guarantee    {}", certificate.transaction_guarantee);
-                                println!("Result       APPLIED");
                             } else {
-                                print_transaction_summary(&certificate, false);
+                                print_edit_transaction(&certificate);
                             }
                             exit_for_outcome(certificate.outcome);
                         }
                         PlanApplyResult::Certificate(certificate) => {
                             if args.json {
                                 println!("{}", serde_json::to_string_pretty(&certificate).unwrap());
-                            } else if certificate.outcome == Outcome::Applied {
-                                println!("THREADMOTH EDIT COMMITTED");
-                                println!("File         {}", certificate.file_path);
-                                println!("Result       APPLIED");
-                                println!("Guarantee    {}", certificate.commit.mode);
                             } else {
-                                print_edit_refusal(&certificate, &workspace, &target_str, None);
+                                print_edit_certificate(&certificate, &workspace, &target_str, None);
                             }
                             exit_for_outcome(certificate.outcome);
                         }
@@ -863,7 +870,11 @@ fn run_edit(args: EditArgs) {
                     println!("Reason       {}", diagnostic.reason_code);
                     println!("Line         {}", diagnostic.line);
                     println!("Details      {}", diagnostic.message);
-                    println!("Next step    Correct the edit document formatting at line {}", diagnostic.line);
+                    println!(
+                        "Next step    Correct the edit document formatting at line {}",
+                        diagnostic.line
+                    );
+                    println!("Source       unchanged");
                 }
                 std::process::exit(2);
             }
@@ -871,7 +882,7 @@ fn run_edit(args: EditArgs) {
                 if args.json {
                     println!("{}", serde_json::to_string_pretty(&certificate).unwrap());
                 } else {
-                    print_transaction_summary(&certificate, false);
+                    print_edit_transaction(&certificate);
                 }
                 exit_for_outcome(certificate.outcome);
             }
@@ -902,7 +913,10 @@ fn handle_edit_plan_output(
         {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                eprintln!("plan output already exists; choose a new path: {}", output.display());
+                eprintln!(
+                    "plan output already exists; choose a new path: {}",
+                    output.display()
+                );
                 std::process::exit(2);
             }
             Err(error) => {
@@ -926,8 +940,115 @@ fn handle_edit_plan_output(
         if let Some(output) = output {
             print_apply_command(output);
         } else {
-            println!("To apply this edit, run without `--plan`.");
+            println!("Note         This plan was previewed in memory and not saved to disk.");
+            println!("To apply this edit, run without `--plan`, or pass `--output plan.json` to persist.");
         }
+    }
+}
+
+fn print_edit_certificate(
+    certificate: &Certificate,
+    workspace: &Workspace,
+    file_path: &str,
+    search_term: Option<&str>,
+) {
+    match certificate.outcome {
+        Outcome::Applied => {
+            println!("THREADMOTH EDIT COMMITTED");
+            println!("File         {}", certificate.file_path);
+            println!("Result       APPLIED");
+            println!(
+                "Change       {} line(s), {} byte(s), {} match(es)",
+                certificate.effect.changed_lines,
+                certificate.effect.changed_bytes,
+                certificate.effect.matches
+            );
+            println!("Guarantee    {}", certificate.commit.mode);
+        }
+        Outcome::NoChange => {
+            println!("THREADMOTH EDIT NO CHANGE");
+            println!("File         {}", certificate.file_path);
+            println!("Result       NO_CHANGE");
+            println!("Details      The target was matched but the replacement produces no change.");
+            println!("Guarantee    {}", certificate.commit.mode);
+            println!("Source       unchanged");
+        }
+        Outcome::Refused => {
+            print_edit_refusal(certificate, workspace, file_path, search_term);
+        }
+        Outcome::Failed => {
+            print_edit_failure(certificate, workspace, file_path);
+        }
+    }
+}
+
+fn print_edit_transaction(certificate: &TransactionCertificate) {
+    match certificate.outcome {
+        Outcome::Applied => {
+            println!("THREADMOTH TRANSACTION COMMITTED");
+            println!("Files        {}", certificate.certificates.len());
+            println!("Guarantee    {}", certificate.transaction_guarantee);
+            println!("Result       APPLIED");
+        }
+        Outcome::NoChange => {
+            println!("THREADMOTH TRANSACTION NO CHANGE");
+            println!("Files        {}", certificate.certificates.len());
+            println!("Guarantee    {}", certificate.transaction_guarantee);
+            println!("Result       NO_CHANGE");
+            println!("Source       unchanged");
+        }
+        Outcome::Refused => {
+            print_transaction_summary(certificate, false);
+        }
+        Outcome::Failed => {
+            print_transaction_failure(certificate);
+        }
+    }
+}
+
+fn print_edit_failure(certificate: &Certificate, _workspace: &Workspace, file_path: &str) {
+    println!("THREADMOTH EDIT FAILED");
+    println!("File         {}", file_path);
+    println!("Result       FAILED");
+    let code = certificate.reason_code.as_deref().unwrap_or("FAILED");
+    println!("Reason       {}", code);
+    if let Some(details) = &certificate.failure_reason {
+        println!("Details      {details:?}");
+    }
+    println!("Recovery     {}", certificate.recovery_state);
+
+    if certificate.recovery_state == "manual_recovery_required" {
+        println!("WARNING      Rollback failed or incomplete! Run `threadmoth recover` to inspect or restore journaled files.");
+        println!("Source       DIRTY (manual recovery required)");
+    } else if certificate.recovery_state == "rolled_back" {
+        println!("Source       unchanged (rolled back to original state)");
+    } else if certificate.recovery_state == "not_started" {
+        println!("Source       unchanged (failed before modifying source)");
+    } else {
+        println!("Source       unknown (verify with `threadmoth recover` or inspect file)");
+    }
+}
+
+fn print_transaction_failure(certificate: &TransactionCertificate) {
+    println!("THREADMOTH TRANSACTION FAILED");
+    println!("Result       FAILED");
+    if let Some(code) = certificate.reason_code.as_deref() {
+        println!("Reason       {code}");
+    }
+    if let Some(details) = &certificate.failure_reason {
+        println!("Details      {details:?}");
+    }
+    println!("Recovery     {}", certificate.rollback_state);
+
+    if certificate.rollback_state == "manual_recovery_required" {
+        println!("WARNING      Rollback failed or incomplete! Run `threadmoth recover` to inspect or restore journaled files.");
+        println!("Source       DIRTY (manual recovery required)");
+    } else if certificate.rollback_state == "rolled_back" {
+        println!("Source       unchanged (all modified files rolled back)");
+    } else if certificate.rollback_state == "not_started" {
+        println!("Source       unchanged (failed before modifying source)");
+    } else {
+        println!("Source       unknown (verify with `threadmoth recover`)");
     }
 }
 
@@ -943,19 +1064,53 @@ fn print_edit_refusal(
     println!("Reason       {}", code);
 
     if code == "TARGET_AMBIGUOUS" {
-        if certificate.effect.matches > 1 {
-            println!("Candidates   Found {} occurrences in {file_path}", certificate.effect.matches);
+        let mut candidates_shown = false;
+        if let Some(RefusalReason::DuplicateTarget {
+            count, candidates, ..
+        }) = &certificate.refusal_reason
+        {
+            if !candidates.is_empty() {
+                println!("Candidates   Found {count} occurrences in {file_path}:");
+                for c in candidates {
+                    let single_line = c.context.replace(['\r', '\n'], " ");
+                    let trimmed = single_line.trim();
+                    println!(
+                        "               Line {}: {}",
+                        c.line,
+                        truncate_chars(trimmed, 60)
+                    );
+                }
+                candidates_shown = true;
+            } else {
+                println!("Candidates   Found {count} occurrences in {file_path}");
+            }
+        } else if certificate.effect.matches > 1 {
+            println!(
+                "Candidates   Found {} occurrences in {file_path}",
+                certificate.effect.matches
+            );
         }
         if let Some(diff) = certificate.diff_summary.as_deref() {
             println!("Details      {diff}");
         }
-        println!(
-            "Next step    Add surrounding context lines to --search to uniquely establish the target, or use `threadmoth edit changes.tm` with ordered blocks."
-        );
+        if candidates_shown {
+            println!(
+                "Next step    Provide additional surrounding context in --search to uniquely establish the target, or use `threadmoth edit changes.tm` with ordered blocks."
+            );
+        } else {
+            println!(
+                "Next step    Inspect the file with `threadmoth inspect {file_path}` to find line numbers and context, or provide more surrounding lines in --search."
+            );
+        }
     } else if code == "TARGET_NOT_FOUND" {
         println!("Details      The search target was not found in the source file.");
         if let Some(term) = search_term {
-            if term.contains('\n') || term.contains('"') || term.contains('\'') || term.contains('`') || term.contains('$') {
+            if term.contains('\n')
+                || term.contains('"')
+                || term.contains('\'')
+                || term.contains('`')
+                || term.contains('$')
+            {
                 println!(
                     "Next step    If the search target contains newlines or shell-sensitive characters, provide it via stdin (`threadmoth edit -`) or a changes document (`threadmoth edit changes.tm`)."
                 );
@@ -974,7 +1129,10 @@ fn print_edit_refusal(
         println!("Next step    Re-run the edit command against the latest source state.");
     } else if code == "WORKSPACE_ESCAPE" || code == "WORKSPACE_ROOT_MISMATCH" {
         println!("Details      The target path is outside the authorized workspace root.");
-        println!("Next step    Target a workspace-relative file path within {}", workspace.root().display());
+        println!(
+            "Next step    Target a workspace-relative file path within {}",
+            workspace.root().display()
+        );
     } else if code == "EFFECT_BUDGET_EXCEEDED" {
         println!("Details      The requested edit exceeds the safety effect budget.");
         let suggestions = budget_suggestions(certificate);
@@ -988,7 +1146,10 @@ fn print_edit_refusal(
         println!("Next step    Inspect capabilities with `threadmoth capabilities --for {file_path}` or get guidance with `threadmoth explain {code}`.");
     }
 
-    let ext = Path::new(file_path).extension().and_then(|e| e.to_str()).unwrap_or("");
+    let ext = Path::new(file_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
     if matches!(ext, "json" | "jsonc" | "toml" | "yaml" | "yml" | "env") {
         println!("Hint         This is a structured format ({ext}). You can also inspect targets with `threadmoth suggest {file_path}` or `threadmoth capabilities --for {file_path}`.");
     }

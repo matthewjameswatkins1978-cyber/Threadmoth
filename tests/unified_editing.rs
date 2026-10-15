@@ -525,3 +525,260 @@ fn parity_budget_refusals() {
         .contains("exceeds the per-file edit limit"));
     assert_eq!(fs::read(temp.path().join("limits.txt")).unwrap(), b"x=1\n");
 }
+
+#[test]
+fn outcome_reporting_no_change_is_not_refused() {
+    let temp = TempDir::new().unwrap();
+    let initial = b"setting = true\n";
+    fs::write(temp.path().join("nochange.txt"), initial).unwrap();
+
+    let output = cli(
+        temp.path(),
+        &[
+            "edit",
+            "nochange.txt",
+            "--search",
+            "setting = true",
+            "--replace",
+            "setting = true",
+        ],
+    );
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("THREADMOTH EDIT NO CHANGE"));
+    assert!(stdout.contains("Result       NO_CHANGE"));
+    assert!(stdout.contains("Source       unchanged"));
+    assert!(!stdout.contains("REFUSED"));
+
+    // Also verify JSON mode
+    let json_output = cli(
+        temp.path(),
+        &[
+            "edit",
+            "nochange.txt",
+            "--search",
+            "setting = true",
+            "--replace",
+            "setting = true",
+            "--json",
+        ],
+    );
+    assert_eq!(json_output.status.code(), Some(0));
+    let cert: Value = serde_json::from_slice(&json_output.stdout).unwrap();
+    assert_eq!(cert["outcome"], "NO_CHANGE");
+    assert_eq!(fs::read(temp.path().join("nochange.txt")).unwrap(), initial);
+}
+
+#[test]
+fn strict_input_validation_cli_incomplete_pairs() {
+    let temp = TempDir::new().unwrap();
+    let initial = b"val = 1\n";
+    fs::write(temp.path().join("test.txt"), initial).unwrap();
+
+    // --search without --replace is rejected by CLI argument parser
+    let out1 = cli(temp.path(), &["edit", "test.txt", "--search", "val = 1"]);
+    assert_eq!(out1.status.code(), Some(2));
+    let stderr1 = String::from_utf8(out1.stderr).unwrap();
+    assert!(stderr1.contains("--replace"));
+    assert_eq!(fs::read(temp.path().join("test.txt")).unwrap(), initial);
+
+    // --replace without --search is rejected by CLI argument parser
+    let out2 = cli(temp.path(), &["edit", "test.txt", "--replace", "val = 2"]);
+    assert_eq!(out2.status.code(), Some(2));
+    let stderr2 = String::from_utf8(out2.stderr).unwrap();
+    assert!(stderr2.contains("--search"));
+    assert_eq!(fs::read(temp.path().join("test.txt")).unwrap(), initial);
+}
+
+#[test]
+fn strict_input_validation_mcp_shapes() {
+    let temp = TempDir::new().unwrap();
+    let initial = b"content = alpha\n";
+    fs::write(temp.path().join("mcp_test.txt"), initial).unwrap();
+
+    // 1. Missing replace
+    let r1 = call_mcp(
+        temp.path(),
+        &[
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "threadmoth_edit",
+                    "arguments": {
+                        "file_path": "mcp_test.txt",
+                        "search": "content = alpha"
+                    }
+                }
+            }),
+        ],
+    );
+    assert_eq!(r1[1]["result"]["isError"], true);
+    assert!(r1[1]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("incomplete inline edit: `search` was provided without `replace`"));
+
+    // 2. Missing search
+    let r2 = call_mcp(
+        temp.path(),
+        &[
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "threadmoth_edit",
+                    "arguments": {
+                        "file_path": "mcp_test.txt",
+                        "replace": "content = beta"
+                    }
+                }
+            }),
+        ],
+    );
+    assert_eq!(r2[1]["result"]["isError"], true);
+    assert!(r2[1]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("incomplete inline edit: `replace` was provided without `search`"));
+
+    // 3. Missing file_path with search/replace
+    let r3 = call_mcp(
+        temp.path(),
+        &[
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "threadmoth_edit",
+                    "arguments": {
+                        "search": "content = alpha",
+                        "replace": "content = beta"
+                    }
+                }
+            }),
+        ],
+    );
+    assert_eq!(r3[1]["result"]["isError"], true);
+    assert!(r3[1]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("single-file inline edit requires `file_path` alongside `search` and `replace`"));
+
+    // 4. Contradictory document and search/replace
+    let r4 = call_mcp(
+        temp.path(),
+        &[
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "threadmoth_edit",
+                    "arguments": {
+                        "file_path": "mcp_test.txt",
+                        "search": "content = alpha",
+                        "replace": "content = beta",
+                        "document": "*** File: mcp_test.txt\n"
+                    }
+                }
+            }),
+        ],
+    );
+    assert_eq!(r4[1]["result"]["isError"], true);
+    assert!(r4[1]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("contradictory parameters"));
+
+    // 5. Empty arguments
+    let r5 = call_mcp(
+        temp.path(),
+        &[
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "threadmoth_edit",
+                    "arguments": {}
+                }
+            }),
+        ],
+    );
+    assert_eq!(r5[1]["result"]["isError"], true);
+    assert!(r5[1]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("empty edit request"));
+
+    // Verify file on disk remained completely untouched
+    assert_eq!(fs::read(temp.path().join("mcp_test.txt")).unwrap(), initial);
+}
+
+#[test]
+fn plan_mode_preview_note_without_output_file() {
+    let temp = TempDir::new().unwrap();
+    let initial = b"key = original\n";
+    fs::write(temp.path().join("sample.txt"), initial).unwrap();
+
+    let output = cli(
+        temp.path(),
+        &[
+            "edit",
+            "sample.txt",
+            "--search",
+            "key = original",
+            "--replace",
+            "key = updated",
+            "--plan",
+        ],
+    );
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("THREADMOTH EDIT PLAN"));
+    assert!(
+        stdout.contains("Note         This plan was previewed in memory and not saved to disk.")
+    );
+    assert!(stdout.contains(
+        "To apply this edit, run without `--plan`, or pass `--output plan.json` to persist."
+    ));
+    assert_eq!(fs::read(temp.path().join("sample.txt")).unwrap(), initial);
+}
+
+#[test]
+fn grounded_candidate_reporting_for_ambiguous_targets() {
+    let temp = TempDir::new().unwrap();
+    let initial = b"item = pending\nother = 1\nitem = pending\n";
+    fs::write(temp.path().join("ambig.txt"), initial).unwrap();
+
+    let output = cli(
+        temp.path(),
+        &[
+            "edit",
+            "ambig.txt",
+            "--search",
+            "item = pending",
+            "--replace",
+            "item = done",
+        ],
+    );
+    assert_eq!(output.status.code(), Some(2));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("THREADMOTH EDIT REFUSED"));
+    assert!(stdout.contains("Reason       TARGET_AMBIGUOUS"));
+    assert!(stdout.contains("Candidates   Found 2 occurrences in ambig.txt:"));
+    assert!(stdout.contains("Line 1:"));
+    assert!(stdout.contains("Line 3:"));
+    assert!(stdout.contains("item = pending"));
+    assert!(stdout.contains("Source       unchanged"));
+    assert_eq!(fs::read(temp.path().join("ambig.txt")).unwrap(), initial);
+}

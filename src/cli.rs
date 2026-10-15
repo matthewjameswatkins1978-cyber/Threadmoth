@@ -393,11 +393,23 @@ pub struct EditArgs {
     pub target: std::path::PathBuf,
 
     /// Exact text to search for (used with --replace for single-file editing).
-    #[arg(short = 's', long, alias = "old", value_name = "OLD", requires = "replace")]
+    #[arg(
+        short = 's',
+        long,
+        alias = "old",
+        value_name = "OLD",
+        requires = "replace"
+    )]
     pub search: Option<String>,
 
     /// Replacement text (used with --search for single-file editing).
-    #[arg(short = 'r', long, alias = "new", value_name = "NEW", requires = "search")]
+    #[arg(
+        short = 'r',
+        long,
+        alias = "new",
+        value_name = "NEW",
+        requires = "search"
+    )]
     pub replace: Option<String>,
 
     /// Prepare and review the plan without mutating sources.
