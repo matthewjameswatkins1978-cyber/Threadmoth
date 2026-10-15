@@ -261,7 +261,7 @@ PHP includes PHP source and embedded PHP parsing. HCL support is source syntax o
 
 Unsupported languages do not make an ordinary UTF-8 text file unusable. Threadmoth can still offer explicit exact text, strict patch, bounded pattern or desired-state routes where applicable. It never silently downgrades a structured request to a weaker route.
 
-See [Coverage](docs/coverage.md) for the full 1.18.0 model and current refusal boundaries.
+See [Coverage](docs/coverage.md) for the current coverage model and refusal boundaries.
 
 Providers locate candidates.
 
@@ -419,11 +419,7 @@ It does one job:
 
 Download the appropriate standalone binary from the **[latest GitHub release](https://github.com/matthewjameswatkins1978-cyber/Threadmoth/releases/latest)** and put `threadmoth` on your `PATH`.
 
-Threadmoth 1.17.0 adds a concise multi-file SEARCH/REPLACE document that prepares ordered, exact edits into a guarded transaction plan. It preserves source line endings and existing transaction certificates, and refuses ambiguity or unsafe paths.
-
-Threadmoth **1.16.1** corrects generated Review and Apply command quoting for PowerShell and POSIX shells, with regression tests for special-character filenames. The mutation contract and protocol are unchanged.
-
-Threadmoth **1.16.0** adds bounded UTF-8 file inputs for exact source-aware edits, ordered `--edit-files` pairs, refusal exit code 2, structured exact-match recovery, and compatibility for `inspect --json` and omitted empty path-prefix budgets. It preserves 1.15 source-aware preparation, exact matching, guarded plans, stale checks and certificates; the protocol remains 1.4.0. The latest-release page remains authoritative for published artifacts, including archive checksums and the release manifest.
+For exact multi-file changes, use a compact `prepare-edits` SEARCH/REPLACE document with `--review` to inspect the proposed diff before applying the guarded plan. For multiline input to `prepare-text`, use UTF-8 `--edit-files` pairs to avoid shell-quoting problems. Refusals preserve source files; emitted review/apply commands are shell-aware. See [Changelog](CHANGELOG.md) for version-by-version history. The latest-release page is authoritative for published artifacts, checksums and manifests.
 
 Check the installation:
 
@@ -440,7 +436,7 @@ threadmoth update --check
 threadmoth update
 ```
 
-The 1.13 release pipeline supports portable Windows x86-64, Linux x86-64, macOS Apple Silicon and macOS x86-64 archives, with checksums and a release manifest. Windows and Linux also have explicit `-v3` modern artifacts built for the `x86-64-v3` CPU baseline. Portable remains the compatibility default.
+The release pipeline publishes portable Windows x86-64, Linux x86-64, macOS Apple Silicon and macOS x86-64 archives, with checksums and a release manifest. Windows and Linux also have explicit `-v3` modern artifacts built for the `x86-64-v3` CPU baseline. Portable remains the compatibility default.
 
 Local maximum-performance builds can use `target-cpu=native` through the checked-in build scripts. Native builds are tuned to the machine that compiles them and are never presented as universal downloads. See [Performance builds](docs/performance-builds.md) and [Performance results](docs/performance-results.md).
 
