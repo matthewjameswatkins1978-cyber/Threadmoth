@@ -1262,34 +1262,39 @@ fn test_rendermono_reproduction() {
     let pre_bytes = include_bytes!("fixtures/rendermono/mono-preblob.cs");
     let req_str = include_str!("fixtures/rendermono/gui-b1r-mono.json");
     let req: serde_json::Value = serde_json::from_str(req_str).unwrap();
-    let edits_arr = &req["operation"]["operation"]["edits"];
-    let old_text = edits_arr[0]["old"].as_str().unwrap();
-    let new_text = edits_arr[0]["new"].as_str().unwrap();
 
-    // 1. Test against original LF bytes
+    // Canonicalize to pure LF bytes first regardless of checkout line endings
+    let mut lf_bytes = Vec::with_capacity(pre_bytes.len());
+    let mut i = 0;
+    while i < pre_bytes.len() {
+        if pre_bytes[i] == b'\r' && pre_bytes.get(i + 1) == Some(&b'\n') {
+            i += 1;
+        } else {
+            lf_bytes.push(pre_bytes[i]);
+            i += 1;
+        }
+    }
+
+    // 1. Test against LF bytes
     let temp_lf = TempDir::new().unwrap();
     fs::create_dir_all(temp_lf.path().join("src/AgentX.App")).unwrap();
     fs::write(
         temp_lf.path().join("src/AgentX.App/MarkdownView.cs"),
-        pre_bytes,
+        &lf_bytes,
     )
     .unwrap();
     let ws_lf = Workspace::new(temp_lf.path()).unwrap();
-    let req_obj: Request = serde_json::from_value(req.clone()).unwrap();
+    let req_obj: Request = serde_json::from_value(req).unwrap();
     let cert_lf = threadmoth::pipeline::execute_request(&ws_lf, &req_obj, true);
-    println!(
-        "cert_lf outcome: {:?}, refusal: {:?}",
-        cert_lf.outcome, cert_lf.refusal_reason
-    );
 
     // 2. Test against CRLF bytes
-    let crlf_bytes = pre_bytes.iter().copied().fold(Vec::new(), |mut acc, b| {
+    let mut crlf_bytes = Vec::with_capacity(lf_bytes.len() * 2);
+    for &b in &lf_bytes {
         if b == b'\n' {
-            acc.push(b'\r');
+            crlf_bytes.push(b'\r');
         }
-        acc.push(b);
-        acc
-    });
+        crlf_bytes.push(b);
+    }
     let temp_crlf = TempDir::new().unwrap();
     fs::create_dir_all(temp_crlf.path().join("src/AgentX.App")).unwrap();
     fs::write(
@@ -1298,40 +1303,7 @@ fn test_rendermono_reproduction() {
     )
     .unwrap();
     let ws_crlf = Workspace::new(temp_crlf.path()).unwrap();
-
-    // Call plan_sequence directly or inspect what diff_planner does:
-
-    let old_text_crlf = old_text.replace("\n", "\r\n");
-    let new_text_crlf = new_text.replace("\n", "\r\n");
-    let candidate = crlf_bytes
-        .windows(old_text_crlf.len())
-        .position(|w| w == old_text_crlf.as_bytes())
-        .map(|pos| {
-            let mut res = Vec::new();
-            res.extend_from_slice(&crlf_bytes[..pos]);
-            res.extend_from_slice(new_text_crlf.as_bytes());
-            res.extend_from_slice(&crlf_bytes[pos + old_text_crlf.len()..]);
-            res
-        })
-        .expect("target must exist in crlf_bytes");
-
-    match threadmoth::diff_planner::plan(&crlf_bytes, &candidate) {
-        Ok(plan) => {
-            println!(
-                "diff_planner plan succeeded with {} edits",
-                plan.edits.len()
-            );
-        }
-        Err(err) => {
-            println!("diff_planner plan failed: {:?}", err);
-        }
-    }
-
     let cert_crlf = threadmoth::pipeline::execute_request(&ws_crlf, &req_obj, true);
-    println!(
-        "cert_crlf outcome: {:?}, refusal: {:?}",
-        cert_crlf.outcome, cert_crlf.refusal_reason
-    );
 
     assert_eq!(cert_lf.outcome, Outcome::Applied);
     assert_eq!(cert_crlf.outcome, Outcome::Applied);
