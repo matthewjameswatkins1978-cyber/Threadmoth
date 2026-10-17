@@ -2425,18 +2425,20 @@ fn plan_edits_unchecked(
 ) -> Result<Vec<ByteEdit>, (RefusalReason, String)> {
     match &request.operation {
         OperationPayload::Text(o) => {
-            TextProvider::plan(original, o, &request.cardinality).map_err(|e| {
-                let detail = e.to_string();
-                match e {
-                    TextProviderError::Refused(r) => (r, detail),
-                    TextProviderError::Error { message } => (
-                        RefusalReason::Custom {
-                            message: message.clone(),
-                        },
-                        message,
-                    ),
-                }
-            })
+            let within = request.region_guard.as_ref().map(|g| g.anchor.as_str());
+            TextProvider::plan_scoped(original, o, &request.cardinality, within, Some(file_path))
+                .map_err(|e| {
+                    let detail = e.to_string();
+                    match e {
+                        TextProviderError::Refused(r) => (r, detail),
+                        TextProviderError::Error { message } => (
+                            RefusalReason::Custom {
+                                message: message.clone(),
+                            },
+                            message,
+                        ),
+                    }
+                })
         }
         OperationPayload::Json(o) => {
             JsonProvider::plan(original, o, &request.cardinality).map_err(|e| {

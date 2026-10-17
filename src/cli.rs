@@ -354,6 +354,10 @@ pub struct PrepareTextArgs {
     #[arg(long, value_enum)]
     pub newline_policy: Option<PrepareTextNewlinePolicy>,
 
+    /// Scope disambiguation anchor (structural scope or section boundary).
+    #[arg(long, alias = "scope", value_name = "ANCHOR")]
+    pub within: Option<String>,
+
     /// Write the guarded prepared plan to this file for review and apply.
     #[arg(short, long, value_hint = ValueHint::FilePath)]
     pub output: Option<std::path::PathBuf>,
@@ -411,6 +415,10 @@ pub struct EditArgs {
         requires = "search"
     )]
     pub replace: Option<String>,
+
+    /// Scope disambiguation anchor (structural scope or section boundary).
+    #[arg(long, alias = "scope", value_name = "ANCHOR")]
+    pub within: Option<String>,
 
     /// Prepare and review the plan without mutating sources.
     #[arg(long)]

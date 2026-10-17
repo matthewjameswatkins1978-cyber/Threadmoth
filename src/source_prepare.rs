@@ -25,6 +25,8 @@ pub struct SourceAwareTextRequest {
     pub edits: Vec<TextReplacementIntent>,
     #[serde(default)]
     pub newline_policy: NewlinePolicy,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub within: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
@@ -81,7 +83,7 @@ pub fn prepare(workspace: &Workspace, request: &SourceAwareTextRequest) -> Sourc
                 version: PROTOCOL_VERSION.into(),
                 request_id: "source-text-prepare".into(),
                 allow_generated: false,
-                file_path: resolved,
+                file_path: resolved.clone(),
                 namespace: crate::path::PathNamespace::Native,
                 expected_pre_hash: None,
                 region_guard: None,
@@ -107,12 +109,19 @@ pub fn prepare(workspace: &Workspace, request: &SourceAwareTextRequest) -> Sourc
         file_path: resolved.clone(),
         namespace: crate::path::PathNamespace::Native,
         expected_pre_hash: Some(source_hash.clone()),
-        region_guard: None,
+        region_guard: request
+            .within
+            .as_ref()
+            .map(|anchor| crate::protocol::RegionGuard {
+                anchor: anchor.clone(),
+                target_sha256: compute_sha256(anchor.as_bytes()),
+                mode: crate::protocol::RegionGuardMode::RegionSnapshot,
+            }),
         candidate_guard: None,
         cardinality: Cardinality::ExactlyOne,
         budget: EffectBudget {
             max_files: Some(1),
-            allowed_path_prefixes: vec![resolved],
+            allowed_path_prefixes: vec![resolved.clone()],
             ..EffectBudget::default()
         },
         operation: OperationPayload::Text(TextOperation::ReplaceSequence {
@@ -140,6 +149,20 @@ pub fn prepare(workspace: &Workspace, request: &SourceAwareTextRequest) -> Sourc
                 recovery.remedies.push(crate::protocol::RecoveryRemedy {
                     kind: "use_file_based_text_input".into(),
                     description: "If multiline CLI arguments may have been altered by shell quoting, place the exact UTF-8 old and new text in workspace files and retry with: threadmoth prepare-text PATH --edit-files OLD_FILE NEW_FILE --output PLAN --summary. This is an alternate input route, not a fuzzy target search; the refusal does not establish that shell quoting caused the mismatch.".into(),
+                    request_patch: None,
+                });
+            }
+            if certificate.reason_code.as_deref() == Some("TARGET_AMBIGUOUS") {
+                let recovery =
+                    certificate
+                        .recovery
+                        .get_or_insert_with(|| crate::protocol::RecoveryInfo {
+                            requires_choice: true,
+                            remedies: Vec::new(),
+                        });
+                recovery.remedies.push(crate::protocol::RecoveryRemedy {
+                    kind: "use_scope_anchor".into(),
+                    description: "If the target exists in multiple functions or sections, scope the edit to a specific declaration with --within <ANCHOR>.".into(),
                     request_patch: None,
                 });
             }

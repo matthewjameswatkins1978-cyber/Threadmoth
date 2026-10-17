@@ -77,6 +77,9 @@ struct PrepareTextToolArgs {
     edits: Vec<threadmoth::source_prepare::TextReplacementIntent>,
     #[serde(default)]
     newline_policy: threadmoth::source_prepare::NewlinePolicy,
+    #[serde(default)]
+    #[serde(rename = "within", alias = "scope")]
+    within: Option<String>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -105,6 +108,9 @@ struct EditToolArgs {
     #[serde(default)]
     #[serde(rename = "replace", alias = "new")]
     replace: Option<String>,
+    #[serde(default)]
+    #[serde(rename = "within", alias = "scope", alias = "in")]
+    within: Option<String>,
     #[serde(default)]
     #[serde(rename = "document", alias = "content")]
     document: Option<String>,
@@ -393,6 +399,7 @@ fn call_tool(
                 file_path: args.file_path,
                 edits: args.edits,
                 newline_policy: args.newline_policy,
+                within: args.within,
             };
             let result = threadmoth::source_prepare::prepare(workspace, &request);
             let output = match result {
@@ -585,6 +592,7 @@ fn execute_mcp_edit(workspace: &Workspace, args: EditToolArgs) -> Result<Value, 
                 new: replace,
             }],
             newline_policy: threadmoth::source_prepare::NewlinePolicy::Source,
+            within: args.within,
         };
         return match threadmoth::source_prepare::prepare(workspace, &request) {
             threadmoth::source_prepare::SourcePreparationResult::Prepared(prepared) => {

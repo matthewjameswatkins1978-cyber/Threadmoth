@@ -29,6 +29,7 @@ fn request(path: &str, edits: &[(&str, &str)]) -> SourceAwareTextRequest {
             })
             .collect(),
         newline_policy: NewlinePolicy::Source,
+        within: None,
     }
 }
 

@@ -463,6 +463,7 @@ fn run_prepare_text(args: PrepareTextArgs) {
                     threadmoth::source_prepare::NewlinePolicy::Exact
                 }
             },
+            within: args.within,
         }
     };
     match threadmoth::source_prepare::prepare(&workspace, &request) {
@@ -719,6 +720,7 @@ fn run_edit(args: EditArgs) {
                 new: replace.clone(),
             }],
             newline_policy: threadmoth::source_prepare::NewlinePolicy::Source,
+            within: args.within,
         };
 
         match threadmoth::source_prepare::prepare(&workspace, &request) {

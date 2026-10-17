@@ -5,6 +5,9 @@
 ### Added
 
 - Multi-file edit documents support `#` comments outside of blocks, trailing whitespace on delimiter markers (`<<<<<<< SEARCH `, `======= `, `>>>>>>> REPLACE `), and preserve single blank line block bodies.
+- **Scoped Anchor Disambiguation**: Added `--within <ANCHOR>` to `threadmoth edit` and `threadmoth prepare-text`, and `within: string` to `threadmoth_edit` and `threadmoth_prepare_text` MCP tools. Reliably scopes single-file replacements to a specific function, class, or method declaration in code files (15+ Tree-sitter grammars), section in TOML/INI files (`[section]`), or heading in Markdown documents (`# Heading`).
+- Strict fail-closed boundary enforcement: completely forbids speculative indentation-based guessing. Enforces declaration header boundary rules (`anchor_start < body_start`), rejecting body anchors.
+- Integrates seamlessly with existing `RegionGuard` contract, validating anchor uniqueness and hash invariants across transaction preparation and application lifecycles.
 - SIMD-accelerated line splitting and newline profiling via `memchr` for high-throughput exact editing (~1.8x speedup on large text and long-line operations).
 - In-memory prepared-plan transaction certificates faithfully populate `changed_line_ranges` and `bounded_diff`.
 - Canonical SIMD `newline_profile` integrated across all engine, pipeline, text provider, source preparation, and metadata inspection surfaces.

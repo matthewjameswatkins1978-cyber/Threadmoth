@@ -569,6 +569,9 @@ fn is_outline_kind(kind: &str, family: LanguageFamily) -> bool {
                 | "namespace_declaration"
                 | "type_declaration"
                 | "struct_specifier"
+                | "class_specifier"
+                | "struct_declaration"
+                | "constructor_declaration"
                 | "create_function_statement"
                 | "create_table_statement"
         ),
@@ -585,6 +588,78 @@ fn is_outline_kind(kind: &str, family: LanguageFamily) -> bool {
                 | "template_element"
         ),
     }
+}
+
+pub fn resolve_structural_scope(
+    content: &[u8],
+    language_name: &str,
+    anchor_start: usize,
+    anchor_end: usize,
+) -> Result<(usize, usize), RefusalReason> {
+    let Some(spec) = lookup(language_name) else {
+        return Err(RefusalReason::ProviderCapabilityMissing {
+            provider: "syntax".into(),
+            capability: format!("language grammar: {language_name}"),
+        });
+    };
+    let tree = parse(content, spec).map_err(|error| match error {
+        SyntaxError::Refused(reason) => reason,
+        SyntaxError::Engine(err) => RefusalReason::MalformedInput {
+            details: format!("syntax parse error: {err}"),
+        },
+    })?;
+    let root = tree.root_node();
+    let descendant = root
+        .descendant_for_byte_range(anchor_start, anchor_end)
+        .ok_or_else(|| RefusalReason::PreservationUnavailable {
+            details: "cannot map anchor to syntax tree node".into(),
+        })?;
+    let mut current = descendant;
+    let mut matched = None;
+    loop {
+        if is_outline_kind(current.kind(), spec.family) {
+            matched = Some(current);
+            break;
+        }
+        match current.parent() {
+            Some(parent) if parent != root => current = parent,
+            _ => break,
+        }
+    }
+    let Some(node) = matched else {
+        return Err(RefusalReason::PreservationUnavailable {
+            details: "anchor does not identify a structural declaration scope".into(),
+        });
+    };
+
+    let body = node
+        .child_by_field_name("body")
+        .or_else(|| node.child_by_field_name("block"))
+        .or_else(|| {
+            (0..node.child_count()).find_map(|i| {
+                let child = node.child(i)?;
+                if matches!(
+                    child.kind(),
+                    "block" | "statement_block" | "compound_statement" | "declaration_list"
+                ) {
+                    Some(child)
+                } else {
+                    None
+                }
+            })
+        });
+    if let Some(body_node) = body {
+        if anchor_start >= body_node.start_byte() {
+            return Err(RefusalReason::PreservationUnavailable {
+                details: format!(
+                    "anchor falls inside the body of '{}' rather than identifying its declaration header",
+                    node.kind()
+                ),
+            });
+        }
+    }
+
+    Ok((node.start_byte(), node.end_byte()))
 }
 
 fn parse(content: &[u8], spec: &LanguageSpec) -> Result<tree_sitter::Tree, SyntaxError> {
