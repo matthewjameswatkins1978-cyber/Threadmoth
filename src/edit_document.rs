@@ -93,7 +93,7 @@ pub fn parse(document: &str) -> Result<Vec<EditDocumentFile>, EditDocumentDiagno
     let mut total_edits = 0usize;
     let mut index = 0usize;
     while index < lines.len() {
-        while index < lines.len() && lines[index].trim().is_empty() {
+        while index < lines.len() && is_ignorable_line(lines[index]) {
             index += 1;
         }
         if index >= lines.len() {
@@ -126,12 +126,12 @@ pub fn parse(document: &str) -> Result<Vec<EditDocumentFile>, EditDocumentDiagno
         index += 1;
         let mut edits = Vec::new();
         while index < lines.len() && !lines[index].starts_with(FILE_PREFIX) {
-            if lines[index].trim().is_empty() {
+            if is_ignorable_line(lines[index]) {
                 index += 1;
                 continue;
             }
             let edit_line = index + 1;
-            if lines[index] != SEARCH {
+            if lines[index].trim_end() != SEARCH {
                 return Err(diagnostic(
                     edit_line,
                     "expected `<<<<<<< SEARCH` or the next `*** File:` header",
@@ -139,12 +139,12 @@ pub fn parse(document: &str) -> Result<Vec<EditDocumentFile>, EditDocumentDiagno
             }
             index += 1;
             let old = read_body(&lines, &mut index, SEPARATOR, edit_line)?;
-            if index >= lines.len() || lines[index] != SEPARATOR {
+            if index >= lines.len() || lines[index].trim_end() != SEPARATOR {
                 return Err(diagnostic(edit_line, "search block is missing `=======`"));
             }
             index += 1;
             let new = read_body(&lines, &mut index, REPLACE, edit_line)?;
-            if index >= lines.len() || lines[index] != REPLACE {
+            if index >= lines.len() || lines[index].trim_end() != REPLACE {
                 return Err(diagnostic(
                     edit_line,
                     "replacement block is missing `>>>>>>> REPLACE`",
@@ -191,6 +191,10 @@ pub fn parse(document: &str) -> Result<Vec<EditDocumentFile>, EditDocumentDiagno
     Ok(files)
 }
 
+fn is_ignorable_line(line: &str) -> bool {
+    line.trim().is_empty() || line.trim_start().starts_with('#')
+}
+
 fn read_body(
     lines: &[&str],
     index: &mut usize,
@@ -200,19 +204,22 @@ fn read_body(
     let mut body = String::new();
     while *index < lines.len() {
         let line = lines[*index];
-        if line == terminator {
+        if line == terminator || line.trim_end() == terminator {
             // The line break required to put a delimiter on its own line is
             // syntax. An extra blank line represents a body ending in LF.
-            if body.ends_with('\n') {
+            // A single blank line in the body explicitly denotes a newline
+            // (e.g. searching for or replacing with a blank line).
+            if body.len() > 1 && body.ends_with('\n') {
                 body.pop();
             }
             return Ok(body);
         }
-        if MARKERS.contains(&line) {
+        let trimmed_line = line.trim_end();
+        if MARKERS.contains(&line) || MARKERS.contains(&trimmed_line) {
             return Err(diagnostic(
                 *index + 1,
                 format!(
-                    "unescaped `{line}` inside a block; prefix a literal delimiter line with `\\`"
+                    "unescaped `{trimmed_line}` inside a block; prefix a literal delimiter line with `\\`"
                 ),
             ));
         }

@@ -39,6 +39,37 @@ pub fn compute_sha256(bytes: &[u8]) -> String {
     format!("{:x}", result)
 }
 
+/// Canonical, SIMD-accelerated newline profile detection across the workspace.
+/// Returns `"none"`, `"crlf"`, `"lf"`, or `"mixed"`.
+pub fn newline_profile(bytes: &[u8]) -> &'static str {
+    let mut crlf = 0usize;
+    let mut lf = 0usize;
+    let mut cr = 0usize;
+    let mut index = 0usize;
+    while let Some(rel) = memchr::memchr2(b'\r', b'\n', &bytes[index..]) {
+        let pos = index + rel;
+        if bytes[pos] == b'\r' {
+            if bytes.get(pos + 1) == Some(&b'\n') {
+                crlf += 1;
+                index = pos + 2;
+            } else {
+                cr += 1;
+                index = pos + 1;
+            }
+        } else {
+            lf += 1;
+            index = pos + 1;
+        }
+    }
+    let kinds = usize::from(crlf > 0) + usize::from(lf > 0) + usize::from(cr > 0);
+    match (kinds, crlf, lf, cr) {
+        (0, _, _, _) => "none",
+        (1, count, 0, 0) if count > 0 => "crlf",
+        (1, 0, count, 0) if count > 0 => "lf",
+        _ => "mixed",
+    }
+}
+
 pub fn apply_byte_edits(original: &[u8], edits: &[ByteEdit]) -> Result<Vec<u8>, EngineError> {
     for edit in edits {
         if edit.start > edit.end || edit.end > original.len() {

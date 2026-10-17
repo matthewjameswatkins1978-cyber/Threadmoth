@@ -103,6 +103,25 @@ impl TextProvider {
         op: &TextOperation,
         cardinality: &Cardinality,
     ) -> Result<Vec<ByteEdit>, TextProviderError> {
+        Self::plan_scoped(content, op, cardinality, None, None)
+    }
+
+    pub fn plan_scoped(
+        content: &[u8],
+        op: &TextOperation,
+        cardinality: &Cardinality,
+        within: Option<&str>,
+        file_path: Option<&str>,
+    ) -> Result<Vec<ByteEdit>, TextProviderError> {
+        if within.is_some() && !matches!(op, TextOperation::ReplaceSequence { .. }) {
+            return Err(TextProviderError::Refused(
+                RefusalReason::ProviderCapabilityMissing {
+                    provider: "text".into(),
+                    capability: "scope_disambiguation requires the text replace_sequence operation"
+                        .into(),
+                },
+            ));
+        }
         if let TextOperation::ReplaceSequence {
             edits,
             newline_policy,
@@ -116,7 +135,7 @@ impl TextProvider {
                     },
                 ));
             }
-            return plan_sequence(content, edits, *newline_policy);
+            return plan_sequence(content, edits, *newline_policy, within, file_path);
         }
         match op {
             TextOperation::EnsurePresent { content: wanted } => {
@@ -284,6 +303,8 @@ fn plan_sequence(
     content: &[u8],
     edits: &[TextReplacementIntent],
     newline_policy: NewlinePolicy,
+    within: Option<&str>,
+    file_path: Option<&str>,
 ) -> Result<Vec<ByteEdit>, TextProviderError> {
     const MAX_SEQUENCE_EDITS: usize = 64;
     if edits.is_empty() || edits.len() > MAX_SEQUENCE_EDITS {
@@ -299,7 +320,7 @@ fn plan_sequence(
     let has_multiline_intent = edits
         .iter()
         .any(|edit| edit.old.contains(['\r', '\n']) || edit.new.contains(['\r', '\n']));
-    let delimiter = match (newline_policy, profile.as_str(), has_multiline_intent) {
+    let delimiter = match (newline_policy, profile, has_multiline_intent) {
         (NewlinePolicy::Exact, _, _) => "\n",
         (NewlinePolicy::Source, "lf", _) => "\n",
         (NewlinePolicy::Source, "crlf", _) => "\r\n",
@@ -315,19 +336,65 @@ fn plan_sequence(
         }
     };
     let mut candidate = content.to_vec();
-    for intent in edits {
-        let target = adapt_newline_text(&intent.old, newline_policy, delimiter)?;
-        let replacement = adapt_newline_text(&intent.new, newline_policy, delimiter)?;
-        let operation = TextOperation::Replace {
-            target,
-            replacement,
-        };
-        let byte_edits = TextProvider::plan(&candidate, &operation, &Cardinality::ExactlyOne)?;
-        candidate = crate::engine::apply_byte_edits(&candidate, &byte_edits).map_err(|error| {
-            TextProviderError::Error {
-                message: error.to_string(),
+    if let Some(anchor) = within {
+        let (scope_start, mut scope_end) =
+            crate::scope::resolve_scope(content, file_path.unwrap_or(""), anchor)
+                .map_err(TextProviderError::Refused)?;
+
+        for intent in edits {
+            let target = adapt_newline_text(&intent.old, newline_policy, delimiter)?;
+            let replacement = adapt_newline_text(&intent.new, newline_policy, delimiter)?;
+            if target.is_empty() {
+                return Err(TextProviderError::Refused(RefusalReason::MissingTarget {
+                    target: String::new(),
+                }));
             }
-        })?;
+            if scope_start > scope_end || scope_end > candidate.len() {
+                return Err(TextProviderError::Error {
+                    message: "resolved scope boundary invalid on candidate".into(),
+                });
+            }
+            let scope_slice = &candidate[scope_start..scope_end];
+            let matches = find_matches(scope_slice, target.as_bytes());
+            if matches.is_empty() {
+                return Err(TextProviderError::Refused(RefusalReason::MissingTarget {
+                    target: format!("target '{target}' not found within scope '{anchor}'"),
+                }));
+            }
+            if matches.len() > 1 {
+                return Err(TextProviderError::Refused(RefusalReason::DuplicateTarget {
+                    target: format!("target '{target}' is ambiguous within scope '{anchor}'"),
+                    count: matches.len(),
+                    candidates: Vec::new(),
+                    candidates_returned: 0,
+                    truncated: false,
+                }));
+            }
+            let rel_offset = matches[0];
+            let abs_offset = scope_start + rel_offset;
+            candidate.splice(
+                abs_offset..abs_offset + target.len(),
+                replacement.as_bytes().iter().copied(),
+            );
+            let delta = replacement.len() as isize - target.len() as isize;
+            scope_end = (scope_end as isize + delta) as usize;
+        }
+    } else {
+        for intent in edits {
+            let target = adapt_newline_text(&intent.old, newline_policy, delimiter)?;
+            let replacement = adapt_newline_text(&intent.new, newline_policy, delimiter)?;
+            let operation = TextOperation::Replace {
+                target,
+                replacement,
+            };
+            let byte_edits = TextProvider::plan(&candidate, &operation, &Cardinality::ExactlyOne)?;
+            candidate =
+                crate::engine::apply_byte_edits(&candidate, &byte_edits).map_err(|error| {
+                    TextProviderError::Error {
+                        message: error.to_string(),
+                    }
+                })?;
+        }
     }
     crate::diff_planner::plan(content, &candidate)
         .map(|plan| plan.edits)
@@ -347,36 +414,8 @@ fn plan_sequence(
         })
 }
 
-fn newline_profile(content: &[u8]) -> String {
-    let mut crlf = 0usize;
-    let mut lf = 0usize;
-    let mut cr = 0usize;
-    let mut index = 0usize;
-    while index < content.len() {
-        match content[index] {
-            b'\r' if content.get(index + 1) == Some(&b'\n') => {
-                crlf += 1;
-                index += 2;
-            }
-            b'\r' => {
-                cr += 1;
-                index += 1;
-            }
-            b'\n' => {
-                lf += 1;
-                index += 1;
-            }
-            _ => index += 1,
-        }
-    }
-    let kinds = usize::from(crlf > 0) + usize::from(lf > 0) + usize::from(cr > 0);
-    match (kinds, crlf, lf, cr) {
-        (0, _, _, _) => "none",
-        (1, count, 0, 0) if count > 0 => "crlf",
-        (1, 0, count, 0) if count > 0 => "lf",
-        _ => "mixed",
-    }
-    .into()
+fn newline_profile(content: &[u8]) -> &'static str {
+    crate::engine::newline_profile(content)
 }
 
 fn adapt_newline_text(

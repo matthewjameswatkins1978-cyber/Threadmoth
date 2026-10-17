@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 use crate::engine::{apply_byte_edits, ByteEdit, EngineError};
+use memchr::memchr_iter;
 use thiserror::Error;
 
 /// Planning is deliberately bounded before any diff tokenisation occurs.
@@ -93,9 +94,21 @@ pub fn plan(observed: &[u8], desired: &[u8]) -> Result<DiffPlan, DiffPlannerErro
     let candidate = apply_byte_edits(observed, &edits)
         .map_err(|error| DiffPlannerError::Invariant(format!("cannot apply plan: {error}")))?;
     if candidate != desired {
-        return Err(DiffPlannerError::Invariant(
-            "derived edits do not produce desired bytes".into(),
-        ));
+        let first_diff = candidate
+            .iter()
+            .zip(desired.iter())
+            .position(|(a, b)| a != b);
+        let detail = match first_diff {
+            Some(idx) => format!(
+                "derived edits do not produce desired bytes (first mismatch at byte offset {idx}: candidate byte 0x{:02x}, desired byte 0x{:02x}; candidate len {}, desired len {})",
+                candidate[idx], desired[idx], candidate.len(), desired.len()
+            ),
+            None => format!(
+                "derived edits do not produce desired bytes (length mismatch: candidate len {}, desired len {})",
+                candidate.len(), desired.len()
+            ),
+        };
+        return Err(DiffPlannerError::Invariant(detail));
     }
     Ok(DiffPlan {
         derived_region_count: edits.len(),
@@ -109,11 +122,9 @@ fn split_inclusive_lines(bytes: &[u8]) -> Vec<&[u8]> {
     }
     let mut lines = Vec::new();
     let mut start = 0;
-    for (index, byte) in bytes.iter().enumerate() {
-        if *byte == b'\n' {
-            lines.push(&bytes[start..=index]);
-            start = index + 1;
-        }
+    for newline_pos in memchr_iter(b'\n', bytes) {
+        lines.push(&bytes[start..=newline_pos]);
+        start = newline_pos + 1;
     }
     if start < bytes.len() {
         lines.push(&bytes[start..]);
@@ -124,8 +135,10 @@ fn split_inclusive_lines(bytes: &[u8]) -> Vec<&[u8]> {
 fn offsets(lines: &[&[u8]]) -> Vec<usize> {
     let mut result = Vec::with_capacity(lines.len() + 1);
     result.push(0);
+    let mut current = 0;
     for line in lines {
-        result.push(result.last().copied().unwrap_or_default() + line.len());
+        current += line.len();
+        result.push(current);
     }
     result
 }
@@ -186,6 +199,7 @@ fn refine_region(
     let byte_diff = similar::TextDiff::configure()
         .algorithm(similar::Algorithm::Myers)
         .diff_slices(&old_tokens, &new_tokens);
+    let region_edits_start = edits.len();
     for op in byte_diff.ops() {
         if matches!(op, similar::DiffOp::Equal { .. }) {
             continue;
@@ -194,10 +208,33 @@ fn refine_region(
         let local_old_end = op.old_range().end;
         let local_new_start = op.new_range().start;
         let local_new_end = op.new_range().end;
+        let repl = &new_changed[local_new_start..local_new_end];
         edits.push(ByteEdit {
             start: old_start + common_prefix + local_old_start,
             end: old_start + common_prefix + local_old_end,
-            replacement: new_changed[local_new_start..local_new_end].to_vec(),
+            replacement: repl.to_vec(),
+        });
+    }
+
+    // Verify whether the refined byte edits actually reconstruct `new` when applied to `old`.
+    // Myers diff on raw byte slices can produce non-monotonic or misaligned edits on complex
+    // hunks. If verification fails, safely fall back to replacing old_changed with new_changed.
+    let local_slice_edits: Vec<ByteEdit> = edits[region_edits_start..]
+        .iter()
+        .map(|e| ByteEdit {
+            start: e.start - old_start,
+            end: e.end - old_start,
+            replacement: e.replacement.clone(),
+        })
+        .collect();
+
+    let local_applied = apply_byte_edits(old, &local_slice_edits);
+    if local_applied.as_deref() != Ok(new) {
+        edits.truncate(region_edits_start);
+        edits.push(ByteEdit {
+            start: old_start + common_prefix,
+            end: old_start + old_changed_end,
+            replacement: new_changed.to_vec(),
         });
     }
     Ok(())

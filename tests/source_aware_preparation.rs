@@ -29,6 +29,7 @@ fn request(path: &str, edits: &[(&str, &str)]) -> SourceAwareTextRequest {
             })
             .collect(),
         newline_policy: NewlinePolicy::Source,
+        within: None,
     }
 }
 
@@ -58,10 +59,14 @@ fn lf_intent_is_adapted_to_crlf_source_and_commits_through_portable_plan() {
     ));
     assert_eq!(result.source_newline_profile, "crlf");
     assert_eq!(result.resolved_edits, 1);
-    assert!(matches!(
-        apply_prepared_plan(&workspace, &result.plan),
-        PlanApplyResult::Certificate(certificate) if certificate.outcome == Outcome::Applied
-    ));
+    let cert = match apply_prepared_plan(&workspace, &result.plan) {
+        PlanApplyResult::Certificate(c) => c,
+        _ => panic!(),
+    };
+    assert_eq!(cert.outcome, Outcome::Applied);
+    assert_eq!(cert.preservation.original_newline_profile, "crlf");
+    assert_eq!(cert.preservation.result_newline_profile, "crlf");
+    assert!(!cert.preservation.line_endings_changed);
     assert_eq!(
         fs::read(temp.path().join("config.txt")).unwrap(),
         b"host=two\r\nport=80\r\n"
@@ -1251,4 +1256,223 @@ fn cli_preparation_reads_compact_json_and_does_not_write_the_source() {
     assert_eq!(response["outcome"], "PREPARED");
     assert_eq!(response["source_newline_profile"], "crlf");
     assert_eq!(fs::read(temp.path().join("cli.txt")).unwrap(), b"old\r\n");
+}
+
+#[test]
+fn test_rendermono_reproduction() {
+    let pre_bytes = include_bytes!("fixtures/rendermono/mono-preblob.cs");
+    let req_str = include_str!("fixtures/rendermono/gui-b1r-mono.json");
+    let req: serde_json::Value = serde_json::from_str(req_str).unwrap();
+    let edits_arr = &req["operation"]["operation"]["edits"];
+    let old_text = edits_arr[0]["old"].as_str().unwrap();
+    let new_text = edits_arr[0]["new"].as_str().unwrap();
+
+    // Canonicalize to pure LF bytes first regardless of checkout line endings
+    let mut lf_bytes = Vec::with_capacity(pre_bytes.len());
+    let mut i = 0;
+    while i < pre_bytes.len() {
+        if pre_bytes[i] == b'\r' && pre_bytes.get(i + 1) == Some(&b'\n') {
+            i += 1;
+        } else {
+            lf_bytes.push(pre_bytes[i]);
+            i += 1;
+        }
+    }
+
+    // 1. Demonstrate 1.20.0 fallback success over multiline hunk refinement
+    // In 1.19.0, diff_planner::refine_region performed Myers diff on tokenized byte slices
+    // without local candidate verification. On complex hunks like RenderMono, this generated
+    // mismatched candidate bytes that caused refusal ("derived edits do not produce desired bytes").
+    let plan = threadmoth::diff_planner::plan(old_text.as_bytes(), new_text.as_bytes())
+        .expect("1.20.0 diff planner must succeed on RenderMono hunk with safe candidate verification fallback");
+    assert!(!plan.edits.is_empty());
+
+    // 2. Real mutation against LF bytes
+    let temp_lf = TempDir::new().unwrap();
+    let file_lf_rel = "src/AgentX.App/MarkdownView.cs";
+    let file_lf_path = temp_lf.path().join(file_lf_rel);
+    fs::create_dir_all(file_lf_path.parent().unwrap()).unwrap();
+    fs::write(&file_lf_path, &lf_bytes).unwrap();
+    let ws_lf = Workspace::new(temp_lf.path()).unwrap();
+    let req_obj: Request = serde_json::from_value(req.clone()).unwrap();
+    let cert_lf = threadmoth::pipeline::execute_request(&ws_lf, &req_obj, false);
+
+    assert_eq!(cert_lf.outcome, Outcome::Applied);
+    assert_eq!(cert_lf.preservation.original_newline_profile, "lf");
+    assert_eq!(cert_lf.preservation.result_newline_profile, "lf");
+    assert!(!cert_lf.preservation.line_endings_changed);
+    assert!(!cert_lf.preservation.unrelated_bytes_changed);
+    assert!(!cert_lf.changed_ranges.is_empty());
+
+    let old_start_lf = lf_bytes
+        .windows(old_text.len())
+        .position(|w| w == old_text.as_bytes())
+        .unwrap();
+    let old_end_lf = old_start_lf + old_text.len();
+
+    let written_lf = fs::read(&file_lf_path).unwrap();
+    let expected_lf_hash = threadmoth::engine::compute_sha256(&written_lf);
+    assert_eq!(
+        cert_lf.pre_hash,
+        threadmoth::engine::compute_sha256(&lf_bytes)
+    );
+    assert_eq!(
+        cert_lf.post_hash.as_deref(),
+        Some(expected_lf_hash.as_str())
+    );
+
+    // Prefix before edit must be byte-for-byte preserved
+    assert_eq!(
+        &written_lf[..old_start_lf],
+        &lf_bytes[..old_start_lf],
+        "prefix before edit must be preserved byte-for-byte"
+    );
+    // Suffix after the edit hunk must be byte-for-byte preserved
+    let suffix_start_lf = old_end_lf + 2; // accounts for matched blank separator
+    let suffix_len_lf = lf_bytes.len() - suffix_start_lf;
+    assert_eq!(
+        &written_lf[written_lf.len() - suffix_len_lf..],
+        &lf_bytes[suffix_start_lf..],
+        "suffix after edit must be preserved byte-for-byte"
+    );
+
+    // 3. Real mutation against uniform CRLF bytes
+    let mut crlf_bytes = Vec::with_capacity(lf_bytes.len() * 2);
+    for &b in &lf_bytes {
+        if b == b'\n' {
+            crlf_bytes.push(b'\r');
+        }
+        crlf_bytes.push(b);
+    }
+    let temp_crlf = TempDir::new().unwrap();
+    let file_crlf_path = temp_crlf.path().join(file_lf_rel);
+    fs::create_dir_all(file_crlf_path.parent().unwrap()).unwrap();
+    fs::write(&file_crlf_path, &crlf_bytes).unwrap();
+    let ws_crlf = Workspace::new(temp_crlf.path()).unwrap();
+    let cert_crlf = threadmoth::pipeline::execute_request(&ws_crlf, &req_obj, false);
+
+    assert_eq!(cert_crlf.outcome, Outcome::Applied);
+    assert_eq!(cert_crlf.preservation.original_newline_profile, "crlf");
+    assert_eq!(cert_crlf.preservation.result_newline_profile, "crlf");
+    assert!(!cert_crlf.preservation.line_endings_changed);
+    assert!(!cert_crlf.preservation.unrelated_bytes_changed);
+    assert!(!cert_crlf.changed_ranges.is_empty());
+
+    let old_text_crlf = old_text.replace("\n", "\r\n");
+    let old_start_crlf = crlf_bytes
+        .windows(old_text_crlf.len())
+        .position(|w| w == old_text_crlf.as_bytes())
+        .unwrap();
+    let old_end_crlf = old_start_crlf + old_text_crlf.len();
+
+    let written_crlf = fs::read(&file_crlf_path).unwrap();
+    let expected_crlf_hash = threadmoth::engine::compute_sha256(&written_crlf);
+    assert_eq!(
+        cert_crlf.pre_hash,
+        threadmoth::engine::compute_sha256(&crlf_bytes)
+    );
+    assert_eq!(
+        cert_crlf.post_hash.as_deref(),
+        Some(expected_crlf_hash.as_str())
+    );
+
+    // Byte-exact preservation checks on CRLF
+    assert_eq!(
+        &written_crlf[..old_start_crlf],
+        &crlf_bytes[..old_start_crlf],
+        "CRLF prefix before edit must be preserved byte-for-byte"
+    );
+    let suffix_start_crlf = old_end_crlf + 4; // accounts for matched CRLF CRLF blank separator
+    let suffix_len_crlf = crlf_bytes.len() - suffix_start_crlf;
+    assert_eq!(
+        &written_crlf[written_crlf.len() - suffix_len_crlf..],
+        &crlf_bytes[suffix_start_crlf..],
+        "CRLF suffix after edit must be preserved byte-for-byte"
+    );
+}
+
+#[test]
+fn test_certificate_metadata_truthfulness_and_coordinates() {
+    let temp = TempDir::new().unwrap();
+    let ws = Workspace::new(temp.path()).unwrap();
+
+    // Case 1: Pure CRLF file edited with LF intent under newline_policy: "source"
+    let crlf_source = b"HEADER\r\nALPHA=1\r\nBETA=2\r\nFOOTER\r\n";
+    fs::write(temp.path().join("crlf_test.txt"), crlf_source).unwrap();
+
+    let req_json = serde_json::json!({
+        "version": "1.4.0",
+        "file_path": "crlf_test.txt",
+        "operation": {
+            "provider": "text",
+            "operation": {
+                "type": "replace_sequence",
+                "newline_policy": "source",
+                "edits": [
+                    {
+                        "old": "ALPHA=1\nBETA=2\n",
+                        "new": "ALPHA=10\nBETA=20\nGAMMA=30\n"
+                    }
+                ]
+            }
+        }
+    });
+    let req: Request = serde_json::from_value(req_json).unwrap();
+    let cert = threadmoth::pipeline::execute_request(&ws, &req, false);
+
+    assert_eq!(cert.outcome, Outcome::Applied);
+    assert_eq!(cert.preservation.original_newline_profile, "crlf");
+    assert_eq!(cert.preservation.result_newline_profile, "crlf");
+    assert!(!cert.preservation.line_endings_changed);
+    assert!(!cert.changed_ranges.is_empty());
+
+    let old_target_crlf = b"ALPHA=1\r\nBETA=2\r\n";
+    let target_start = crlf_source
+        .windows(old_target_crlf.len())
+        .position(|w| w == old_target_crlf)
+        .unwrap();
+    let target_end = target_start + old_target_crlf.len();
+    for range in &cert.changed_ranges {
+        assert!(
+            range.start >= target_start && range.end <= target_end,
+            "range {:?} must fall within target [{}, {}]",
+            range,
+            target_start,
+            target_end
+        );
+    }
+
+    // Case 2: Truly mixed file requires exact newline policy and reports "mixed"
+    let mixed_source = b"LINE1_CRLF\r\nLINE2_LF\nLINE3_CRLF\r\n";
+    assert_eq!(threadmoth::engine::newline_profile(mixed_source), "mixed");
+    fs::write(temp.path().join("mixed_test.txt"), mixed_source).unwrap();
+
+    // Exact policy repairing to uniform CRLF reports line_endings_changed: true
+    let repair_req_json = serde_json::json!({
+        "version": "1.4.0",
+        "file_path": "mixed_test.txt",
+        "operation": {
+            "provider": "text",
+            "operation": {
+                "type": "replace_sequence",
+                "newline_policy": "exact",
+                "edits": [
+                    {
+                        "old": "LINE2_LF\n",
+                        "new": "LINE2_LF\r\n"
+                    }
+                ]
+            }
+        }
+    });
+    let repair_req: Request = serde_json::from_value(repair_req_json).unwrap();
+    let repair_cert = threadmoth::pipeline::execute_request(&ws, &repair_req, true);
+
+    assert_eq!(repair_cert.outcome, Outcome::Applied);
+    assert_eq!(repair_cert.preservation.original_newline_profile, "mixed");
+    assert_eq!(repair_cert.preservation.result_newline_profile, "crlf");
+    assert!(
+        repair_cert.preservation.line_endings_changed,
+        "repaired line endings must report line_endings_changed: true"
+    );
 }

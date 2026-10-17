@@ -1449,13 +1449,7 @@ fn read_identity(workspace: &Workspace, path: &str) -> Result<(Vec<u8>, Value), 
         .read_file(&resolved)
         .map_err(|error| error.to_string())?;
     let detection = target_registry::detect(path, Some(&bytes));
-    let newline = if bytes.windows(2).any(|window| window == b"\r\n") {
-        "crlf"
-    } else if bytes.contains(&b'\n') {
-        "lf"
-    } else {
-        "none"
-    };
+    let newline = crate::engine::newline_profile(&bytes);
     let detection_value = serde_json::to_value(&detection).expect("detection serializes");
     let byte_count = bytes.len();
     let hash = compute_sha256(&bytes);

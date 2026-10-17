@@ -25,6 +25,8 @@ pub struct SourceAwareTextRequest {
     pub edits: Vec<TextReplacementIntent>,
     #[serde(default)]
     pub newline_policy: NewlinePolicy,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub within: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
@@ -81,7 +83,7 @@ pub fn prepare(workspace: &Workspace, request: &SourceAwareTextRequest) -> Sourc
                 version: PROTOCOL_VERSION.into(),
                 request_id: "source-text-prepare".into(),
                 allow_generated: false,
-                file_path: resolved,
+                file_path: resolved.clone(),
                 namespace: crate::path::PathNamespace::Native,
                 expected_pre_hash: None,
                 region_guard: None,
@@ -107,12 +109,19 @@ pub fn prepare(workspace: &Workspace, request: &SourceAwareTextRequest) -> Sourc
         file_path: resolved.clone(),
         namespace: crate::path::PathNamespace::Native,
         expected_pre_hash: Some(source_hash.clone()),
-        region_guard: None,
+        region_guard: request
+            .within
+            .as_ref()
+            .map(|anchor| crate::protocol::RegionGuard {
+                anchor: anchor.clone(),
+                target_sha256: compute_sha256(anchor.as_bytes()),
+                mode: crate::protocol::RegionGuardMode::ScopeDisambiguation,
+            }),
         candidate_guard: None,
         cardinality: Cardinality::ExactlyOne,
         budget: EffectBudget {
             max_files: Some(1),
-            allowed_path_prefixes: vec![resolved],
+            allowed_path_prefixes: vec![resolved.clone()],
             ..EffectBudget::default()
         },
         operation: OperationPayload::Text(TextOperation::ReplaceSequence {
@@ -124,7 +133,7 @@ pub fn prepare(workspace: &Workspace, request: &SourceAwareTextRequest) -> Sourc
         Ok(plan) => SourcePreparationResult::Prepared(Box::new(SourceAwareTextPreparation {
             outcome: "PREPARED".into(),
             source_sha256: source_hash,
-            source_newline_profile: profile,
+            source_newline_profile: profile.into(),
             resolved_edits: request.edits.len(),
             plan,
         })),
@@ -143,6 +152,20 @@ pub fn prepare(workspace: &Workspace, request: &SourceAwareTextRequest) -> Sourc
                     request_patch: None,
                 });
             }
+            if certificate.reason_code.as_deref() == Some("TARGET_AMBIGUOUS") {
+                let recovery =
+                    certificate
+                        .recovery
+                        .get_or_insert_with(|| crate::protocol::RecoveryInfo {
+                            requires_choice: true,
+                            remedies: Vec::new(),
+                        });
+                recovery.remedies.push(crate::protocol::RecoveryRemedy {
+                    kind: "use_scope_anchor".into(),
+                    description: "If the target exists in multiple functions or sections, scope the edit to a specific declaration with --within <ANCHOR>.".into(),
+                    request_patch: None,
+                });
+            }
             SourcePreparationResult::Refused {
                 certificate: Box::new(certificate),
             }
@@ -150,34 +173,6 @@ pub fn prepare(workspace: &Workspace, request: &SourceAwareTextRequest) -> Sourc
     }
 }
 
-fn newline_profile(content: &[u8]) -> String {
-    let mut crlf = 0usize;
-    let mut lf = 0usize;
-    let mut cr = 0usize;
-    let mut index = 0usize;
-    while index < content.len() {
-        match content[index] {
-            b'\r' if content.get(index + 1) == Some(&b'\n') => {
-                crlf += 1;
-                index += 2;
-            }
-            b'\r' => {
-                cr += 1;
-                index += 1;
-            }
-            b'\n' => {
-                lf += 1;
-                index += 1;
-            }
-            _ => index += 1,
-        }
-    }
-    let kinds = usize::from(crlf > 0) + usize::from(lf > 0) + usize::from(cr > 0);
-    match (kinds, crlf, lf, cr) {
-        (0, _, _, _) => "none",
-        (1, count, 0, 0) if count > 0 => "crlf",
-        (1, 0, count, 0) if count > 0 => "lf",
-        _ => "mixed",
-    }
-    .into()
+fn newline_profile(content: &[u8]) -> &'static str {
+    crate::engine::newline_profile(content)
 }

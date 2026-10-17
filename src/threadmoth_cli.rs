@@ -463,6 +463,7 @@ fn run_prepare_text(args: PrepareTextArgs) {
                     threadmoth::source_prepare::NewlinePolicy::Exact
                 }
             },
+            within: args.within,
         }
     };
     match threadmoth::source_prepare::prepare(&workspace, &request) {
@@ -719,6 +720,7 @@ fn run_edit(args: EditArgs) {
                 new: replace.clone(),
             }],
             newline_policy: threadmoth::source_prepare::NewlinePolicy::Source,
+            within: args.within,
         };
 
         match threadmoth::source_prepare::prepare(&workspace, &request) {
@@ -768,6 +770,12 @@ fn run_edit(args: EditArgs) {
             }
         }
     } else {
+        if args.within.is_some() {
+            eprintln!(
+                "multi-file edit document mode does not accept --within; scope anchors are only valid for single-file inline edits with --search and --replace"
+            );
+            std::process::exit(2);
+        }
         let document = if is_stdin {
             let mut buffer = Vec::new();
             io::stdin()
