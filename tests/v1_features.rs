@@ -768,6 +768,76 @@ fn empty_region_anchor_is_refused_without_panicking() {
     assert_eq!(c.reason_code.as_deref(), Some("INVALID_INPUT"));
 }
 
+#[test]
+fn legacy_region_snapshot_guards_arbitrary_markdown_text_without_structural_heading() {
+    let t = TempDir::new().unwrap();
+    let w = Workspace::new(t.path()).unwrap();
+    let file_path = "notes.md";
+    let content = b"Author: Alice\nVersion: 1.0\n\nSome general notes.\n";
+    std::fs::write(t.path().join(file_path), content).unwrap();
+
+    let mut r = request(
+        file_path,
+        OperationPayload::Text(TextOperation::Replace {
+            target: "Version: 1.0".into(),
+            replacement: "Version: 1.1".into(),
+        }),
+    );
+    // Legacy RegionSnapshot anchor is ordinary paragraph text, NOT a markdown heading (# Heading)
+    r.region_guard = Some(RegionGuard {
+        anchor: "Author: Alice".into(),
+        target_sha256: compute_sha256(b"Author: Alice"),
+        mode: RegionGuardMode::RegionSnapshot,
+    });
+
+    let c = execute_request(&w, &r, false);
+    assert_eq!(c.outcome, Outcome::Applied);
+    assert_eq!(
+        w.read_file(file_path).unwrap(),
+        b"Author: Alice\nVersion: 1.1\n\nSome general notes.\n"
+    );
+}
+
+#[test]
+fn legacy_region_snapshot_with_replace_sequence_is_not_treated_as_within() {
+    let t = TempDir::new().unwrap();
+    let w = Workspace::new(t.path()).unwrap();
+    let file_path = "services.txt";
+    let content =
+        b"[meta]\nenvironment = staging\n\n[service_a]\nport = 8080\n\n[service_b]\nport = 9090\n";
+    std::fs::write(t.path().join(file_path), content).unwrap();
+
+    let mut r = request(
+        file_path,
+        OperationPayload::Text(TextOperation::ReplaceSequence {
+            edits: vec![
+                threadmoth::provider::text::TextReplacementIntent {
+                    old: "port = 8080".into(),
+                    new: "port = 8081".into(),
+                },
+                threadmoth::provider::text::TextReplacementIntent {
+                    old: "port = 9090".into(),
+                    new: "port = 9091".into(),
+                },
+            ],
+            newline_policy: threadmoth::provider::text::NewlinePolicy::Source,
+        }),
+    );
+    // RegionSnapshot guarding [meta] section should NOT constrain the edits to that region
+    r.region_guard = Some(RegionGuard {
+        anchor: "environment = staging".into(),
+        target_sha256: compute_sha256(b"environment = staging"),
+        mode: RegionGuardMode::RegionSnapshot,
+    });
+
+    let c = execute_request(&w, &r, false);
+    assert_eq!(c.outcome, Outcome::Applied);
+    assert_eq!(
+        w.read_file(file_path).unwrap(),
+        b"[meta]\nenvironment = staging\n\n[service_a]\nport = 8081\n\n[service_b]\nport = 9091\n"
+    );
+}
+
 #[cfg(windows)]
 #[test]
 fn case_only_rename_preserves_the_requested_destination_spelling() {

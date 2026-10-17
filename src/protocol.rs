@@ -115,6 +115,7 @@ pub enum RegionGuardMode {
     #[default]
     RegionSnapshot,
     StructuralSnapshot,
+    ScopeDisambiguation,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]

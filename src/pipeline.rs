@@ -2425,7 +2425,14 @@ fn plan_edits_unchecked(
 ) -> Result<Vec<ByteEdit>, (RefusalReason, String)> {
     match &request.operation {
         OperationPayload::Text(o) => {
-            let within = request.region_guard.as_ref().map(|g| g.anchor.as_str());
+            let within = match &request.region_guard {
+                Some(guard)
+                    if guard.mode == crate::protocol::RegionGuardMode::ScopeDisambiguation =>
+                {
+                    Some(guard.anchor.as_str())
+                }
+                _ => None,
+            };
             TextProvider::plan_scoped(original, o, &request.cardinality, within, Some(file_path))
                 .map_err(|e| {
                     let detail = e.to_string();
@@ -3093,61 +3100,91 @@ fn validate_region_guard(
             details: "durable region anchor must not be empty".into(),
         });
     }
-    let detection = crate::target_registry::detect(&request.file_path, Some(content));
-    let matches = if detection.provider.as_deref() == Some("markdown")
-        || request.file_path.ends_with(".md")
-        || request.file_path.ends_with(".markdown")
-    {
-        match crate::scope::resolve_scope(content, &request.file_path, &guard.anchor) {
-            Ok(_) => 1,
-            Err(RefusalReason::DuplicateTarget { count, .. }) => count,
-            Err(RefusalReason::MissingTarget { .. }) => 0,
-            Err(reason) => return Err(reason),
+    match guard.mode {
+        crate::protocol::RegionGuardMode::RegionSnapshot => {
+            let matches = content
+                .windows(guard.anchor.len())
+                .filter(|bytes| *bytes == guard.anchor.as_bytes())
+                .count();
+            if matches != 1 {
+                return Err(RefusalReason::CardinalityMismatch {
+                    expected: "one durable region anchor".into(),
+                    actual: matches,
+                });
+            }
+            let actual = compute_sha256(guard.anchor.as_bytes());
+            if actual != normalize_hash(&guard.target_sha256) {
+                return Err(RefusalReason::StaleIdentity {
+                    expected_hash: normalize_hash(&guard.target_sha256),
+                    actual_hash: actual,
+                });
+            }
         }
-    } else {
-        content
-            .windows(guard.anchor.len())
-            .filter(|bytes| *bytes == guard.anchor.as_bytes())
-            .count()
-    };
-    if matches != 1 {
-        return Err(RefusalReason::CardinalityMismatch {
-            expected: "one durable region anchor".into(),
-            actual: matches,
-        });
-    }
-    let actual = compute_sha256(guard.anchor.as_bytes());
-    if actual != normalize_hash(&guard.target_sha256) {
-        return Err(RefusalReason::StaleIdentity {
-            expected_hash: normalize_hash(&guard.target_sha256),
-            actual_hash: actual,
-        });
-    }
-    if guard.mode == crate::protocol::RegionGuardMode::StructuralSnapshot {
-        let OperationPayload::Code(operation) = &request.operation else {
-            return Err(RefusalReason::ProviderCapabilityMissing {
-                provider: provider_name(&request.operation).into(),
-                capability: "structural_snapshot requires the code provider".into(),
-            });
-        };
-        let target = match operation {
-            CodeOperation::ReplaceNode { target, .. }
-            | CodeOperation::InsertBeforeNode { target, .. }
-            | CodeOperation::InsertAfterNode { target, .. }
-            | CodeOperation::RemoveNode { target, .. } => target,
-        };
-        if target != &guard.anchor {
-            return Err(RefusalReason::StaleIdentity {
-                expected_hash: normalize_hash(&guard.target_sha256),
-                actual_hash: compute_sha256(target.as_bytes()),
-            });
+        crate::protocol::RegionGuardMode::StructuralSnapshot => {
+            let matches = content
+                .windows(guard.anchor.len())
+                .filter(|bytes| *bytes == guard.anchor.as_bytes())
+                .count();
+            if matches != 1 {
+                return Err(RefusalReason::CardinalityMismatch {
+                    expected: "one durable region anchor".into(),
+                    actual: matches,
+                });
+            }
+            let actual = compute_sha256(guard.anchor.as_bytes());
+            if actual != normalize_hash(&guard.target_sha256) {
+                return Err(RefusalReason::StaleIdentity {
+                    expected_hash: normalize_hash(&guard.target_sha256),
+                    actual_hash: actual,
+                });
+            }
+            let OperationPayload::Code(operation) = &request.operation else {
+                return Err(RefusalReason::ProviderCapabilityMissing {
+                    provider: provider_name(&request.operation).into(),
+                    capability: "structural_snapshot requires the code provider".into(),
+                });
+            };
+            let target = match operation {
+                CodeOperation::ReplaceNode { target, .. }
+                | CodeOperation::InsertBeforeNode { target, .. }
+                | CodeOperation::InsertAfterNode { target, .. }
+                | CodeOperation::RemoveNode { target, .. } => target,
+            };
+            if target != &guard.anchor {
+                return Err(RefusalReason::StaleIdentity {
+                    expected_hash: normalize_hash(&guard.target_sha256),
+                    actual_hash: compute_sha256(target.as_bytes()),
+                });
+            }
+            if let Err(CodeError::Refused(reason)) = code::plan(
+                content,
+                operation,
+                &crate::protocol::Cardinality::ExactlyOne,
+            ) {
+                return Err(reason);
+            }
         }
-        if let Err(CodeError::Refused(reason)) = code::plan(
-            content,
-            operation,
-            &crate::protocol::Cardinality::ExactlyOne,
-        ) {
-            return Err(reason);
+        crate::protocol::RegionGuardMode::ScopeDisambiguation => {
+            let matches =
+                match crate::scope::resolve_scope(content, &request.file_path, &guard.anchor) {
+                    Ok(_) => 1,
+                    Err(RefusalReason::MissingTarget { .. }) => 0,
+                    Err(RefusalReason::DuplicateTarget { count, .. }) => count,
+                    Err(reason) => return Err(reason),
+                };
+            if matches != 1 {
+                return Err(RefusalReason::CardinalityMismatch {
+                    expected: "one durable region anchor".into(),
+                    actual: matches,
+                });
+            }
+            let actual = compute_sha256(guard.anchor.as_bytes());
+            if actual != normalize_hash(&guard.target_sha256) {
+                return Err(RefusalReason::StaleIdentity {
+                    expected_hash: normalize_hash(&guard.target_sha256),
+                    actual_hash: actual,
+                });
+            }
         }
     }
     Ok(())

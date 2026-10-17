@@ -115,7 +115,7 @@ pub fn prepare(workspace: &Workspace, request: &SourceAwareTextRequest) -> Sourc
             .map(|anchor| crate::protocol::RegionGuard {
                 anchor: anchor.clone(),
                 target_sha256: compute_sha256(anchor.as_bytes()),
-                mode: crate::protocol::RegionGuardMode::RegionSnapshot,
+                mode: crate::protocol::RegionGuardMode::ScopeDisambiguation,
             }),
         candidate_guard: None,
         cardinality: Cardinality::ExactlyOne,
