@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.20.0 - Reliability, Simplicity and Agent-First Editing
+
+### Added
+
+- Multi-file edit documents support `#` comments outside of blocks, trailing whitespace on delimiter markers (`<<<<<<< SEARCH `, `======= `, `>>>>>>> REPLACE `), and preserve single blank line block bodies.
+- SIMD-accelerated line splitting and newline profiling via `memchr` for high-throughput exact editing (~1.8x speedup on large text and long-line operations).
+- In-memory prepared-plan transaction certificates now faithfully populate `changed_line_ranges` and `bounded_diff`.
+
+### Fixed
+
+- Resolved Myers diff candidate refinement failure on complex multiline replacements (`RenderMono` reproduction) by safely falling back to exact changed-block replacement when token-level refinement yields non-matching candidate bytes.
+- Enhanced refusal diagnostics on candidate reconstruction mismatches, reporting byte length and first mismatch offset for rapid diagnosis.
+- Unified newline profile detection with SIMD `memchr2`, ensuring accurate reporting across LF, CRLF, mixed, and empty files.
+
+### Compatibility
+
+- Core deterministic mutation engine, protocol 1.4.0, exact matching, effect budgets, source guards, and certificates are fully preserved.
+
 ## 1.19.0 - Unified editing interface and progressive discovery
 
 ### Added

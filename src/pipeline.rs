@@ -1278,6 +1278,7 @@ fn commit_prepared_plan(
             .requests
             .get(index)
             .unwrap_or(&transaction.requests[0]);
+        let (diff, diff_truncated) = bounded_diff(&original, &edits);
         let mut certificate = completed(
             request,
             &path,
@@ -1299,10 +1300,15 @@ fn commit_prepared_plan(
                 timestamps: "not preserved".into(),
                 acl_xattr: "unknown".into(),
             },
-            String::new(),
-            false,
+            if original == candidate {
+                String::new()
+            } else {
+                diff
+            },
+            diff_truncated,
             effect_usage(&original, &candidate, &edits, &request.budget),
         );
+        certificate.changed_line_ranges = changed_line_ranges(&original, &edits);
         certificate.transaction_guarantee = if aggregate.files > 1 {
             "transactional_with_rollback".into()
         } else {
@@ -3805,25 +3811,7 @@ impl PreservationFacts {
 }
 
 fn newline_profile(bytes: &[u8]) -> String {
-    let crlf = bytes.windows(2).filter(|w| w == b"\r\n").count();
-    let lf = bytes
-        .iter()
-        .filter(|b| **b == b'\n')
-        .count()
-        .saturating_sub(crlf);
-    let bare_cr = bytes
-        .iter()
-        .filter(|b| **b == b'\r')
-        .count()
-        .saturating_sub(crlf);
-    match (crlf > 0, lf > 0, bare_cr > 0) {
-        (false, false, false) => "none",
-        (true, false, false) => "crlf",
-        (false, true, false) => "lf",
-        (true, true, false) => "mixed",
-        _ => "mixed_with_bare_cr",
-    }
-    .into()
+    crate::engine::newline_profile(bytes).into()
 }
 fn comment_count(b: &[u8]) -> usize {
     b.split(|x| *x == b'\n')

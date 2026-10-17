@@ -624,3 +624,44 @@ new
     assert_eq!(files[1].edits[0].old, "old");
     assert_eq!(files[1].edits[0].new, "new");
 }
+
+#[test]
+fn parser_accepts_comments_and_delimiter_trailing_whitespace() {
+    let document = "
+# Global comment at start of document
+# Another comment line
+
+*** File: file.txt
+# Comment before first search block
+<<<<<<< SEARCH   
+alpha
+=======   
+beta
+>>>>>>> REPLACE   
+
+# Comment between blocks
+<<<<<<< SEARCH
+gamma
+=======
+delta
+>>>>>>> REPLACE
+
+# Trailing document comment
+";
+    let files = threadmoth::edit_document::parse(document).unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].path, "file.txt");
+    assert_eq!(files[0].edits.len(), 2);
+    assert_eq!(files[0].edits[0].old, "alpha");
+    assert_eq!(files[0].edits[0].new, "beta");
+    assert_eq!(files[0].edits[1].old, "gamma");
+    assert_eq!(files[0].edits[1].new, "delta");
+}
+
+#[test]
+fn parser_preserves_single_blank_line_body() {
+    let document = "*** File: test.txt\n<<<<<<< SEARCH\n\n=======\nreplacement\n>>>>>>> REPLACE\n";
+    let files = threadmoth::edit_document::parse(document).unwrap();
+    assert_eq!(files[0].edits[0].old, "\n");
+    assert_eq!(files[0].edits[0].new, "replacement");
+}

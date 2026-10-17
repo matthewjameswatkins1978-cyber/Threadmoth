@@ -1,0 +1,21 @@
+{
+  "version": "1.4.0",
+  "request_id": "gui-b1r-mono",
+  "file_path": "src/AgentX.App/MarkdownView.cs",
+  "namespace": { "type": "native" },
+  "cardinality": { "type": "exactly_one" },
+  "budget": { "max_files": 1, "max_matches": null, "allowed_path_prefixes": [] },
+  "operation": {
+    "provider": "text",
+    "operation": {
+      "type": "replace_sequence",
+      "newline_policy": "source",
+      "edits": [
+        {
+          "old": "    private void RenderMono(string text, bool diffTint)\n    {\n        var inlines = Inlines!;\n        var lines = text.Split('\\n');\n        for (var i = 0; i < lines.Length; i++)\n        {\n            var line = lines[i].TrimEnd('\\r');\n            IBrush? brush = null;\n            if (diffTint)\n            {\n                brush = MarkdownLite.DiffLineKind(line) switch\n                {\n                    \"add\" => GreenBrush,\n                    \"del\" => RedBrush,\n                    \"hunk\" => YellowBrush,\n                    _ => null,\n                };\n            }\n\n            inlines.Add(MonoRun(line, brush));\n            if (i + 1 < lines.Length)\n            {\n                inlines.Add(new LineBreak());\n            }\n        }\n    }",
+          "new": "    private void RenderMono(string text, bool diffTint)\n    {\n        // Terminal output keeps its own colours: the parser turns SGR into\n        // real runs and swallows every other sequence, so escapes can\n        // neither render as garbage nor act. Runs without explicit colour\n        // keep the diff verdict brush when asked (decoded line text, so a\n        // leading escape never hides a +/- hunk).\n        var inlines = Inlines!;\n        var lines = new List<List<(AnsiSpan Span, string Text)>>();\n        var current = new List<(AnsiSpan Span, string Text)>();\n        foreach (var span in AnsiParser.Parse(text))\n        {\n            var parts = span.Text.Split('\\n');\n            current.Add((span, parts[0]));\n            for (var p = 1; p < parts.Length; p++)\n            {\n                lines.Add(current);\n                current = new List<(AnsiSpan Span, string Text)>();\n                current.Add((span, parts[p]));\n            }\n        }\n\n        lines.Add(current);\n\n        for (var l = 0; l < lines.Count; l++)\n        {\n            IBrush? diffBrush = null;\n            if (diffTint)\n            {\n                var decoded = string.Concat(lines[l].Select(r => r.Text));\n                diffBrush = MarkdownLite.DiffLineKind(decoded) switch\n                {\n                    \"add\" => GreenBrush,\n                    \"del\" => RedBrush,\n                    \"hunk\" => YellowBrush,\n                    _ => null,\n                };\n            }\n\n            foreach (var (span, part) in lines[l])\n            {\n                if (part.Length > 0)\n                {\n                    inlines.Add(AnsiRun(part, span, diffBrush));\n                }\n            }\n\n            if (l + 1 < lines.Count)\n            {\n                inlines.Add(new LineBreak());\n            }\n        }\n    }\n\n    private static Run AnsiRun(string text, AnsiSpan span, IBrush? fallback)\n    {\n        var run = new Run(text) { FontFamily = MonoFamily };\n        run.Foreground = span.Foreground is { } fg\n            ? new SolidColorBrush(Color.FromRgb(fg.R, fg.G, fg.B))\n            : fallback ?? TextBrush;\n        if (span.Background is { } bg)\n        {\n            run.Background = new SolidColorBrush(Color.FromRgb(bg.R, bg.G, bg.B));\n        }\n\n        if (span.Bold)\n        {\n            run.FontWeight = FontWeight.Bold;\n        }\n\n        if (span.Italic)\n        {\n            run.FontStyle = FontStyle.Italic;\n        }\n\n        if (span.Underline)\n        {\n            run.TextDecorations = Avalonia.Media.TextDecorations.Underline;\n        }\n\n        return run;\n    }"
+        }
+      ]
+    }
+  }
+}

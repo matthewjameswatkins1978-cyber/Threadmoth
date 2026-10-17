@@ -58,10 +58,14 @@ fn lf_intent_is_adapted_to_crlf_source_and_commits_through_portable_plan() {
     ));
     assert_eq!(result.source_newline_profile, "crlf");
     assert_eq!(result.resolved_edits, 1);
-    assert!(matches!(
-        apply_prepared_plan(&workspace, &result.plan),
-        PlanApplyResult::Certificate(certificate) if certificate.outcome == Outcome::Applied
-    ));
+    let cert = match apply_prepared_plan(&workspace, &result.plan) {
+        PlanApplyResult::Certificate(c) => c,
+        _ => panic!(),
+    };
+    assert_eq!(cert.outcome, Outcome::Applied);
+    assert_eq!(cert.preservation.original_newline_profile, "crlf");
+    assert_eq!(cert.preservation.result_newline_profile, "crlf");
+    assert!(!cert.preservation.line_endings_changed);
     assert_eq!(
         fs::read(temp.path().join("config.txt")).unwrap(),
         b"host=two\r\nport=80\r\n"
@@ -1251,4 +1255,84 @@ fn cli_preparation_reads_compact_json_and_does_not_write_the_source() {
     assert_eq!(response["outcome"], "PREPARED");
     assert_eq!(response["source_newline_profile"], "crlf");
     assert_eq!(fs::read(temp.path().join("cli.txt")).unwrap(), b"old\r\n");
+}
+
+#[test]
+fn test_rendermono_reproduction() {
+    let pre_bytes = include_bytes!("fixtures/rendermono/mono-preblob.cs");
+    let req_str = include_str!("fixtures/rendermono/gui-b1r-mono.json");
+    let req: serde_json::Value = serde_json::from_str(req_str).unwrap();
+    let edits_arr = &req["operation"]["operation"]["edits"];
+    let old_text = edits_arr[0]["old"].as_str().unwrap();
+    let new_text = edits_arr[0]["new"].as_str().unwrap();
+
+    // 1. Test against original LF bytes
+    let temp_lf = TempDir::new().unwrap();
+    fs::create_dir_all(temp_lf.path().join("src/AgentX.App")).unwrap();
+    fs::write(
+        temp_lf.path().join("src/AgentX.App/MarkdownView.cs"),
+        pre_bytes,
+    )
+    .unwrap();
+    let ws_lf = Workspace::new(temp_lf.path()).unwrap();
+    let req_obj: Request = serde_json::from_value(req.clone()).unwrap();
+    let cert_lf = threadmoth::pipeline::execute_request(&ws_lf, &req_obj, true);
+    println!(
+        "cert_lf outcome: {:?}, refusal: {:?}",
+        cert_lf.outcome, cert_lf.refusal_reason
+    );
+
+    // 2. Test against CRLF bytes
+    let crlf_bytes = pre_bytes.iter().copied().fold(Vec::new(), |mut acc, b| {
+        if b == b'\n' {
+            acc.push(b'\r');
+        }
+        acc.push(b);
+        acc
+    });
+    let temp_crlf = TempDir::new().unwrap();
+    fs::create_dir_all(temp_crlf.path().join("src/AgentX.App")).unwrap();
+    fs::write(
+        temp_crlf.path().join("src/AgentX.App/MarkdownView.cs"),
+        &crlf_bytes,
+    )
+    .unwrap();
+    let ws_crlf = Workspace::new(temp_crlf.path()).unwrap();
+
+    // Call plan_sequence directly or inspect what diff_planner does:
+
+    let old_text_crlf = old_text.replace("\n", "\r\n");
+    let new_text_crlf = new_text.replace("\n", "\r\n");
+    let candidate = crlf_bytes
+        .windows(old_text_crlf.len())
+        .position(|w| w == old_text_crlf.as_bytes())
+        .map(|pos| {
+            let mut res = Vec::new();
+            res.extend_from_slice(&crlf_bytes[..pos]);
+            res.extend_from_slice(new_text_crlf.as_bytes());
+            res.extend_from_slice(&crlf_bytes[pos + old_text_crlf.len()..]);
+            res
+        })
+        .expect("target must exist in crlf_bytes");
+
+    match threadmoth::diff_planner::plan(&crlf_bytes, &candidate) {
+        Ok(plan) => {
+            println!(
+                "diff_planner plan succeeded with {} edits",
+                plan.edits.len()
+            );
+        }
+        Err(err) => {
+            println!("diff_planner plan failed: {:?}", err);
+        }
+    }
+
+    let cert_crlf = threadmoth::pipeline::execute_request(&ws_crlf, &req_obj, true);
+    println!(
+        "cert_crlf outcome: {:?}, refusal: {:?}",
+        cert_crlf.outcome, cert_crlf.refusal_reason
+    );
+
+    assert_eq!(cert_lf.outcome, Outcome::Applied);
+    assert_eq!(cert_crlf.outcome, Outcome::Applied);
 }
