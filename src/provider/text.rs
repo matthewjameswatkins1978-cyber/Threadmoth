@@ -113,6 +113,15 @@ impl TextProvider {
         within: Option<&str>,
         file_path: Option<&str>,
     ) -> Result<Vec<ByteEdit>, TextProviderError> {
+        if within.is_some() && !matches!(op, TextOperation::ReplaceSequence { .. }) {
+            return Err(TextProviderError::Refused(
+                RefusalReason::ProviderCapabilityMissing {
+                    provider: "text".into(),
+                    capability: "scope_disambiguation requires the text replace_sequence operation"
+                        .into(),
+                },
+            ));
+        }
         if let TextOperation::ReplaceSequence {
             edits,
             newline_policy,

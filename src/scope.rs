@@ -135,16 +135,39 @@ struct CodeFenceState {
     min_len: usize,
 }
 
+fn parse_markdown_heading(line: &[u8]) -> Option<usize> {
+    let indent = line.iter().take_while(|&&b| b == b' ').count();
+    if indent > 3 || (line.len() > indent && line[indent] == b'\t') {
+        return None;
+    }
+    let rest = &line[indent..];
+    let level = rest.iter().take_while(|&&b| b == b'#').count();
+    if (1..=6).contains(&level) && rest.len() > level && matches!(rest[level], b' ' | b'\t') {
+        Some(level)
+    } else {
+        None
+    }
+}
+
 /// Helper that checks if a line opens, continues, or closes a Markdown fenced code block.
+///
+/// In Markdown (CommonMark), a code fence can have up to 3 spaces of indentation.
+/// 4 or more spaces of indentation makes the line an indented code block, NOT a fence.
 ///
 /// Returns `(new_state, is_fenced)`.
 /// `is_fenced` is true if the line is an opening fence, a closing fence, or inside a fence.
 fn update_code_fence(state: Option<CodeFenceState>, line: &[u8]) -> (Option<CodeFenceState>, bool) {
-    let trimmed = trim_ascii_start(line);
+    let indent = line.iter().take_while(|&&b| b == b' ').count();
+    if indent > 3 || (line.len() > indent && line[indent] == b'\t') {
+        // Four or more spaces, or tab indentation: cannot open or close a code fence.
+        // If already inside a fence, it remains content inside the fence.
+        return (state, state.is_some());
+    }
+    let rest = &line[indent..];
     match state {
         None => {
-            if trimmed.starts_with(b"```") {
-                let count = trimmed.iter().take_while(|&&b| b == b'`').count();
+            if rest.starts_with(b"```") {
+                let count = rest.iter().take_while(|&&b| b == b'`').count();
                 (
                     Some(CodeFenceState {
                         fence_char: b'`',
@@ -152,8 +175,8 @@ fn update_code_fence(state: Option<CodeFenceState>, line: &[u8]) -> (Option<Code
                     }),
                     true,
                 )
-            } else if trimmed.starts_with(b"~~~") {
-                let count = trimmed.iter().take_while(|&&b| b == b'~').count();
+            } else if rest.starts_with(b"~~~") {
+                let count = rest.iter().take_while(|&&b| b == b'~').count();
                 (
                     Some(CodeFenceState {
                         fence_char: b'~',
@@ -166,11 +189,8 @@ fn update_code_fence(state: Option<CodeFenceState>, line: &[u8]) -> (Option<Code
             }
         }
         Some(active) => {
-            let count = trimmed
-                .iter()
-                .take_while(|&&b| b == active.fence_char)
-                .count();
-            if count >= active.min_len && trim_ascii(&trimmed[count..]).is_empty() {
+            let count = rest.iter().take_while(|&&b| b == active.fence_char).count();
+            if count >= active.min_len && trim_ascii(&rest[count..]).is_empty() {
                 // Closing fence delimiter line
                 (None, true)
             } else {
@@ -207,15 +227,8 @@ fn find_markdown_heading_anchor(content: &[u8], anchor: &str) -> Result<usize, R
             if m >= scan_pos && m < line_end {
                 if is_fenced {
                     inside_fence_matches.push(m);
-                } else {
-                    let trimmed = trim_ascii_start(line_bytes);
-                    let level = trimmed.iter().take_while(|&&b| b == b'#').count();
-                    if (1..=6).contains(&level)
-                        && trimmed.len() > level
-                        && matches!(trimmed[level], b' ' | b'\t')
-                    {
-                        valid_heading_starts.push(m);
-                    }
+                } else if parse_markdown_heading(line_bytes).is_some() {
+                    valid_heading_starts.push(m);
                 }
             }
         }
@@ -265,16 +278,14 @@ fn resolve_markdown_scope(
         None => content.len(),
     };
     let line_bytes = &content[line_start..line_end];
-    let trimmed = trim_ascii_start(line_bytes);
-    let level = trimmed.iter().take_while(|&&b| b == b'#').count();
-    if !(1..=6).contains(&level)
-        || trimmed.len() <= level
-        || !matches!(trimmed[level], b' ' | b'\t')
-    {
-        return Err(RefusalReason::PreservationUnavailable {
-            details: format!("anchor '{anchor}' is not a Markdown heading"),
-        });
-    }
+    let level = match parse_markdown_heading(line_bytes) {
+        Some(l) => l,
+        None => {
+            return Err(RefusalReason::PreservationUnavailable {
+                details: format!("anchor '{anchor}' is not a Markdown heading"),
+            });
+        }
+    };
 
     let mut scope_end = content.len();
     let mut scan_pos = if line_end < content.len() {
@@ -292,15 +303,11 @@ fn resolve_markdown_scope(
         let (next_state, is_fenced) = update_code_fence(fence_state, line);
         fence_state = next_state;
         if !is_fenced {
-            let trimmed_line = trim_ascii_start(line);
-            let next_level = trimmed_line.iter().take_while(|&&b| b == b'#').count();
-            if next_level > 0
-                && next_level <= level
-                && trimmed_line.len() > next_level
-                && matches!(trimmed_line[next_level], b' ' | b'\t')
-            {
-                scope_end = scan_pos;
-                break;
+            if let Some(next_level) = parse_markdown_heading(line) {
+                if next_level <= level {
+                    scope_end = scan_pos;
+                    break;
+                }
             }
         }
         scan_pos = if next_nl < content.len() {

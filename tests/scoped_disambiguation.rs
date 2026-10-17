@@ -3,8 +3,13 @@
 use std::fs;
 use tempfile::TempDir;
 use threadmoth::{
-    pipeline::apply_prepared_plan,
-    protocol::{Outcome, PlanApplyResult},
+    engine::compute_sha256,
+    pipeline::{apply_prepared_plan, execute_request},
+    protocol::{
+        OperationPayload, Outcome, PlanApplyResult, RefusalReason, RegionGuard, RegionGuardMode,
+        Request,
+    },
+    provider::{code::CodeOperation, json::JsonOperation, text::TextOperation},
     source_prepare::{
         prepare, SourceAwareTextRequest, SourcePreparationResult, TextReplacementIntent,
     },
@@ -884,4 +889,218 @@ fn mcp_rejects_within_in_edit_document_mode() {
         stdout.contains("multi-file edit document mode does not accept `within`"),
         "stdout was: {stdout}"
     );
+}
+
+#[test]
+fn markdown_four_space_indented_code_must_not_be_mistaken_for_fenced_code_block() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+    let file_path = "sections.md";
+
+    let original = r#"# Section A
+Intro to Section A
+
+    ```
+    indented code block with backticks
+    ```
+
+# Section B
+status = "b_original"
+"#;
+    fs::write(temp.path().join(file_path), original.as_bytes()).unwrap();
+
+    // 1. Scoped edit under # Section A attempting to edit a target in # Section B must be refused
+    // because four-space-indented ``` is an indented code block, not an opening fence, so # Section B
+    // properly terminates the scope of # Section A.
+    let request_reaching_into_b = SourceAwareTextRequest {
+        file_path: file_path.into(),
+        edits: vec![TextReplacementIntent {
+            old: r#"status = "b_original""#.into(),
+            new: r#"status = "b_modified""#.into(),
+        }],
+        newline_policy: Default::default(),
+        within: Some("# Section A".into()),
+    };
+
+    match prepare(&workspace, &request_reaching_into_b) {
+        SourcePreparationResult::Refused { certificate } => {
+            assert_eq!(certificate.outcome, Outcome::Refused);
+            assert_eq!(certificate.reason_code.as_deref(), Some("TARGET_NOT_FOUND"));
+        }
+        _ => panic!("scoped edit under # Section A must not reach into # Section B"),
+    }
+
+    // Verify file content is unchanged
+    let current = fs::read_to_string(temp.path().join(file_path)).unwrap();
+    assert_eq!(current, original);
+
+    // 2. An edit legitimately within # Section A succeeds
+    let doc_with_a_target = r#"# Section A
+status = "a_original"
+
+    ```
+    indented code block with backticks
+    ```
+
+# Section B
+status = "b_original"
+"#;
+    fs::write(temp.path().join(file_path), doc_with_a_target.as_bytes()).unwrap();
+
+    let request_in_a = SourceAwareTextRequest {
+        file_path: file_path.into(),
+        edits: vec![TextReplacementIntent {
+            old: r#"status = "a_original""#.into(),
+            new: r#"status = "a_modified""#.into(),
+        }],
+        newline_policy: Default::default(),
+        within: Some("# Section A".into()),
+    };
+
+    match prepare(&workspace, &request_in_a) {
+        SourcePreparationResult::Prepared(prepared) => {
+            let apply = apply_prepared_plan(&workspace, &prepared.plan);
+            assert!(
+                matches!(apply, PlanApplyResult::Certificate(c) if c.outcome == Outcome::Applied)
+            );
+        }
+        SourcePreparationResult::Refused { certificate } => {
+            panic!(
+                "expected preparation in # Section A to succeed: {:?}",
+                certificate
+            );
+        }
+    }
+
+    let modified = fs::read_to_string(temp.path().join(file_path)).unwrap();
+    assert!(modified.contains(r#"status = "a_modified""#));
+    assert!(modified.contains(r#"status = "b_original""#));
+}
+
+#[test]
+fn scope_disambiguation_rejected_on_unsupported_operations() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+    let file_path = "main.rs";
+    let content = b"fn main() {\n    let val = 1;\n}\n";
+    fs::write(temp.path().join(file_path), content).unwrap();
+
+    // 1. TextOperation::Replace with ScopeDisambiguation must be rejected
+    let text_request = Request {
+        version: "1.4.0".into(),
+        request_id: "test-replace-scope".into(),
+        allow_generated: false,
+        file_path: file_path.into(),
+        namespace: Default::default(),
+        expected_pre_hash: None,
+        region_guard: Some(RegionGuard {
+            anchor: "fn main()".into(),
+            target_sha256: compute_sha256(b"fn main()"),
+            mode: RegionGuardMode::ScopeDisambiguation,
+        }),
+        candidate_guard: None,
+        cardinality: Default::default(),
+        budget: Default::default(),
+        operation: OperationPayload::Text(TextOperation::Replace {
+            target: "val = 1".into(),
+            replacement: "val = 2".into(),
+        }),
+    };
+
+    let cert = execute_request(&workspace, &text_request, false);
+    assert_eq!(cert.outcome, Outcome::Refused);
+    assert_eq!(cert.reason_code.as_deref(), Some("PROVIDER_UNSUPPORTED"));
+    match &cert.refusal_reason {
+        Some(RefusalReason::ProviderCapabilityMissing {
+            provider,
+            capability,
+        }) => {
+            assert_eq!(provider, "text");
+            assert!(capability.contains("replace_sequence"));
+        }
+        other => panic!("expected ProviderCapabilityMissing, got: {:?}", other),
+    }
+
+    // 2. JsonOperation with ScopeDisambiguation must be rejected
+    let json_file = "config.json";
+    fs::write(temp.path().join(json_file), b"{\"port\": 8080}\n").unwrap();
+
+    let json_request = Request {
+        version: "1.4.0".into(),
+        request_id: "test-json-scope".into(),
+        allow_generated: false,
+        file_path: json_file.into(),
+        namespace: Default::default(),
+        expected_pre_hash: None,
+        region_guard: Some(RegionGuard {
+            anchor: "port".into(),
+            target_sha256: compute_sha256(b"port"),
+            mode: RegionGuardMode::ScopeDisambiguation,
+        }),
+        candidate_guard: None,
+        cardinality: Default::default(),
+        budget: Default::default(),
+        operation: OperationPayload::Json(JsonOperation::Set {
+            path: "port".into(),
+            value: serde_json::json!(9090),
+        }),
+    };
+
+    let cert_json = execute_request(&workspace, &json_request, false);
+    assert_eq!(cert_json.outcome, Outcome::Refused);
+    assert_eq!(
+        cert_json.reason_code.as_deref(),
+        Some("PROVIDER_UNSUPPORTED")
+    );
+    match &cert_json.refusal_reason {
+        Some(RefusalReason::ProviderCapabilityMissing {
+            provider,
+            capability,
+        }) => {
+            assert_eq!(provider, "json");
+            assert!(capability.contains("replace_sequence"));
+        }
+        other => panic!("expected ProviderCapabilityMissing, got: {:?}", other),
+    }
+
+    // 3. CodeOperation with ScopeDisambiguation must be rejected
+    let code_request = Request {
+        version: "1.4.0".into(),
+        request_id: "test-code-scope".into(),
+        allow_generated: false,
+        file_path: file_path.into(),
+        namespace: Default::default(),
+        expected_pre_hash: None,
+        region_guard: Some(RegionGuard {
+            anchor: "fn main()".into(),
+            target_sha256: compute_sha256(b"fn main()"),
+            mode: RegionGuardMode::ScopeDisambiguation,
+        }),
+        candidate_guard: None,
+        cardinality: Default::default(),
+        budget: Default::default(),
+        operation: OperationPayload::Code(CodeOperation::ReplaceNode {
+            language: "rust".into(),
+            target: "1".into(),
+            replacement: "2".into(),
+            node_kind: Some("integer_literal".into()),
+        }),
+    };
+
+    let cert_code = execute_request(&workspace, &code_request, false);
+    assert_eq!(cert_code.outcome, Outcome::Refused);
+    assert_eq!(
+        cert_code.reason_code.as_deref(),
+        Some("PROVIDER_UNSUPPORTED")
+    );
+    match &cert_code.refusal_reason {
+        Some(RefusalReason::ProviderCapabilityMissing {
+            provider,
+            capability,
+        }) => {
+            assert_eq!(provider, "code");
+            assert!(capability.contains("replace_sequence"));
+        }
+        other => panic!("expected ProviderCapabilityMissing, got: {:?}", other),
+    }
 }

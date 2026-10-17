@@ -3165,6 +3165,16 @@ fn validate_region_guard(
             }
         }
         crate::protocol::RegionGuardMode::ScopeDisambiguation => {
+            let OperationPayload::Text(crate::provider::text::TextOperation::ReplaceSequence {
+                ..
+            }) = &request.operation
+            else {
+                return Err(RefusalReason::ProviderCapabilityMissing {
+                    provider: provider_name(&request.operation).into(),
+                    capability: "scope_disambiguation requires the text replace_sequence operation"
+                        .into(),
+                });
+            };
             let matches =
                 match crate::scope::resolve_scope(content, &request.file_path, &guard.anchor) {
                     Ok(_) => 1,
