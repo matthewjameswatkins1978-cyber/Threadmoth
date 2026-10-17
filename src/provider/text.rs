@@ -299,7 +299,7 @@ fn plan_sequence(
     let has_multiline_intent = edits
         .iter()
         .any(|edit| edit.old.contains(['\r', '\n']) || edit.new.contains(['\r', '\n']));
-    let delimiter = match (newline_policy, profile.as_str(), has_multiline_intent) {
+    let delimiter = match (newline_policy, profile, has_multiline_intent) {
         (NewlinePolicy::Exact, _, _) => "\n",
         (NewlinePolicy::Source, "lf", _) => "\n",
         (NewlinePolicy::Source, "crlf", _) => "\r\n",
@@ -347,36 +347,8 @@ fn plan_sequence(
         })
 }
 
-fn newline_profile(content: &[u8]) -> String {
-    let mut crlf = 0usize;
-    let mut lf = 0usize;
-    let mut cr = 0usize;
-    let mut index = 0usize;
-    while index < content.len() {
-        match content[index] {
-            b'\r' if content.get(index + 1) == Some(&b'\n') => {
-                crlf += 1;
-                index += 2;
-            }
-            b'\r' => {
-                cr += 1;
-                index += 1;
-            }
-            b'\n' => {
-                lf += 1;
-                index += 1;
-            }
-            _ => index += 1,
-        }
-    }
-    let kinds = usize::from(crlf > 0) + usize::from(lf > 0) + usize::from(cr > 0);
-    match (kinds, crlf, lf, cr) {
-        (0, _, _, _) => "none",
-        (1, count, 0, 0) if count > 0 => "crlf",
-        (1, 0, count, 0) if count > 0 => "lf",
-        _ => "mixed",
-    }
-    .into()
+fn newline_profile(content: &[u8]) -> &'static str {
+    crate::engine::newline_profile(content)
 }
 
 fn adapt_newline_text(

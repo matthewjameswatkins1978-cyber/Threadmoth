@@ -27,12 +27,19 @@ def bench_repeated(name, fn, runs=10):
 
 results = {}
 
-# 1. Startup
+# 1. Startup & Invocation
+# 1a. Initial launch (cold invocation)
+dur, code, out, err = run_cmd(["--version"])
+assert code == 0
+print(f"{'1a. Initial launch (--version)':40}: {dur:6.2f} ms")
+results["initial_launch_cold"] = {"dur": dur}
+
+# 1b. Steady-state repeated execution (warm process cache)
 def bench_startup():
     dur, code, out, err = run_cmd(["--version"])
     assert code == 0
     return dur
-results["startup_version"] = bench_repeated("1. Cold startup (--version)", bench_startup, 20)
+results["steady_state_version_warm"] = bench_repeated("1b. Steady-state execution (--version)", bench_startup, 20)
 
 with tempfile.TemporaryDirectory() as td:
     # 2. Simple one-line edit on small file (1 KB)
@@ -120,6 +127,7 @@ gamma=2
         return dur
     results["multifile_edit_doc"] = bench_repeated("5. Multi-file (3 files) edit document", bench_multifile, 10)
 
-with open("benchmark_baseline.json", "w") as out:
+out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "benchmark_results.json")
+with open(out_path, "w") as out:
     json.dump(results, out, indent=2)
-print("Saved baseline to benchmark_baseline.json")
+print(f"Saved benchmark results to {out_path}")
