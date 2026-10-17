@@ -684,3 +684,204 @@ func HandlerB() {
     assert!(modified.contains("func HandlerA() {\n\ttimeout := 10"));
     assert!(modified.contains("func HandlerB() {\n\ttimeout := 99"));
 }
+
+#[test]
+fn markdown_heading_in_fenced_code_block_cannot_be_structural_anchor() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+    let file_path = "guide.md";
+
+    let original = r#"# User Guide
+
+Here is an example snippet showing how a section is written:
+```markdown
+# Section A
+Status: example_status
+```
+
+# Section A
+Status: real_status
+"#;
+    fs::write(temp.path().join(file_path), original.as_bytes()).unwrap();
+
+    // 1. Anchor "# Section A" appears both inside the fenced code block and subsequently as a real heading.
+    // The fenced example must not cause TARGET_AMBIGUOUS or be selected; the real heading must be selected.
+    let request = SourceAwareTextRequest {
+        file_path: file_path.into(),
+        edits: vec![TextReplacementIntent {
+            old: "Status: real_status".into(),
+            new: "Status: updated_real_status".into(),
+        }],
+        newline_policy: Default::default(),
+        within: Some("# Section A".into()),
+    };
+
+    let result = prepare(&workspace, &request);
+    match result {
+        SourcePreparationResult::Prepared(prepared) => {
+            let apply = apply_prepared_plan(&workspace, &prepared.plan);
+            assert!(
+                matches!(apply, PlanApplyResult::Certificate(c) if c.outcome == Outcome::Applied)
+            );
+        }
+        SourcePreparationResult::Refused { certificate } => {
+            panic!(
+                "expected scoped preparation to succeed, refused: {:?}",
+                certificate
+            );
+        }
+    }
+
+    let modified = fs::read_to_string(temp.path().join(file_path)).unwrap();
+    assert!(modified.contains("```markdown\n# Section A\nStatus: example_status\n```"));
+    assert!(modified.contains("# Section A\nStatus: updated_real_status"));
+
+    // 2. An anchor that only exists inside a fenced code block cannot be selected as a structural anchor.
+    let fenced_only_original = r#"# Architecture
+
+Here is a snippet:
+```markdown
+# Internal Component
+config = default
+```
+"#;
+    let fenced_file = "arch.md";
+    fs::write(
+        temp.path().join(fenced_file),
+        fenced_only_original.as_bytes(),
+    )
+    .unwrap();
+
+    let fenced_request = SourceAwareTextRequest {
+        file_path: fenced_file.into(),
+        edits: vec![TextReplacementIntent {
+            old: "config = default".into(),
+            new: "config = custom".into(),
+        }],
+        newline_policy: Default::default(),
+        within: Some("# Internal Component".into()),
+    };
+
+    match prepare(&workspace, &fenced_request) {
+        SourcePreparationResult::Refused { certificate } => {
+            assert_eq!(certificate.outcome, Outcome::Refused);
+            assert_eq!(
+                certificate.reason_code.as_deref(),
+                Some("PRESERVATION_UNAVAILABLE")
+            );
+        }
+        _ => panic!("fenced code block heading anchor must be refused as structural anchor"),
+    }
+}
+
+#[test]
+fn cli_rejects_within_in_edit_document_mode() {
+    use std::process::Command;
+
+    let temp = TempDir::new().unwrap();
+    let doc_path = temp.path().join("changes.tm");
+    let doc_content = r#"*** File: dummy.txt
+<<<<<<< SEARCH
+foo
+=======
+bar
+>>>>>>> REPLACE
+"#;
+    fs::write(&doc_path, doc_content.as_bytes()).unwrap();
+    fs::write(temp.path().join("dummy.txt"), b"foo\n").unwrap();
+
+    // 1. Invoking threadmoth edit with a .tm document and --within must exit 2
+    let output = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args(["edit", "changes.tm", "--within", "anchor"])
+        .output()
+        .expect("threadmoth edit runs");
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("multi-file edit document mode does not accept --within"));
+
+    // 2. Piping document via stdin with --within must also exit 2
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .current_dir(temp.path())
+        .args(["edit", "-", "--within", "anchor"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn threadmoth edit -");
+
+    let mut stdin = child.stdin.take().expect("open stdin");
+    stdin.write_all(doc_content.as_bytes()).unwrap();
+    drop(stdin);
+
+    let stdin_output = child.wait_with_output().expect("wait for stdin edit");
+    assert_eq!(stdin_output.status.code(), Some(2));
+    let stdin_stderr = String::from_utf8_lossy(&stdin_output.stderr);
+    assert!(stdin_stderr.contains("multi-file edit document mode does not accept --within"));
+}
+
+#[test]
+fn mcp_rejects_within_in_edit_document_mode() {
+    use serde_json::json;
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let temp = TempDir::new().unwrap();
+    let doc_content = "*** File: dummy.txt\n<<<<<<< SEARCH\nfoo\n=======\nbar\n>>>>>>> REPLACE\n";
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_threadmoth"))
+        .arg("mcp")
+        .current_dir(temp.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn threadmoth mcp");
+
+    let init_request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": { "name": "test", "version": "1.0" }
+        }
+    });
+
+    let edit_request = json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+            "name": "threadmoth_edit",
+            "arguments": {
+                "document": doc_content,
+                "within": "anchor"
+            }
+        }
+    });
+
+    let mut stdin = child.stdin.take().expect("open mcp stdin");
+    stdin
+        .write_all(serde_json::to_string(&init_request).unwrap().as_bytes())
+        .unwrap();
+    stdin.write_all(b"\n").unwrap();
+    stdin
+        .write_all(serde_json::to_string(&edit_request).unwrap().as_bytes())
+        .unwrap();
+    stdin.write_all(b"\n").unwrap();
+    stdin.flush().unwrap();
+    drop(stdin);
+
+    let output = child.wait_with_output().expect("wait for mcp");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("mcp stdout utf8");
+    assert!(
+        stdout.contains("multi-file edit document mode does not accept `within`"),
+        "stdout was: {stdout}"
+    );
+}

@@ -3093,10 +3093,23 @@ fn validate_region_guard(
             details: "durable region anchor must not be empty".into(),
         });
     }
-    let matches = content
-        .windows(guard.anchor.len())
-        .filter(|bytes| *bytes == guard.anchor.as_bytes())
-        .count();
+    let detection = crate::target_registry::detect(&request.file_path, Some(content));
+    let matches = if detection.provider.as_deref() == Some("markdown")
+        || request.file_path.ends_with(".md")
+        || request.file_path.ends_with(".markdown")
+    {
+        match crate::scope::resolve_scope(content, &request.file_path, &guard.anchor) {
+            Ok(_) => 1,
+            Err(RefusalReason::DuplicateTarget { count, .. }) => count,
+            Err(RefusalReason::MissingTarget { .. }) => 0,
+            Err(reason) => return Err(reason),
+        }
+    } else {
+        content
+            .windows(guard.anchor.len())
+            .filter(|bytes| *bytes == guard.anchor.as_bytes())
+            .count()
+    };
     if matches != 1 {
         return Err(RefusalReason::CardinalityMismatch {
             expected: "one durable region anchor".into(),

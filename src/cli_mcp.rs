@@ -578,6 +578,13 @@ fn execute_mcp_edit(workspace: &Workspace, args: EditToolArgs) -> Result<Value, 
         }
     }
 
+    if args.within.is_some() && (has_document || !has_search || !has_replace) {
+        return Err(
+            "multi-file edit document mode does not accept `within`; scope anchors are only valid for single-file inline edits with `search` and `replace`"
+                .into(),
+        );
+    }
+
     if let (Some(search), Some(replace)) = (args.search, args.replace) {
         let Some(file_path) = args.file_path else {
             return Err(

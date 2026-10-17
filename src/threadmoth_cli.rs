@@ -770,6 +770,12 @@ fn run_edit(args: EditArgs) {
             }
         }
     } else {
+        if args.within.is_some() {
+            eprintln!(
+                "multi-file edit document mode does not accept --within; scope anchors are only valid for single-file inline edits with --search and --replace"
+            );
+            std::process::exit(2);
+        }
         let document = if is_stdin {
             let mut buffer = Vec::new();
             io::stdin()
