@@ -15,11 +15,20 @@ const LEGACY_RECOVERY_DIR: &str = ".suture-recovery";
 pub(crate) const MAX_JOURNAL_BYTES: usize = 8 * 1024 * 1024;
 const MAX_JOURNAL_ENTRIES: usize = 256;
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum JournalPhase {
+    Prepared,
+    Committed,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Journal {
     pub protocol_version: String,
     pub transaction_id: String,
     pub entries: Vec<JournalEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<JournalPhase>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -53,7 +62,11 @@ pub(crate) fn check_journal_size(journal: &Journal) -> Result<(), WorkspaceError
 }
 
 pub fn write_journal(workspace: &Workspace, journal: &Journal) -> Result<(), WorkspaceError> {
-    let bytes = serialize_journal(journal)?;
+    let mut j = journal.clone();
+    if j.phase.is_none() {
+        j.phase = Some(JournalPhase::Prepared);
+    }
+    let bytes = serialize_journal(&j)?;
     let dir = workspace.root().join(RECOVERY_DIR);
     fs::create_dir_all(&dir)?;
     let path = dir.join(format!("{}.json", safe_id(&journal.transaction_id)));
@@ -63,6 +76,31 @@ pub fn write_journal(workspace: &Workspace, journal: &Journal) -> Result<(), Wor
         .open(path)?;
     std::io::Write::write_all(&mut file, &bytes)?;
     file.sync_all()?;
+    Ok(())
+}
+
+pub fn mark_journal_committed(
+    workspace: &Workspace,
+    transaction_id: &str,
+) -> Result<(), WorkspaceError> {
+    let filename = format!("{}.json", safe_id(transaction_id));
+    for dir in recovery_dirs(workspace) {
+        let path = dir.join(&filename);
+        if path.exists() {
+            let bytes = fs::read(&path)?;
+            let mut journal: Journal = serde_json::from_slice(&bytes)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            journal.phase = Some(JournalPhase::Committed);
+            let updated_bytes = serialize_journal(&journal)?;
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(&path)?;
+            std::io::Write::write_all(&mut file, &updated_bytes)?;
+            file.sync_all()?;
+            return Ok(());
+        }
+    }
     Ok(())
 }
 
@@ -184,22 +222,31 @@ pub fn list(workspace: &Workspace) -> RecoveryListReport {
         };
         let states = member_inspections(workspace, &journal);
         let safe = states.iter().all(|member| member.automatic_recovery_safe);
-        let apparent_state = if !safe {
-            "drifted"
+        let all_candidate = states
+            .iter()
+            .all(|member| member.classification == "CANDIDATE");
+        let (apparent_state, automatic_safe) = if !safe {
+            ("drifted".to_string(), false)
+        } else if all_candidate {
+            match journal.phase {
+                Some(JournalPhase::Committed) => ("complete".to_string(), true),
+                Some(JournalPhase::Prepared) => ("complete".to_string(), true),
+                None => ("ambiguous".to_string(), false),
+            }
         } else if states
             .iter()
-            .all(|member| member.classification == "CANDIDATE")
+            .all(|member| member.classification == "ORIGINAL")
         {
-            "complete"
+            ("uncommitted".to_string(), true)
         } else {
-            "partial"
+            ("partial".to_string(), true)
         };
         entries.push(RecoveryListEntry {
             transaction_id,
             journal_validity: "valid".into(),
             member_count: states.len(),
-            apparent_state: apparent_state.into(),
-            automatic_recovery_safe: safe,
+            apparent_state,
+            automatic_recovery_safe: automatic_safe,
         });
     }
     RecoveryListReport { entries }
@@ -228,11 +275,19 @@ pub fn inspect(workspace: &Workspace, transaction_id: &str) -> RecoveryInspectRe
         }
     };
     let members = member_inspections(workspace, &journal);
+    let all_candidate = members.iter().all(|m| m.classification == "CANDIDATE");
+    let safe = members.iter().all(|member| member.automatic_recovery_safe);
+    let automatic_recovery_safe = safe
+        && match journal.phase {
+            Some(JournalPhase::Committed) | Some(JournalPhase::Prepared) => true,
+            None if all_candidate => false,
+            _ => true,
+        };
     RecoveryInspectReport {
         transaction_id: transaction_id.into(),
         journal_validity: "valid".into(),
         member_count: members.len(),
-        automatic_recovery_safe: members.iter().all(|member| member.automatic_recovery_safe),
+        automatic_recovery_safe,
         members,
     }
 }
@@ -313,14 +368,36 @@ fn recover_item(workspace: &Workspace, path: &std::path::Path, report: &mut Reco
         return;
     }
     if states.iter().all(|state| *state == EntryState::Candidate) {
+        match journal.phase {
+            Some(JournalPhase::Committed) => {
+                if fs::remove_file(path).is_ok() {
+                    report.completed += 1;
+                    report.cleaned += 1;
+                }
+                return;
+            }
+            Some(JournalPhase::Prepared) => {
+                // An uncommitted or interrupted transaction must not become a commit.
+                // Fall through to restore candidate members below.
+            }
+            None => {
+                // Ambiguous legacy journal state (all candidate, but unrecorded commit decision).
+                report.manual.push(format!(
+                    "{}: ambiguous legacy journal state (all candidate, commit unrecorded); manual recovery required",
+                    path.display()
+                ));
+                return;
+            }
+        }
+    }
+    if states.iter().all(|state| *state == EntryState::Original) {
         if fs::remove_file(path).is_ok() {
-            report.completed += 1;
             report.cleaned += 1;
         }
         return;
     }
     let mut safe = true;
-    for (entry, state) in journal.entries.iter().zip(states) {
+    for (entry, state) in journal.entries.iter().rev().zip(states.into_iter().rev()) {
         if state != EntryState::Candidate {
             continue;
         }
@@ -489,6 +566,7 @@ mod tests {
                 protocol_version: "1.1.0".into(),
                 transaction_id: transaction_id.into(),
                 entries,
+                phase: Some(JournalPhase::Prepared),
             },
         )
         .unwrap();
@@ -514,6 +592,7 @@ mod tests {
             "completed",
             vec![entry("x.txt", b"old", b"new")],
         );
+        mark_journal_committed(&workspace, "completed").unwrap();
 
         let report = recover_all(&workspace);
 
@@ -604,6 +683,7 @@ mod tests {
         let journal = serde_json::json!({
             "protocol_version": "1.1.0",
             "transaction_id": "legacy",
+            "phase": "committed",
             "entries": [{
                 "path": "x.txt",
                 "pre_hash": compute_sha256(b"old"),
@@ -637,6 +717,7 @@ mod tests {
                 protocol_version: PROTOCOL_VERSION.into(),
                 transaction_id: "oversized".into(),
                 entries: vec![entry("x.txt", &payload, &payload)],
+                phase: Some(JournalPhase::Prepared),
             },
         )
         .unwrap_err();
@@ -661,6 +742,7 @@ mod tests {
             protocol_version: PROTOCOL_VERSION.into(),
             transaction_id: "one-megabyte".into(),
             entries: vec![entry("x.bin", &payload, &payload)],
+            phase: Some(JournalPhase::Prepared),
         };
 
         let encoded = serialize_journal(&journal).unwrap();
@@ -679,6 +761,7 @@ mod tests {
             protocol_version: PROTOCOL_VERSION.into(),
             transaction_id: "binary-round-trip".into(),
             entries: vec![entry("x.bin", &original, &candidate)],
+            phase: Some(JournalPhase::Prepared),
         };
 
         let decoded: Journal =
@@ -695,6 +778,7 @@ mod tests {
                 protocol_version: PROTOCOL_VERSION.into(),
                 transaction_id: format!("size-{size}"),
                 entries: vec![entry("x.bin", &payload, &payload)],
+                phase: Some(JournalPhase::Prepared),
             };
             let encoded = serialize_journal(&journal).unwrap();
             assert!(encoded.len() < MAX_JOURNAL_BYTES);

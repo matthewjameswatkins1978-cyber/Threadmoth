@@ -1151,15 +1151,25 @@ fn print_edit_refusal(
         if let Some(details) = &certificate.failure_reason {
             println!("Details      {details:?}");
         }
-        println!("Next step    Inspect capabilities with `threadmoth capabilities --for {file_path}` or get guidance with `threadmoth explain {code}`.");
+        let ext = Path::new(file_path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        if matches!(ext, "json" | "jsonc" | "toml" | "yaml" | "yml" | "env") {
+            println!("Next step    Inspect targets with `threadmoth suggest {file_path}` or inspect capabilities with `threadmoth capabilities --for {file_path}`.");
+        } else {
+            println!("Next step    Inspect capabilities with `threadmoth capabilities --for {file_path}` or get guidance with `threadmoth explain {code}`.");
+        }
     }
 
     let ext = Path::new(file_path)
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("");
-    if matches!(ext, "json" | "jsonc" | "toml" | "yaml" | "yml" | "env") {
-        println!("Hint         This is a structured format ({ext}). You can also inspect targets with `threadmoth suggest {file_path}` or `threadmoth capabilities --for {file_path}`.");
+    if matches!(ext, "json" | "jsonc" | "toml" | "yaml" | "yml" | "env")
+        && (code == "TARGET_AMBIGUOUS" || code == "TARGET_NOT_FOUND")
+    {
+        println!("Hint         This is a structured format ({ext}). You can inspect targets with `threadmoth suggest {file_path}`.");
     }
 
     println!("Source       unchanged");
