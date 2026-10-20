@@ -1270,13 +1270,22 @@ fn commit_prepared_plan(
             rollback.rollback_state(),
         ));
     }
-    let _ = recovery::mark_journal_committed(workspace, &journal.transaction_id);
-    let cleanup = recovery::remove_journal(workspace, &journal.transaction_id);
-    let recovery_state = if cleanup.is_ok() {
-        "not_required"
-    } else {
-        "recovery_available"
-    };
+    let recovery_state =
+        match commit_and_cleanup_journal(workspace, &journal.transaction_id, &committed) {
+            Ok(state) => state,
+            Err((rollback, msg)) => {
+                return Err(failure_with_rollback(
+                    &transaction.requests[0],
+                    &journal.entries[0].path,
+                    "plan",
+                    journal.entries[0].pre_hash.clone(),
+                    FailureReason::CommitFailure {
+                        message: rollback.format_message(&msg),
+                    },
+                    rollback.rollback_state(),
+                ));
+            }
+        };
     let mut certificates = Vec::new();
     for (index, (path, original, candidate, edits)) in prepared.into_iter().enumerate() {
         let request = transaction
@@ -1322,7 +1331,14 @@ fn commit_prepared_plan(
         certificates.push(certificate);
     }
     mark_transaction_certificates(&mut certificates, recovery_state);
-    Ok((certificates, recovery_state, cleanup.err()))
+    let cleanup_err = if recovery_state == "recovery_available" {
+        Some(WorkspaceError::Io(std::io::Error::other(
+            "recovery journal cleanup failed; transaction remains committed",
+        )))
+    } else {
+        None
+    };
+    Ok((certificates, recovery_state, cleanup_err))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1392,6 +1408,44 @@ pub fn rollback_entries(workspace: &Workspace, committed: &[&JournalEntry]) -> R
         total: committed.len(),
         restored,
         failed,
+    }
+}
+
+pub fn commit_and_cleanup_journal(
+    workspace: &Workspace,
+    transaction_id: &str,
+    committed: &[&JournalEntry],
+) -> Result<&'static str, (RollbackReport, String)> {
+    let mark_result = recovery::mark_journal_committed(workspace, transaction_id);
+    if mark_result.is_ok() {
+        // Journal is committed on disk. Attempt removal.
+        match recovery::remove_journal(workspace, transaction_id) {
+            Ok(()) => Ok("not_required"),
+            Err(_) => Ok("recovery_available"),
+        }
+    } else {
+        // Commit marker failed!
+        // Attempt removal so that an uncommitted/prepared journal is not left behind.
+        let cleanup_result = recovery::remove_journal(workspace, transaction_id);
+        if cleanup_result.is_ok() {
+            // Journal removed completely; no Prepared journal remains on disk.
+            Ok("not_required")
+        } else {
+            // DOUBLE FAILURE: Failed to mark committed AND failed to remove journal.
+            // On disk, the journal is still Prepared!
+            // Threadmoth MUST NOT acknowledge this transaction as Applied.
+            // Roll back all committed files to original so on-disk state matches reality.
+            let rollback = rollback_entries(workspace, committed);
+            let mark_err = mark_result.err().map(|e| e.to_string()).unwrap_or_default();
+            let clean_err = cleanup_result
+                .err()
+                .map(|e| e.to_string())
+                .unwrap_or_default();
+            let msg = format!(
+                "commit decision failed: could not record committed state ({mark_err}) and could not remove journal ({clean_err})"
+            );
+            Err((rollback, msg))
+        }
     }
 }
 
@@ -1889,13 +1943,27 @@ pub fn execute_transaction(
             };
         }
     }
-    let _ = recovery::mark_journal_committed(workspace, &transaction.transaction_id);
-    let cleanup = recovery::remove_journal(workspace, &transaction.transaction_id);
-    let recovery_state = if cleanup.is_ok() {
-        "not_required"
-    } else {
-        "recovery_available"
-    };
+    let recovery_state =
+        match commit_and_cleanup_journal(workspace, &transaction.transaction_id, &committed) {
+            Ok(state) => state,
+            Err((rollback, msg)) => {
+                return TransactionCertificate {
+                    protocol_version: transaction.version.clone(),
+                    transaction_id: transaction.transaction_id.clone(),
+                    outcome: Outcome::Failed,
+                    certificates,
+                    rollback_state: rollback.rollback_state().into(),
+                    transaction_guarantee: "transactional_with_rollback".into(),
+                    refusal_reason: None,
+                    failure_reason: Some(FailureReason::CommitFailure {
+                        message: rollback.format_message(&msg),
+                    }),
+                    reason_code: Some("COMMIT_FAILED".into()),
+                    recovery: None,
+                    schema_diagnostic: None,
+                };
+            }
+        };
     mark_transaction_certificates(&mut certificates, recovery_state);
     TransactionCertificate {
         protocol_version: transaction.version.clone(),
@@ -1909,9 +1977,13 @@ pub fn execute_transaction(
         rollback_state: recovery_state.into(),
         transaction_guarantee: "transactional_with_rollback".into(),
         refusal_reason: None,
-        failure_reason: cleanup.err().map(|error| FailureReason::CommitFailure {
-            message: format!("recovery journal cleanup failed: {error}"),
-        }),
+        failure_reason: if recovery_state == "recovery_available" {
+            Some(FailureReason::CommitFailure {
+                message: "recovery journal cleanup failed; transaction remains committed".into(),
+            })
+        } else {
+            None
+        },
         reason_code: None,
         recovery: None,
         schema_diagnostic: None,
@@ -2215,11 +2287,30 @@ fn execute_single_file_transaction(
                     schema_diagnostic: None,
                 };
             }
-            let cleanup = recovery::remove_journal(workspace, &transaction.transaction_id);
-            let recovery_state = if cleanup.is_ok() {
-                "not_required"
-            } else {
-                "recovery_available"
+            let committed_entries = vec![&journal.entries[0]];
+            let recovery_state = match commit_and_cleanup_journal(
+                workspace,
+                &transaction.transaction_id,
+                &committed_entries,
+            ) {
+                Ok(state) => state,
+                Err((rollback, msg)) => {
+                    return TransactionCertificate {
+                        protocol_version: transaction.version.clone(),
+                        transaction_id: transaction.transaction_id.clone(),
+                        outcome: Outcome::Failed,
+                        certificates,
+                        rollback_state: rollback.rollback_state().into(),
+                        transaction_guarantee: "transactional_with_rollback".into(),
+                        refusal_reason: None,
+                        failure_reason: Some(FailureReason::CommitFailure {
+                            message: rollback.format_message(&msg),
+                        }),
+                        reason_code: Some("COMMIT_FAILED".into()),
+                        recovery: None,
+                        schema_diagnostic: None,
+                    };
+                }
             };
             mark_transaction_certificates(&mut certificates, recovery_state);
             TransactionCertificate {
@@ -2230,9 +2321,14 @@ fn execute_single_file_transaction(
                 rollback_state: recovery_state.into(),
                 transaction_guarantee: "transactional_with_rollback".into(),
                 refusal_reason: None,
-                failure_reason: cleanup.err().map(|error| FailureReason::CommitFailure {
-                    message: format!("recovery journal cleanup failed: {error}"),
-                }),
+                failure_reason: if recovery_state == "recovery_available" {
+                    Some(FailureReason::CommitFailure {
+                        message: "recovery journal cleanup failed; transaction remains committed"
+                            .into(),
+                    })
+                } else {
+                    None
+                },
                 reason_code: None,
                 recovery: None,
                 schema_diagnostic: None,

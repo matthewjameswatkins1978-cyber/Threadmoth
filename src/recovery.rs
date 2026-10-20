@@ -3,12 +3,46 @@
 use crate::engine::compute_sha256;
 use crate::protocol::SUPPORTED_PROTOCOL_VERSIONS;
 use crate::workspace::{Workspace, WorkspaceError};
+use atomic_write_file::AtomicWriteFile;
 use serde::de::{self, SeqAccess, Visitor};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fs;
-use std::io;
+use std::io::{self, Write};
+
+#[doc(hidden)]
+pub mod fault_injection {
+    use std::cell::Cell;
+
+    thread_local! {
+        static FAIL_COMMIT_MARKER: Cell<bool> = const { Cell::new(false) };
+        static FAIL_REMOVE_JOURNAL: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub fn set_fail_commit_marker(fail: bool) {
+        FAIL_COMMIT_MARKER.with(|c| c.set(fail));
+    }
+
+    pub fn fail_commit_marker() -> bool {
+        FAIL_COMMIT_MARKER.with(|c| c.get())
+            || std::env::var_os("THREADMOTH_FAULT_COMMIT_MARKER").is_some()
+    }
+
+    pub fn set_fail_remove_journal(fail: bool) {
+        FAIL_REMOVE_JOURNAL.with(|c| c.set(fail));
+    }
+
+    pub fn fail_remove_journal() -> bool {
+        FAIL_REMOVE_JOURNAL.with(|c| c.get())
+            || std::env::var_os("THREADMOTH_FAULT_REMOVE_JOURNAL").is_some()
+    }
+
+    pub fn reset() {
+        FAIL_COMMIT_MARKER.with(|c| c.set(false));
+        FAIL_REMOVE_JOURNAL.with(|c| c.set(false));
+    }
+}
 
 const RECOVERY_DIR: &str = ".threadmoth-recovery";
 const LEGACY_RECOVERY_DIR: &str = ".suture-recovery";
@@ -83,6 +117,11 @@ pub fn mark_journal_committed(
     workspace: &Workspace,
     transaction_id: &str,
 ) -> Result<(), WorkspaceError> {
+    if fault_injection::fail_commit_marker() {
+        return Err(WorkspaceError::Io(io::Error::other(
+            "fault injected: mark_journal_committed failure",
+        )));
+    }
     let filename = format!("{}.json", safe_id(transaction_id));
     for dir in recovery_dirs(workspace) {
         let path = dir.join(&filename);
@@ -92,19 +131,28 @@ pub fn mark_journal_committed(
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
             journal.phase = Some(JournalPhase::Committed);
             let updated_bytes = serialize_journal(&journal)?;
-            let mut file = fs::OpenOptions::new()
-                .write(true)
-                .truncate(true)
-                .open(&path)?;
+
+            // Staged atomic replacement: write to a temporary file in the same directory,
+            // then atomically rename over the original path.
+            // This guarantees the original journal is never truncated or destroyed if interrupted.
+            let mut file = AtomicWriteFile::open(&path)?;
             std::io::Write::write_all(&mut file, &updated_bytes)?;
-            file.sync_all()?;
+            file.flush()?;
+            file.commit()?;
             return Ok(());
         }
     }
-    Ok(())
+    Err(WorkspaceError::NotFound(format!(
+        "journal for transaction {transaction_id} not found"
+    )))
 }
 
 pub fn remove_journal(workspace: &Workspace, transaction_id: &str) -> Result<(), WorkspaceError> {
+    if fault_injection::fail_remove_journal() {
+        return Err(WorkspaceError::Io(io::Error::other(
+            "fault injected: remove_journal failure",
+        )));
+    }
     let filename = format!("{}.json", safe_id(transaction_id));
     for dir in recovery_dirs(workspace) {
         match fs::remove_file(dir.join(&filename)) {
@@ -225,21 +273,37 @@ pub fn list(workspace: &Workspace) -> RecoveryListReport {
         let all_candidate = states
             .iter()
             .all(|member| member.classification == "CANDIDATE");
+        let all_original = states
+            .iter()
+            .all(|member| member.classification == "ORIGINAL");
         let (apparent_state, automatic_safe) = if !safe {
             ("drifted".to_string(), false)
-        } else if all_candidate {
-            match journal.phase {
-                Some(JournalPhase::Committed) => ("complete".to_string(), true),
-                Some(JournalPhase::Prepared) => ("complete".to_string(), true),
-                None => ("ambiguous".to_string(), false),
-            }
-        } else if states
-            .iter()
-            .all(|member| member.classification == "ORIGINAL")
-        {
-            ("uncommitted".to_string(), true)
         } else {
-            ("partial".to_string(), true)
+            match journal.phase {
+                Some(JournalPhase::Committed) => {
+                    if all_candidate {
+                        ("complete".to_string(), true)
+                    } else {
+                        ("inconsistent".to_string(), false)
+                    }
+                }
+                Some(JournalPhase::Prepared) => {
+                    if all_original || all_candidate {
+                        ("uncommitted".to_string(), true)
+                    } else {
+                        ("partial".to_string(), true)
+                    }
+                }
+                None => {
+                    if all_original {
+                        ("uncommitted".to_string(), true)
+                    } else if all_candidate {
+                        ("ambiguous".to_string(), false)
+                    } else {
+                        ("partial".to_string(), true)
+                    }
+                }
+            }
         };
         entries.push(RecoveryListEntry {
             transaction_id,
@@ -279,7 +343,8 @@ pub fn inspect(workspace: &Workspace, transaction_id: &str) -> RecoveryInspectRe
     let safe = members.iter().all(|member| member.automatic_recovery_safe);
     let automatic_recovery_safe = safe
         && match journal.phase {
-            Some(JournalPhase::Committed) | Some(JournalPhase::Prepared) => true,
+            Some(JournalPhase::Committed) => all_candidate,
+            Some(JournalPhase::Prepared) => true,
             None if all_candidate => false,
             _ => true,
         };
@@ -367,28 +432,30 @@ fn recover_item(workspace: &Workspace, path: &std::path::Path, report: &mut Reco
     if states.contains(&EntryState::Manual) {
         return;
     }
-    if states.iter().all(|state| *state == EntryState::Candidate) {
-        match journal.phase {
-            Some(JournalPhase::Committed) => {
-                if fs::remove_file(path).is_ok() {
-                    report.completed += 1;
-                    report.cleaned += 1;
-                }
-                return;
+    if journal.phase == Some(JournalPhase::Committed) {
+        if states.iter().all(|state| *state == EntryState::Candidate) {
+            if fs::remove_file(path).is_ok() {
+                report.completed += 1;
+                report.cleaned += 1;
             }
-            Some(JournalPhase::Prepared) => {
-                // An uncommitted or interrupted transaction must not become a commit.
-                // Fall through to restore candidate members below.
-            }
-            None => {
-                // Ambiguous legacy journal state (all candidate, but unrecorded commit decision).
-                report.manual.push(format!(
-                    "{}: ambiguous legacy journal state (all candidate, commit unrecorded); manual recovery required",
-                    path.display()
-                ));
-                return;
-            }
+        } else {
+            // A committed transaction must NEVER automatically become an uncommitted rollback!
+            // If members exhibit unexpected or mixed states, preserve the journal and report
+            // the inconsistency for human inspection.
+            report.manual.push(format!(
+                "{}: committed transaction has unexpected member states (not all candidate); manual inspection required",
+                path.display()
+            ));
         }
+        return;
+    }
+    if journal.phase.is_none() && states.iter().all(|state| *state == EntryState::Candidate) {
+        // Ambiguous legacy journal state (all candidate, but unrecorded commit decision).
+        report.manual.push(format!(
+            "{}: ambiguous legacy journal state (all candidate, commit unrecorded); manual recovery required",
+            path.display()
+        ));
+        return;
     }
     if states.iter().all(|state| *state == EntryState::Original) {
         if fs::remove_file(path).is_ok() {

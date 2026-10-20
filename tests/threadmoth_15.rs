@@ -168,7 +168,7 @@ fn recovery_inspection_is_read_only_and_classifies_members() {
                 original: b"old".to_vec(),
                 candidate: b"new".to_vec(),
             }],
-            phase: Some(threadmoth::recovery::JournalPhase::Prepared),
+            phase: Some(threadmoth::recovery::JournalPhase::Committed),
         },
     )
     .unwrap();

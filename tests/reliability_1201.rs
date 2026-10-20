@@ -284,3 +284,299 @@ fn direct_and_prepared_transactions_reconcile_rollback_and_error_handling() {
         _ => panic!("expected transaction result"),
     }
 }
+
+#[test]
+fn commit_marker_failure_and_cleanup_failure_in_direct_transaction_triggers_rollback_and_fails() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let f1_orig = b"alpha original\n";
+    let f2_orig = b"beta original\n";
+    fs::write(temp.path().join("f1.txt"), f1_orig).unwrap();
+    fs::write(temp.path().join("f2.txt"), f2_orig).unwrap();
+
+    let tx = TransactionRequest {
+        version: PROTOCOL_VERSION.into(),
+        transaction_id: "tx-direct-double-fail".into(),
+        requests: vec![
+            text_request("f1.txt", "alpha", "new-alpha"),
+            text_request("f2.txt", "beta", "new-beta"),
+        ],
+        budget: Default::default(),
+    };
+
+    // Inject double failure: commit-marker persistence fails AND journal cleanup fails
+    recovery::fault_injection::set_fail_commit_marker(true);
+    recovery::fault_injection::set_fail_remove_journal(true);
+
+    let cert = threadmoth::pipeline::execute_transaction(&workspace, &tx, false);
+
+    // Reset fault injection immediately
+    recovery::fault_injection::reset();
+
+    // Critical invariant: Threadmoth MUST NOT report Applied when journal on disk is still Prepared!
+    assert_eq!(
+        cert.outcome,
+        Outcome::Failed,
+        "must fail if commit marker and cleanup both fail"
+    );
+    assert_eq!(
+        cert.rollback_state, "rolled_back",
+        "must have rolled back all committed members"
+    );
+    assert!(
+        matches!(
+            cert.failure_reason,
+            Some(FailureReason::CommitFailure { .. })
+        ),
+        "must report CommitFailure"
+    );
+
+    // Both files on disk MUST be rolled back to their original content
+    assert_eq!(
+        fs::read(temp.path().join("f1.txt")).unwrap(),
+        f1_orig,
+        "f1.txt must be rolled back to original bytes"
+    );
+    assert_eq!(
+        fs::read(temp.path().join("f2.txt")).unwrap(),
+        f2_orig,
+        "f2.txt must be rolled back to original bytes"
+    );
+
+    // Journal remains on disk (since cleanup failed), but its files are now Original.
+    // When recovery runs later, it will find all files match Original and clean up safely without reversing anything!
+    let report = recovery::recover_all(&workspace);
+    assert_eq!(report.completed, 0);
+    assert_eq!(report.restored, 0);
+    assert_eq!(report.cleaned, 1);
+}
+
+#[test]
+fn commit_marker_failure_and_cleanup_failure_in_prepared_plan_triggers_rollback_and_fails() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let f1_orig = b"gamma original\n";
+    let f2_orig = b"delta original\n";
+    fs::write(temp.path().join("f1.txt"), f1_orig).unwrap();
+    fs::write(temp.path().join("f2.txt"), f2_orig).unwrap();
+
+    let tx = TransactionRequest {
+        version: PROTOCOL_VERSION.into(),
+        transaction_id: "tx-plan-double-fail".into(),
+        requests: vec![
+            text_request("f1.txt", "gamma", "new-gamma"),
+            text_request("f2.txt", "delta", "new-delta"),
+        ],
+        budget: Default::default(),
+    };
+
+    let plan = prepare_transaction_plan(&workspace, &tx, vec![]).unwrap();
+
+    // Inject double failure: commit-marker persistence fails AND journal cleanup fails
+    recovery::fault_injection::set_fail_commit_marker(true);
+    recovery::fault_injection::set_fail_remove_journal(true);
+
+    let result = apply_prepared_plan(&workspace, &plan);
+
+    // Reset fault injection immediately
+    recovery::fault_injection::reset();
+
+    match result {
+        PlanApplyResult::Transaction(cert) => {
+            assert_eq!(
+                cert.outcome,
+                Outcome::Failed,
+                "prepared plan must fail if commit marker and cleanup both fail"
+            );
+            assert_eq!(
+                cert.rollback_state, "rolled_back",
+                "must have rolled back all committed members"
+            );
+            assert!(
+                matches!(
+                    cert.failure_reason,
+                    Some(FailureReason::CommitFailure { .. })
+                ),
+                "must report CommitFailure"
+            );
+
+            // Both files on disk MUST be restored to original bytes
+            assert_eq!(
+                fs::read(temp.path().join("f1.txt")).unwrap(),
+                f1_orig,
+                "f1.txt must be rolled back to original bytes"
+            );
+            assert_eq!(
+                fs::read(temp.path().join("f2.txt")).unwrap(),
+                f2_orig,
+                "f2.txt must be rolled back to original bytes"
+            );
+        }
+        _ => panic!("expected transaction result"),
+    }
+}
+
+#[test]
+fn committed_journal_with_mixed_states_is_never_rolled_back() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let f1_orig = b"file1 original\n";
+    let f1_cand = b"file1 candidate\n";
+    let f2_orig = b"file2 original\n";
+    let f2_cand = b"file2 candidate\n";
+
+    // f1 is Candidate, but f2 is Original (mixed state!)
+    workspace.write_file_atomic("f1.txt", f1_cand).unwrap();
+    workspace.write_file_atomic("f2.txt", f2_orig).unwrap();
+
+    // Journal is explicitly marked Committed
+    recovery::write_journal(
+        &workspace,
+        &Journal {
+            protocol_version: PROTOCOL_VERSION.into(),
+            transaction_id: "tx-committed-mixed".into(),
+            entries: vec![
+                make_journal_entry("f1.txt", f1_orig, f1_cand),
+                make_journal_entry("f2.txt", f2_orig, f2_cand),
+            ],
+            phase: Some(JournalPhase::Committed),
+        },
+    )
+    .unwrap();
+
+    // List and inspect must truthfully report inconsistency and NOT mark it as automatic recovery safe!
+    let list = recovery::list(&workspace);
+    assert_eq!(list.entries.len(), 1);
+    assert_eq!(list.entries[0].apparent_state, "inconsistent");
+    assert!(
+        !list.entries[0].automatic_recovery_safe,
+        "committed mixed state must not be automatic recovery safe"
+    );
+
+    let inspect = recovery::inspect(&workspace, "tx-committed-mixed");
+    assert!(
+        !inspect.automatic_recovery_safe,
+        "inspect must report automatic_recovery_safe = false for committed mixed state"
+    );
+
+    // Run recover_all: MUST NOT ROLL BACK f1!
+    let report = recovery::recover_all(&workspace);
+    assert_eq!(report.completed, 0, "must not complete");
+    assert_eq!(report.restored, 0, "must NOT roll back committed member!");
+    assert_eq!(report.cleaned, 0, "must preserve journal for inspection");
+    assert!(
+        !report.manual.is_empty(),
+        "must report inconsistency for human inspection"
+    );
+    assert!(report.manual[0].contains("committed transaction has unexpected member states"));
+
+    // Verify f1.txt REMAINS as Candidate content!
+    assert_eq!(
+        workspace.read_file("f1.txt").unwrap(),
+        f1_cand,
+        "committed candidate member must never be rolled back"
+    );
+}
+
+#[test]
+fn prepared_journal_with_all_candidates_is_uncommitted_and_rolls_back() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let f1_orig = b"alpha original\n";
+    let f1_cand = b"alpha candidate\n";
+    let f2_orig = b"beta original\n";
+    let f2_cand = b"beta candidate\n";
+
+    // Both files are in candidate state on disk
+    workspace.write_file_atomic("f1.txt", f1_cand).unwrap();
+    workspace.write_file_atomic("f2.txt", f2_cand).unwrap();
+
+    // Journal is in Prepared phase (never reached commit!)
+    recovery::write_journal(
+        &workspace,
+        &Journal {
+            protocol_version: PROTOCOL_VERSION.into(),
+            transaction_id: "tx-prepared-all-cand".into(),
+            entries: vec![
+                make_journal_entry("f1.txt", f1_orig, f1_cand),
+                make_journal_entry("f2.txt", f2_orig, f2_cand),
+            ],
+            phase: Some(JournalPhase::Prepared),
+        },
+    )
+    .unwrap();
+
+    // Truthful listing: Prepared + all candidate is UNCOMMITTED, not "complete"!
+    let list = recovery::list(&workspace);
+    assert_eq!(list.entries.len(), 1);
+    assert_eq!(
+        list.entries[0].apparent_state, "uncommitted",
+        "Prepared journal with all candidates must be listed as uncommitted, never complete"
+    );
+    assert!(
+        list.entries[0].automatic_recovery_safe,
+        "Prepared journal is safe for rollback"
+    );
+
+    // Run recover_all: must roll back all candidates to original!
+    let report = recovery::recover_all(&workspace);
+    assert_eq!(report.completed, 0, "must not complete");
+    assert_eq!(report.restored, 2, "must restore all candidate members");
+    assert_eq!(
+        report.cleaned, 1,
+        "must clean up journal after complete rollback"
+    );
+
+    // Verify both files on disk were restored to original bytes!
+    assert_eq!(workspace.read_file("f1.txt").unwrap(), f1_orig);
+    assert_eq!(workspace.read_file("f2.txt").unwrap(), f2_orig);
+}
+
+#[test]
+fn atomic_commit_marker_transition_preserves_valid_journal_across_interruption() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let orig = b"key = 1\n";
+    let cand = b"key = 2\n";
+    workspace.write_file_atomic("file.txt", cand).unwrap();
+
+    let journal = Journal {
+        protocol_version: PROTOCOL_VERSION.into(),
+        transaction_id: "tx-atomic-transition".into(),
+        entries: vec![make_journal_entry("file.txt", orig, cand)],
+        phase: Some(JournalPhase::Prepared),
+    };
+    recovery::write_journal(&workspace, &journal).unwrap();
+
+    // Simulate an interruption / error right before transition commit
+    recovery::fault_injection::set_fail_commit_marker(true);
+    assert!(recovery::mark_journal_committed(&workspace, "tx-atomic-transition").is_err());
+    recovery::fault_injection::reset();
+
+    // Critical check for Blocker 2:
+    // The journal on disk MUST NOT have been truncated or destroyed!
+    // It must remain a valid, parseable Prepared journal!
+    let journal_on_disk = recovery::inspect(&workspace, "tx-atomic-transition");
+    assert_eq!(
+        journal_on_disk.journal_validity, "valid",
+        "journal must remain completely valid and non-empty after failed transition"
+    );
+
+    // Now complete the transition successfully using AtomicWriteFile
+    let res = recovery::mark_journal_committed(&workspace, "tx-atomic-transition");
+    assert!(
+        res.is_ok(),
+        "mark_journal_committed failed with {:?}",
+        res.err()
+    );
+
+    let updated_inspect = recovery::inspect(&workspace, "tx-atomic-transition");
+    assert_eq!(updated_inspect.journal_validity, "valid");
+    let listed = recovery::list(&workspace);
+    assert_eq!(listed.entries[0].apparent_state, "complete");
+}
