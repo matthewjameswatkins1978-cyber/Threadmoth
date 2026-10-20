@@ -220,15 +220,18 @@ fn direct_and_prepared_transactions_reconcile_rollback_and_error_handling() {
     let f1_orig = b"file1\n";
     let f2_orig = b"file2\n";
     fs::write(temp.path().join("f1.txt"), f1_orig).unwrap();
-    fs::write(temp.path().join("f2.txt"), f2_orig).unwrap();
+    let sub_dir = temp.path().join("sub");
+    fs::create_dir(&sub_dir).unwrap();
+    let f2_path = sub_dir.join("f2.txt");
+    fs::write(&f2_path, f2_orig).unwrap();
 
-    // Create a transaction where f2 will fail post-commit verification by assertion
+    // Create a transaction where f2 will fail during commit
     let tx = TransactionRequest {
         version: PROTOCOL_VERSION.into(),
         transaction_id: "tx-reconciliation".into(),
         requests: vec![
             text_request("f1.txt", "file1", "new1"),
-            text_request("f2.txt", "file2", "new2"),
+            text_request("sub/f2.txt", "file2", "new2"),
         ],
         budget: Default::default(),
     };
@@ -236,22 +239,36 @@ fn direct_and_prepared_transactions_reconcile_rollback_and_error_handling() {
     // Prepare plan with no extra assertions
     let plan = prepare_transaction_plan(&workspace, &tx, vec![]).unwrap();
 
-    // Make f2.txt read-only so write_file_atomic_checked fails on f2 after f1 is committed
-    let mut perms = fs::metadata(temp.path().join("f2.txt"))
-        .unwrap()
-        .permissions();
-    perms.set_readonly(true);
-    fs::set_permissions(temp.path().join("f2.txt"), perms).unwrap();
+    // Make destination unwritable so write_file_atomic_checked fails on f2 after f1 is committed:
+    // - On Windows: read-only file fails ensure_windows_replaceable
+    // - On Unix: read-only directory (0o555) prevents AtomicWriteFile temp file creation
+    #[cfg(windows)]
+    {
+        let mut perms = fs::metadata(&f2_path).unwrap().permissions();
+        perms.set_readonly(true);
+        fs::set_permissions(&f2_path, perms).unwrap();
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&sub_dir, fs::Permissions::from_mode(0o555)).unwrap();
+    }
 
     // Apply the plan
     let result = apply_prepared_plan(&workspace, &plan);
 
     // Clean up permissions early so tempdir cleanup is reliable
-    let mut reset_perms = fs::metadata(temp.path().join("f2.txt"))
-        .unwrap()
-        .permissions();
-    reset_perms.set_readonly(false);
-    let _ = fs::set_permissions(temp.path().join("f2.txt"), reset_perms);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&sub_dir, fs::Permissions::from_mode(0o755));
+    }
+    #[cfg(windows)]
+    {
+        let mut reset_perms = fs::metadata(&f2_path).unwrap().permissions();
+        reset_perms.set_readonly(false);
+        let _ = fs::set_permissions(&f2_path, reset_perms);
+    }
 
     match result {
         PlanApplyResult::Transaction(cert) => {
