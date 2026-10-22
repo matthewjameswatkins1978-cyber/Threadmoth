@@ -9,6 +9,15 @@ use threadmoth::toolbelt::structural::{
 };
 use threadmoth::workspace::Workspace;
 
+fn require_ast_grep() -> bool {
+    if threadmoth::toolbelt::structural::detect_ast_grep().is_none() {
+        eprintln!("skipping test because ast-grep is not installed on PATH");
+        false
+    } else {
+        true
+    }
+}
+
 #[test]
 fn structural_capability_is_discoverable_and_reports_engine() {
     let temp = TempDir::new().unwrap();
@@ -17,22 +26,28 @@ fn structural_capability_is_discoverable_and_reports_engine() {
     let info = discover(&workspace);
     assert_eq!(info.name, "structural");
     assert_eq!(info.engine, "ast-grep");
-    assert!(info.available, "ast-grep should be detected on PATH");
-    assert!(info.version.is_some(), "version should be reported");
-    assert!(
-        info.supported_languages.contains(&"python".to_string()),
-        "python should be supported"
-    );
-    assert!(
-        info.supported_languages.contains(&"rust".to_string()),
-        "rust should be supported"
-    );
+    if info.available {
+        assert!(info.version.is_some(), "version should be reported");
+        assert!(
+            info.supported_languages.contains(&"python".to_string()),
+            "python should be supported"
+        );
+        assert!(
+            info.supported_languages.contains(&"rust".to_string()),
+            "rust should be supported"
+        );
+    } else {
+        assert!(info.version.is_none());
+    }
 
     // Orientation view check
     let orient = threadmoth::metadata::orientation(temp.path().to_str().unwrap());
-    assert!(orient["toolbelt"]["structural"]["available"]
-        .as_bool()
-        .unwrap());
+    assert_eq!(
+        orient["toolbelt"]["structural"]["available"]
+            .as_bool()
+            .unwrap(),
+        info.available
+    );
     assert_eq!(orient["toolbelt"]["structural"]["engine"], "ast-grep");
 
     // Capability view check
@@ -41,7 +56,27 @@ fn structural_capability_is_discoverable_and_reports_engine() {
 }
 
 #[test]
+fn missing_ast_grep_reports_engine_unavailable_when_absent() {
+    if threadmoth::toolbelt::structural::detect_ast_grep().is_none() {
+        let temp = TempDir::new().unwrap();
+        let workspace = Workspace::new(temp.path()).unwrap();
+        let req = StructuralRequest {
+            pattern: "x".into(),
+            rewrite: "y".into(),
+            lang: Some("python".into()),
+            paths: vec![],
+            max_files: None,
+        };
+        let err = execute_structural(&workspace, &req, None, false).unwrap_err();
+        assert!(matches!(err, StructuralError::AstGrepNotFound));
+    }
+}
+
+#[test]
 fn single_file_structural_transformation_locates_and_rewrites_pattern() {
+    if !require_ast_grep() {
+        return;
+    }
     let temp = TempDir::new().unwrap();
     let workspace = Workspace::new(temp.path()).unwrap();
 
@@ -76,6 +111,9 @@ fn single_file_structural_transformation_locates_and_rewrites_pattern() {
 
 #[test]
 fn repeated_matches_across_multiple_files_transformed_atomically() {
+    if !require_ast_grep() {
+        return;
+    }
     let temp = TempDir::new().unwrap();
     let workspace = Workspace::new(temp.path()).unwrap();
 
@@ -116,6 +154,9 @@ fn repeated_matches_across_multiple_files_transformed_atomically() {
 
 #[test]
 fn structural_preview_does_not_modify_disk() {
+    if !require_ast_grep() {
+        return;
+    }
     let temp = TempDir::new().unwrap();
     let workspace = Workspace::new(temp.path()).unwrap();
 
@@ -145,6 +186,9 @@ fn structural_preview_does_not_modify_disk() {
 
 #[test]
 fn structural_plan_can_be_prepared_and_applied_separately() {
+    if !require_ast_grep() {
+        return;
+    }
     let temp = TempDir::new().unwrap();
     let workspace = Workspace::new(temp.path()).unwrap();
 
@@ -192,6 +236,9 @@ fn structural_plan_can_be_prepared_and_applied_separately() {
 
 #[test]
 fn structural_no_change_is_reported_cleanly() {
+    if !require_ast_grep() {
+        return;
+    }
     let temp = TempDir::new().unwrap();
     let workspace = Workspace::new(temp.path()).unwrap();
 
@@ -219,6 +266,9 @@ fn structural_no_change_is_reported_cleanly() {
 
 #[test]
 fn workspace_escape_attempt_is_refused() {
+    if !require_ast_grep() {
+        return;
+    }
     let temp = TempDir::new().unwrap();
     let workspace = Workspace::new(temp.path()).unwrap();
 
@@ -241,6 +291,9 @@ fn workspace_escape_attempt_is_refused() {
 
 #[test]
 fn multibyte_utf8_offsets_handled_safely_and_byte_boundaries_respected() {
+    if !require_ast_grep() {
+        return;
+    }
     let temp = TempDir::new().unwrap();
     let workspace = Workspace::new(temp.path()).unwrap();
 
@@ -274,6 +327,9 @@ fn multibyte_utf8_offsets_handled_safely_and_byte_boundaries_respected() {
 
 #[test]
 fn crlf_line_endings_preserved_exactly() {
+    if !require_ast_grep() {
+        return;
+    }
     let temp = TempDir::new().unwrap();
     let workspace = Workspace::new(temp.path()).unwrap();
 
@@ -366,6 +422,9 @@ fn unsupported_language_is_refused() {
 
 #[test]
 fn plan_output_traversal_and_collision_refused() {
+    if !require_ast_grep() {
+        return;
+    }
     let temp = TempDir::new().unwrap();
     let workspace = Workspace::new(temp.path()).unwrap();
 
@@ -468,7 +527,11 @@ fn unaligned_utf8_byte_offsets_fail_closed() {
 }
 
 #[test]
+#[cfg(feature = "test-fault-injection")]
 fn concurrent_change_to_unrelated_bytes_while_ast_grep_is_scanning_is_detected_and_refused() {
+    if !require_ast_grep() {
+        return;
+    }
     let temp = TempDir::new().unwrap();
     let workspace = Workspace::new(temp.path()).unwrap();
 
@@ -507,6 +570,9 @@ fn concurrent_change_to_unrelated_bytes_while_ast_grep_is_scanning_is_detected_a
 
 #[test]
 fn target_paths_with_command_option_prefixes_do_not_alter_ast_grep_behavior() {
+    if !require_ast_grep() {
+        return;
+    }
     let temp = TempDir::new().unwrap();
     let workspace = Workspace::new(temp.path()).unwrap();
 
