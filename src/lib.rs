@@ -19,6 +19,7 @@ pub mod scope;
 pub mod shorthand;
 pub mod source_prepare;
 pub mod target_registry;
+pub mod toolbelt;
 pub mod torture;
 pub mod updater;
 pub mod workspace;
