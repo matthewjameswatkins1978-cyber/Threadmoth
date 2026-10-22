@@ -941,3 +941,81 @@ fn crash_recovery_cleans_prepared_journal_when_files_were_already_rolled_back() 
     assert_eq!(workspace.read_file("steady.txt").unwrap(), orig);
     assert!(!temp.path().join(".threadmoth-recovery").exists());
 }
+
+#[test]
+fn partial_rollback_on_unproven_commit_preserves_journal_evidence_when_deletion_is_permitted() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let f1_orig = b"file 1 original bytes\n";
+    let f1_cand = b"file 1 candidate bytes\n";
+    let f2_orig = b"file 2 original bytes\n";
+    let f2_cand = b"file 2 candidate bytes\n";
+
+    fs::write(temp.path().join("f1.txt"), f1_orig).unwrap();
+    fs::write(temp.path().join("f2.txt"), f2_orig).unwrap();
+
+    let e1 = make_journal_entry("f1.txt", f1_orig, f1_cand);
+    let e2 = make_journal_entry("f2.txt", f2_orig, f2_cand);
+
+    // Write initial candidate files as if commit step wrote them
+    workspace.write_file_atomic("f1.txt", f1_cand).unwrap();
+    workspace.write_file_atomic("f2.txt", f2_cand).unwrap();
+
+    // Write the journal with phase Prepared (in-flight before commit decision)
+    recovery::write_journal(
+        &workspace,
+        &Journal {
+            protocol_version: PROTOCOL_VERSION.into(),
+            transaction_id: "tx-partial-rollback-preserve-journal".into(),
+            entries: vec![e1.clone(), e2.clone()],
+            phase: Some(JournalPhase::Prepared),
+        },
+    )
+    .unwrap();
+
+    // Corrupt f1.txt so that write_file_atomic_checked fails during rollback of f1
+    fs::write(temp.path().join("f1.txt"), b"corrupted content on disk").unwrap();
+
+    // Inject commit-marker failure.
+    // NOTE: remove_journal failure is NOT injected (journal deletion is permitted / would succeed).
+    recovery::fault_injection::set_fail_commit_marker(true);
+
+    let committed = vec![&e1, &e2];
+    let res = commit_and_cleanup_journal(
+        &workspace,
+        "tx-partial-rollback-preserve-journal",
+        &committed,
+    );
+    recovery::fault_injection::reset();
+
+    assert!(res.is_err(), "must report failure when commit marker fails");
+    let (rollback, msg) = res.unwrap_err();
+
+    // Invariants:
+    // 1. Rollback must be reported as partial and require manual recovery
+    assert!(rollback.is_partial(), "rollback must be partial");
+    assert_eq!(rollback.restored, 1);
+    assert_eq!(rollback.failed, vec!["f1.txt".to_string()]);
+    assert_eq!(rollback.rollback_state(), "manual_recovery_required");
+    assert!(msg.contains("journal retained for manual recovery"));
+
+    // 2. f2 must have been safely rolled back to original
+    assert_eq!(workspace.read_file("f2.txt").unwrap(), f2_orig);
+
+    // 3. THE JOURNAL MUST BE RETAINED ON DISK! It must NOT have been deleted!
+    let journal_list = recovery::list(&workspace);
+    assert_eq!(
+        journal_list.entries.len(),
+        1,
+        "journal must remain on disk to preserve recovery evidence"
+    );
+    assert_eq!(
+        journal_list.entries[0].transaction_id,
+        "tx-partial-rollback-preserve-journal"
+    );
+    let rec_dir = temp.path().join(".threadmoth-recovery");
+    assert!(rec_dir
+        .join("tx-partial-rollback-preserve-journal.json")
+        .exists());
+}

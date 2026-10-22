@@ -1431,20 +1431,33 @@ pub fn commit_and_cleanup_journal(
         // Threadmoth MUST NOT acknowledge this transaction as Applied even if journal removal succeeds.
         // Roll back all committed files to original, attempt best-effort journal removal,
         // and return an error with the rollback report.
+        // Attempt exhaustive reverse-order rollback of all committed files.
         let rollback = rollback_entries(workspace, committed);
-        let cleanup_result = recovery::remove_journal(workspace, transaction_id);
         let mark_err = mark_result
             .err()
             .map(|e| e.to_string())
             .unwrap_or_else(|| format!("journal phase is {:?}", disk_phase.ok().flatten()));
-        let clean_err = cleanup_result
-            .err()
-            .map(|e| format!("; cleanup error: {e}"))
-            .unwrap_or_default();
-        let msg = format!(
-            "commit decision failed: could not record committed state ({mark_err}){clean_err}"
-        );
-        Err((rollback, msg))
+
+        if rollback.is_all_ok() {
+            // All committed files were verified restored to original.
+            // Journal cleanup is safe and permitted.
+            let cleanup_result = recovery::remove_journal(workspace, transaction_id);
+            let clean_err = cleanup_result
+                .err()
+                .map(|e| format!("; cleanup error: {e}"))
+                .unwrap_or_default();
+            let msg = format!(
+                "commit decision failed: could not record committed state ({mark_err}){clean_err}"
+            );
+            Err((rollback, msg))
+        } else {
+            // Rollback was partial or failed: NEVER remove journal!
+            // The journal on disk contains critical original/candidate evidence required for manual recovery.
+            let msg = format!(
+                "commit decision failed: could not record committed state ({mark_err}); rollback incomplete, journal retained for manual recovery"
+            );
+            Err((rollback, msg))
+        }
     }
 }
 
