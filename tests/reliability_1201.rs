@@ -553,7 +553,7 @@ fn atomic_commit_marker_transition_preserves_valid_journal_across_interruption()
     };
     recovery::write_journal(&workspace, &journal).unwrap();
 
-    // Simulate an interruption / error right before transition commit
+    // Simulate an interruption / early error
     recovery::fault_injection::set_fail_commit_marker(true);
     assert!(recovery::mark_journal_committed(&workspace, "tx-atomic-transition").is_err());
     recovery::fault_injection::reset();
@@ -579,4 +579,160 @@ fn atomic_commit_marker_transition_preserves_valid_journal_across_interruption()
     assert_eq!(updated_inspect.journal_validity, "valid");
     let listed = recovery::list(&workspace);
     assert_eq!(listed.entries[0].apparent_state, "complete");
+}
+
+#[test]
+fn atomic_commit_marker_transition_handles_partial_staged_write_without_corrupting_journal() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let orig = b"data = initial\n";
+    let cand = b"data = updated\n";
+    workspace.write_file_atomic("state.txt", cand).unwrap();
+
+    let journal = Journal {
+        protocol_version: PROTOCOL_VERSION.into(),
+        transaction_id: "tx-partial-stage".into(),
+        entries: vec![make_journal_entry("state.txt", orig, cand)],
+        phase: Some(JournalPhase::Prepared),
+    };
+    recovery::write_journal(&workspace, &journal).unwrap();
+
+    // Inject partial staged write failure: simulation of crash/interruption while writing staging file
+    recovery::fault_injection::set_fail_stage_write(true);
+    let res = recovery::mark_journal_committed(&workspace, "tx-partial-stage");
+    assert!(res.is_err(), "must report stage write failure");
+    recovery::fault_injection::reset();
+
+    // The surviving journal at the main path MUST remain intact as a valid Prepared journal
+    let inspected = recovery::inspect(&workspace, "tx-partial-stage");
+    assert_eq!(inspected.journal_validity, "valid");
+    let phase = recovery::read_journal_phase(&workspace, "tx-partial-stage").unwrap();
+    assert_eq!(phase, Some(JournalPhase::Prepared));
+
+    // Recovery sees Prepared + Candidate -> safely rolls back rather than guessing
+    let report = recovery::recover_all(&workspace);
+    assert_eq!(report.completed, 0);
+    assert_eq!(report.restored, 1);
+    assert_eq!(report.cleaned, 1);
+    assert_eq!(workspace.read_file("state.txt").unwrap(), orig);
+}
+
+#[test]
+fn pre_rename_failure_preserves_prepared_journal_and_executes_rollback_on_double_failure() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let f1_orig = b"a1 original\n";
+    let f2_orig = b"a2 original\n";
+    fs::write(temp.path().join("f1.txt"), f1_orig).unwrap();
+    fs::write(temp.path().join("f2.txt"), f2_orig).unwrap();
+
+    let tx = TransactionRequest {
+        version: PROTOCOL_VERSION.into(),
+        transaction_id: "tx-pre-rename-fail".into(),
+        requests: vec![
+            text_request("f1.txt", "a1", "new-a1"),
+            text_request("f2.txt", "a2", "new-a2"),
+        ],
+        budget: Default::default(),
+    };
+
+    let plan = prepare_transaction_plan(&workspace, &tx, vec![]).unwrap();
+
+    // Inject failure before rename, and cleanup failure
+    recovery::fault_injection::set_fail_before_commit_rename(true);
+    recovery::fault_injection::set_fail_remove_journal(true);
+
+    let result = apply_prepared_plan(&workspace, &plan);
+    recovery::fault_injection::reset();
+
+    match result {
+        PlanApplyResult::Transaction(cert) => {
+            assert_eq!(cert.outcome, Outcome::Failed);
+            assert_eq!(cert.rollback_state, "rolled_back");
+            // Original contents must be restored
+            assert_eq!(fs::read(temp.path().join("f1.txt")).unwrap(), f1_orig);
+            assert_eq!(fs::read(temp.path().join("f2.txt")).unwrap(), f2_orig);
+        }
+        _ => panic!("expected transaction result"),
+    }
+
+    // Journal on disk must still be in Prepared phase
+    let phase = recovery::read_journal_phase(&workspace, "tx-pre-rename-fail").unwrap();
+    assert_eq!(phase, Some(JournalPhase::Prepared));
+
+    // Subsequent recovery will clean it up safely because files on disk match original
+    let rec = recovery::recover_all(&workspace);
+    assert_eq!(rec.completed, 0);
+    assert_eq!(rec.restored, 0);
+    assert_eq!(rec.cleaned, 1);
+}
+
+#[test]
+fn post_rename_fsync_error_treats_transaction_as_committed_and_never_rolls_back() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let f1_orig = b"f1 original\n";
+    let f1_cand = b"f1 candidate\n";
+    let f2_orig = b"f2 original\n";
+    let f2_cand = b"f2 candidate\n";
+    fs::write(temp.path().join("f1.txt"), f1_orig).unwrap();
+    fs::write(temp.path().join("f2.txt"), f2_orig).unwrap();
+
+    let tx = TransactionRequest {
+        version: PROTOCOL_VERSION.into(),
+        transaction_id: "tx-post-rename-fsync".into(),
+        requests: vec![
+            text_request("f1.txt", "f1 original", "f1 candidate"),
+            text_request("f2.txt", "f2 original", "f2 candidate"),
+        ],
+        budget: Default::default(),
+    };
+
+    // Inject post-rename fsync failure (rename succeeded, Committed is on disk, but syscall returns Err)
+    // AND cleanup failure (remove_journal fails)
+    recovery::fault_injection::set_fail_after_commit_rename(true);
+    recovery::fault_injection::set_fail_remove_journal(true);
+
+    let cert = threadmoth::pipeline::execute_transaction(&workspace, &tx, false);
+    recovery::fault_injection::reset();
+
+    // Critical invariant for Lucy's blocker:
+    // Even though mark_journal_committed returned Err, the journal on disk was atomically
+    // published as Committed! Threadmoth MUST NOT roll back candidate files!
+    assert_eq!(
+        cert.outcome,
+        Outcome::Applied,
+        "committed transaction must remain Applied despite post-rename fsync failure"
+    );
+    assert_eq!(cert.rollback_state, "recovery_available");
+
+    // Files on disk MUST retain candidate bytes!
+    assert_eq!(fs::read(temp.path().join("f1.txt")).unwrap(), f1_cand);
+    assert_eq!(fs::read(temp.path().join("f2.txt")).unwrap(), f2_cand);
+
+    // Journal on disk MUST be in Committed phase!
+    let phase = recovery::read_journal_phase(&workspace, "tx-post-rename-fsync").unwrap();
+    assert_eq!(phase, Some(JournalPhase::Committed));
+
+    // Recovery sees Committed + all candidate files -> completes without rollback and cleans journal!
+    let rec = recovery::recover_all(&workspace);
+    assert_eq!(
+        rec.completed, 1,
+        "recovery must complete the committed transaction"
+    );
+    assert_eq!(
+        rec.restored, 0,
+        "recovery must NOT reverse any candidate files"
+    );
+    assert_eq!(
+        rec.cleaned, 1,
+        "recovery must clean up the committed journal"
+    );
+
+    // Candidate files are still intact after recovery
+    assert_eq!(fs::read(temp.path().join("f1.txt")).unwrap(), f1_cand);
+    assert_eq!(fs::read(temp.path().join("f2.txt")).unwrap(), f2_cand);
 }

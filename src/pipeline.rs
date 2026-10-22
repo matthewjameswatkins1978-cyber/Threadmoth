@@ -1417,14 +1417,17 @@ pub fn commit_and_cleanup_journal(
     committed: &[&JournalEntry],
 ) -> Result<&'static str, (RollbackReport, String)> {
     let mark_result = recovery::mark_journal_committed(workspace, transaction_id);
-    if mark_result.is_ok() {
-        // Journal is committed on disk. Attempt removal.
+    let disk_phase = recovery::read_journal_phase(workspace, transaction_id);
+
+    if mark_result.is_ok() || matches!(disk_phase, Ok(Some(recovery::JournalPhase::Committed))) {
+        // Journal was successfully published to disk as Committed!
+        // We MUST NEVER roll back candidate files.
         match recovery::remove_journal(workspace, transaction_id) {
             Ok(()) => Ok("not_required"),
             Err(_) => Ok("recovery_available"),
         }
     } else {
-        // Commit marker failed!
+        // Commit marker failed AND on-disk journal is not Committed (remains Prepared or unreadable).
         // Attempt removal so that an uncommitted/prepared journal is not left behind.
         let cleanup_result = recovery::remove_journal(workspace, transaction_id);
         if cleanup_result.is_ok() {

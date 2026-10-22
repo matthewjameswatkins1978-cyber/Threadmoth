@@ -11,12 +11,16 @@ use std::fmt;
 use std::fs;
 use std::io::{self, Write};
 
+#[cfg(feature = "test-fault-injection")]
 #[doc(hidden)]
 pub mod fault_injection {
     use std::cell::Cell;
 
     thread_local! {
         static FAIL_COMMIT_MARKER: Cell<bool> = const { Cell::new(false) };
+        static FAIL_STAGE_WRITE: Cell<bool> = const { Cell::new(false) };
+        static FAIL_BEFORE_COMMIT_RENAME: Cell<bool> = const { Cell::new(false) };
+        static FAIL_AFTER_COMMIT_RENAME: Cell<bool> = const { Cell::new(false) };
         static FAIL_REMOVE_JOURNAL: Cell<bool> = const { Cell::new(false) };
     }
 
@@ -27,6 +31,33 @@ pub mod fault_injection {
     pub fn fail_commit_marker() -> bool {
         FAIL_COMMIT_MARKER.with(|c| c.get())
             || std::env::var_os("THREADMOTH_FAULT_COMMIT_MARKER").is_some()
+    }
+
+    pub fn set_fail_stage_write(fail: bool) {
+        FAIL_STAGE_WRITE.with(|c| c.set(fail));
+    }
+
+    pub fn fail_stage_write() -> bool {
+        FAIL_STAGE_WRITE.with(|c| c.get())
+            || std::env::var_os("THREADMOTH_FAULT_STAGE_WRITE").is_some()
+    }
+
+    pub fn set_fail_before_commit_rename(fail: bool) {
+        FAIL_BEFORE_COMMIT_RENAME.with(|c| c.set(fail));
+    }
+
+    pub fn fail_before_commit_rename() -> bool {
+        FAIL_BEFORE_COMMIT_RENAME.with(|c| c.get())
+            || std::env::var_os("THREADMOTH_FAULT_BEFORE_RENAME").is_some()
+    }
+
+    pub fn set_fail_after_commit_rename(fail: bool) {
+        FAIL_AFTER_COMMIT_RENAME.with(|c| c.set(fail));
+    }
+
+    pub fn fail_after_commit_rename() -> bool {
+        FAIL_AFTER_COMMIT_RENAME.with(|c| c.get())
+            || std::env::var_os("THREADMOTH_FAULT_AFTER_RENAME").is_some()
     }
 
     pub fn set_fail_remove_journal(fail: bool) {
@@ -40,6 +71,9 @@ pub mod fault_injection {
 
     pub fn reset() {
         FAIL_COMMIT_MARKER.with(|c| c.set(false));
+        FAIL_STAGE_WRITE.with(|c| c.set(false));
+        FAIL_BEFORE_COMMIT_RENAME.with(|c| c.set(false));
+        FAIL_AFTER_COMMIT_RENAME.with(|c| c.set(false));
         FAIL_REMOVE_JOURNAL.with(|c| c.set(false));
     }
 }
@@ -113,10 +147,28 @@ pub fn write_journal(workspace: &Workspace, journal: &Journal) -> Result<(), Wor
     Ok(())
 }
 
+pub fn read_journal_phase(
+    workspace: &Workspace,
+    transaction_id: &str,
+) -> Result<Option<JournalPhase>, WorkspaceError> {
+    let filename = format!("{}.json", safe_id(transaction_id));
+    for dir in recovery_dirs(workspace) {
+        let path = dir.join(&filename);
+        if path.exists() {
+            let bytes = fs::read(&path)?;
+            let journal: Journal = serde_json::from_slice(&bytes)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            return Ok(journal.phase);
+        }
+    }
+    Ok(None)
+}
+
 pub fn mark_journal_committed(
     workspace: &Workspace,
     transaction_id: &str,
 ) -> Result<(), WorkspaceError> {
+    #[cfg(feature = "test-fault-injection")]
     if fault_injection::fail_commit_marker() {
         return Err(WorkspaceError::Io(io::Error::other(
             "fault injected: mark_journal_committed failure",
@@ -132,13 +184,38 @@ pub fn mark_journal_committed(
             journal.phase = Some(JournalPhase::Committed);
             let updated_bytes = serialize_journal(&journal)?;
 
+            #[cfg(feature = "test-fault-injection")]
+            if fault_injection::fail_stage_write() {
+                let tmp_path = dir.join(format!("{}.stage.tmp", safe_id(transaction_id)));
+                let _ = fs::write(&tmp_path, &updated_bytes[..updated_bytes.len().min(16)]);
+                return Err(WorkspaceError::Io(io::Error::other(
+                    "fault injected: partial stage write failure",
+                )));
+            }
+
             // Staged atomic replacement: write to a temporary file in the same directory,
             // then atomically rename over the original path.
             // This guarantees the original journal is never truncated or destroyed if interrupted.
             let mut file = AtomicWriteFile::open(&path)?;
             std::io::Write::write_all(&mut file, &updated_bytes)?;
             file.flush()?;
+
+            #[cfg(feature = "test-fault-injection")]
+            if fault_injection::fail_before_commit_rename() {
+                return Err(WorkspaceError::Io(io::Error::other(
+                    "fault injected: failure before commit rename",
+                )));
+            }
+
             file.commit()?;
+
+            #[cfg(feature = "test-fault-injection")]
+            if fault_injection::fail_after_commit_rename() {
+                return Err(WorkspaceError::Io(io::Error::other(
+                    "fault injected: post-rename fsync failure",
+                )));
+            }
+
             return Ok(());
         }
     }
@@ -148,6 +225,7 @@ pub fn mark_journal_committed(
 }
 
 pub fn remove_journal(workspace: &Workspace, transaction_id: &str) -> Result<(), WorkspaceError> {
+    #[cfg(feature = "test-fault-injection")]
     if fault_injection::fail_remove_journal() {
         return Err(WorkspaceError::Io(io::Error::other(
             "fault injected: remove_journal failure",
