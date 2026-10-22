@@ -1427,25 +1427,34 @@ pub fn commit_and_cleanup_journal(
             Err(_) => Ok("recovery_available"),
         }
     } else {
-        // Commit marker failed AND on-disk journal is not Committed (remains Prepared or unreadable).
-        // Attempt removal so that an uncommitted/prepared journal is not left behind.
-        let cleanup_result = recovery::remove_journal(workspace, transaction_id);
-        if cleanup_result.is_ok() {
-            // Journal removed completely; no Prepared journal remains on disk.
-            Ok("not_required")
-        } else {
-            // DOUBLE FAILURE: Failed to mark committed AND failed to remove journal.
-            // On disk, the journal is still Prepared!
-            // Threadmoth MUST NOT acknowledge this transaction as Applied.
-            // Roll back all committed files to original so on-disk state matches reality.
-            let rollback = rollback_entries(workspace, committed);
-            let mark_err = mark_result.err().map(|e| e.to_string()).unwrap_or_default();
+        // Commit decision was NOT established on disk (mark failed and disk phase is not Committed).
+        // Threadmoth MUST NOT acknowledge this transaction as Applied even if journal removal succeeds.
+        // Roll back all committed files to original, attempt best-effort journal removal,
+        // and return an error with the rollback report.
+        // Attempt exhaustive reverse-order rollback of all committed files.
+        let rollback = rollback_entries(workspace, committed);
+        let mark_err = mark_result
+            .err()
+            .map(|e| e.to_string())
+            .unwrap_or_else(|| format!("journal phase is {:?}", disk_phase.ok().flatten()));
+
+        if rollback.is_all_ok() {
+            // All committed files were verified restored to original.
+            // Journal cleanup is safe and permitted.
+            let cleanup_result = recovery::remove_journal(workspace, transaction_id);
             let clean_err = cleanup_result
                 .err()
-                .map(|e| e.to_string())
+                .map(|e| format!("; cleanup error: {e}"))
                 .unwrap_or_default();
             let msg = format!(
-                "commit decision failed: could not record committed state ({mark_err}) and could not remove journal ({clean_err})"
+                "commit decision failed: could not record committed state ({mark_err}){clean_err}"
+            );
+            Err((rollback, msg))
+        } else {
+            // Rollback was partial or failed: NEVER remove journal!
+            // The journal on disk contains critical original/candidate evidence required for manual recovery.
+            let msg = format!(
+                "commit decision failed: could not record committed state ({mark_err}); rollback incomplete, journal retained for manual recovery"
             );
             Err((rollback, msg))
         }
