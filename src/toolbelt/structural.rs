@@ -51,6 +51,27 @@ pub const MAX_STDERR_BYTES: usize = 1024 * 1024; // 1 MB
 pub const MAX_TOTAL_MATCHES: usize = 5000;
 pub const MAX_FILES_AFFECTED: usize = 256;
 
+#[cfg(feature = "test-fault-injection")]
+pub mod fault_injection {
+    use std::sync::Mutex;
+
+    static SPAWN_HOOK: Mutex<Option<Box<dyn Fn() + Send + 'static>>> = Mutex::new(None);
+
+    pub fn set_on_subprocess_spawned<F: Fn() + Send + 'static>(f: F) {
+        *SPAWN_HOOK.lock().unwrap() = Some(Box::new(f));
+    }
+
+    pub fn clear_on_subprocess_spawned() {
+        *SPAWN_HOOK.lock().unwrap() = None;
+    }
+
+    pub fn run_spawn_hook() {
+        if let Some(hook) = SPAWN_HOOK.lock().unwrap().as_ref() {
+            hook();
+        }
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum StructuralError {
     #[error("ast-grep executable not found on PATH. Install via 'cargo install ast-grep --locked' or 'npm install -g @ast-grep/cli'")]
@@ -106,8 +127,17 @@ pub enum StructuralError {
     #[error("ast-grep execution timed out after {0} seconds")]
     SubprocessTimeout(u64),
 
-    #[error("ast-grep output limit exceeded ({0} bytes)")]
-    OutputLimitExceeded(usize),
+    #[error("ast-grep output limit exceeded for {stream} ({limit} bytes)")]
+    OutputLimitExceeded { stream: &'static str, limit: usize },
+
+    #[error("ast-grep produced non-utf8 {stream} at byte {valid_up_to}")]
+    NonUtf8Output {
+        stream: &'static str,
+        valid_up_to: usize,
+    },
+
+    #[error("concurrent modification detected for {file}: {message}")]
+    ConcurrentModification { file: String, message: String },
 
     #[error("limit exceeded for {dimension}: limit is {limit}, observed {actual}")]
     LimitExceeded {
@@ -294,6 +324,18 @@ pub fn discover(_workspace: &Workspace) -> AttachmentInfo {
     }
 }
 
+fn normalize_relative_path_string(rel: &str) -> String {
+    let mut p = rel.replace('\\', "/");
+    while let Some(rest) = p.strip_prefix("./") {
+        p = rest.to_string();
+    }
+    if p.is_empty() {
+        ".".to_string()
+    } else {
+        p
+    }
+}
+
 /// Validate and canonicalise a target path requested by the agent before invoking ast-grep.
 pub fn validate_and_canonicalize_target_path(
     workspace: &Workspace,
@@ -302,6 +344,17 @@ pub fn validate_and_canonicalize_target_path(
     if target.is_empty() || target == "." {
         return Ok(".".to_string());
     }
+
+    // Reject raw flag injection directly
+    if target.starts_with("--") && !target.contains('/') && !target.contains('\\') {
+        let trimmed = target.trim_start_matches('-');
+        if trimmed.is_empty() {
+            return Err(StructuralError::SecurityViolation(
+                "invalid bare option separator in paths".into(),
+            ));
+        }
+    }
+
     let rel = workspace
         .resolve_namespaced_path(target, &Default::default())
         .map_err(|e| match e {
@@ -324,7 +377,7 @@ pub fn validate_and_canonicalize_target_path(
                 error: other,
             },
         })?;
-    Ok(rel)
+    Ok(normalize_relative_path_string(&rel))
 }
 
 /// Validate returned file paths from ast-grep against workspace boundaries.
@@ -351,7 +404,88 @@ pub fn validate_returned_file_path(
                 error: other,
             },
         })?;
-    Ok(rel)
+    Ok(normalize_relative_path_string(&rel))
+}
+
+/// Collect pre-scan source hashes across target paths to detect concurrent modifications during scanning.
+pub fn collect_pre_scan_hashes(
+    workspace: &Workspace,
+    paths: &[String],
+    lang: Option<&str>,
+) -> Result<BTreeMap<String, String>, StructuralError> {
+    let mut hashes = BTreeMap::new();
+    for target in paths {
+        let canonical = validate_and_canonicalize_target_path(workspace, target)?;
+        let resolved = if canonical == "." {
+            workspace.root().to_path_buf()
+        } else {
+            workspace.root().join(&canonical)
+        };
+
+        if resolved.is_file() {
+            let bytes =
+                workspace
+                    .read_file(&canonical)
+                    .map_err(|e| StructuralError::SourceRead {
+                        file: canonical.clone(),
+                        error: e,
+                    })?;
+            hashes.insert(canonical, compute_sha256(&bytes));
+        } else if resolved.is_dir() {
+            collect_dir_hashes(workspace, &resolved, lang, &mut hashes)?;
+        }
+    }
+    Ok(hashes)
+}
+
+fn collect_dir_hashes(
+    workspace: &Workspace,
+    dir: &Path,
+    lang: Option<&str>,
+    hashes: &mut BTreeMap<String, String>,
+) -> Result<(), StructuralError> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return Ok(()),
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let file_name = entry.file_name();
+        let name_str = file_name.to_string_lossy();
+
+        if path.is_dir() {
+            if name_str.starts_with('.') || name_str == "target" || name_str == "node_modules" {
+                continue;
+            }
+            collect_dir_hashes(workspace, &path, lang, hashes)?;
+            continue;
+        }
+
+        if !path.is_file() {
+            continue;
+        }
+
+        let file_lang = infer_language_from_path(&path);
+        let matches_lang = match (lang, file_lang) {
+            (Some(l), Some(fl)) => l == fl,
+            (Some(_), None) => false,
+            (None, Some(_)) => true,
+            (None, None) => false,
+        };
+
+        if !matches_lang {
+            continue;
+        }
+
+        if let Ok(rel) = path.strip_prefix(workspace.root()) {
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+            if let Ok(bytes) = workspace.read_file(&rel_str) {
+                hashes.insert(rel_str, compute_sha256(&bytes));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Run a subprocess with execution timeout and strict stdout/stderr output caps.
@@ -366,6 +500,9 @@ fn run_subprocess_bounded(
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(StructuralError::Execution)?;
+
+    #[cfg(feature = "test-fault-injection")]
+    fault_injection::run_spawn_hook();
 
     let mut stdout = child.stdout.take().expect("stdout piped");
     let mut stderr = child.stderr.take().expect("stderr piped");
@@ -396,18 +533,21 @@ fn run_subprocess_bounded(
     let h_err = std::thread::spawn(move || {
         let mut buf = Vec::new();
         let mut chunk = [0u8; 8192];
+        let mut exceeded = false;
         loop {
             match stderr.read(&mut chunk) {
                 Ok(0) => break,
                 Ok(n) => {
-                    if buf.len() + n <= max_stderr {
-                        buf.extend_from_slice(&chunk[..n]);
+                    if buf.len() + n > max_stderr {
+                        exceeded = true;
+                        break;
                     }
+                    buf.extend_from_slice(&chunk[..n]);
                 }
                 Err(_) => break,
             }
         }
-        let _ = tx_err.send(buf);
+        let _ = tx_err.send((buf, exceeded));
     });
 
     let start = std::time::Instant::now();
@@ -436,13 +576,23 @@ fn run_subprocess_bounded(
         }
     };
 
-    let (out_bytes, exceeded) = rx_out.recv().unwrap_or_default();
-    let err_bytes = rx_err.recv().unwrap_or_default();
+    let (out_bytes, out_exceeded) = rx_out.recv().unwrap_or_default();
+    let (err_bytes, err_exceeded) = rx_err.recv().unwrap_or_default();
     let _ = h_out.join();
     let _ = h_err.join();
 
-    if exceeded {
-        return Err(StructuralError::OutputLimitExceeded(max_stdout));
+    if out_exceeded {
+        return Err(StructuralError::OutputLimitExceeded {
+            stream: "stdout",
+            limit: max_stdout,
+        });
+    }
+
+    if err_exceeded {
+        return Err(StructuralError::OutputLimitExceeded {
+            stream: "stderr",
+            limit: max_stderr,
+        });
     }
 
     Ok(std::process::Output {
@@ -456,6 +606,7 @@ fn run_subprocess_bounded(
 pub fn parse_ast_grep_output(
     workspace: &Workspace,
     stdout: &str,
+    pre_scan_hashes: Option<&BTreeMap<String, String>>,
 ) -> Result<BTreeMap<String, FileProposalGroup>, StructuralError> {
     let mut raw_by_file: BTreeMap<String, Vec<MatchProposal>> = BTreeMap::new();
     let mut total_matches = 0;
@@ -535,7 +686,29 @@ pub fn parse_ast_grep_output(
                 error: e,
             })?;
 
-        let observed_hash = compute_sha256(&original);
+        let post_hash = compute_sha256(&original);
+
+        // Snapshot validation: verify file hasn't been created or modified concurrently during the scan
+        if let Some(pre_map) = pre_scan_hashes {
+            match pre_map.get(&file) {
+                Some(pre_hash) => {
+                    if *pre_hash != post_hash {
+                        return Err(StructuralError::ConcurrentModification {
+                            file: file.clone(),
+                            message: format!(
+                                "file was modified concurrently during ast-grep scan (pre-scan: {pre_hash}, post-scan: {post_hash})"
+                            ),
+                        });
+                    }
+                }
+                None => {
+                    return Err(StructuralError::ConcurrentModification {
+                        file: file.clone(),
+                        message: "file was created concurrently during ast-grep scan".to_string(),
+                    });
+                }
+            }
+        }
 
         // Sort by start offset
         matches.sort_by_key(|m| m.start);
@@ -604,7 +777,7 @@ pub fn parse_ast_grep_output(
         validated_by_file.insert(
             file,
             FileProposalGroup {
-                observed_hash,
+                observed_hash: post_hash,
                 matches,
             },
         );
@@ -655,9 +828,20 @@ fn collect_proposals(
         request.paths.clone()
     };
 
+    // Pre-scan source hashing to close any gap between ast-grep's observation and Threadmoth's capture
+    let pre_scan_hashes = collect_pre_scan_hashes(workspace, &paths, request.lang.as_deref())?;
+
+    // Option-argument boundary separator: ensure target paths cannot be parsed as flags
+    cmd.arg("--");
+
     for target in &paths {
         let canonical_target = validate_and_canonicalize_target_path(workspace, target)?;
-        cmd.arg(&canonical_target);
+        let safe_target = if canonical_target.starts_with('-') {
+            format!("./{canonical_target}")
+        } else {
+            canonical_target
+        };
+        cmd.arg(&safe_target);
     }
 
     // 4. Execute with bounded timeout and size caps
@@ -676,8 +860,14 @@ fn collect_proposals(
         });
     }
 
-    let stdout_str = String::from_utf8_lossy(&output.stdout);
-    parse_ast_grep_output(workspace, &stdout_str)
+    // Strict UTF-8 decoding for structured stdout
+    let stdout_str =
+        String::from_utf8(output.stdout).map_err(|e| StructuralError::NonUtf8Output {
+            stream: "stdout",
+            valid_up_to: e.utf8_error().valid_up_to(),
+        })?;
+
+    parse_ast_grep_output(workspace, &stdout_str, Some(&pre_scan_hashes))
 }
 
 /// Build a Threadmoth TransactionRequest from validated match proposals.

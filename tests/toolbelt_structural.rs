@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use tempfile::TempDir;
@@ -323,7 +324,7 @@ fn stale_source_drift_detected_and_refused() {
     });
 
     let stdout = format!("{}\n", record_json);
-    let proposals = parse_ast_grep_output(&workspace, &stdout).unwrap();
+    let proposals = parse_ast_grep_output(&workspace, &stdout, None).unwrap();
     assert_eq!(proposals.len(), 1);
 
     // Now intervene: modify file on disk before building transaction
@@ -404,7 +405,7 @@ fn malformed_ast_grep_json_fails_closed() {
     let workspace = Workspace::new(temp.path()).unwrap();
 
     let malformed_stdout = "{ this is not valid json\n";
-    let res = parse_ast_grep_output(&workspace, malformed_stdout);
+    let res = parse_ast_grep_output(&workspace, malformed_stdout, None);
     assert!(res.is_err(), "must fail closed on malformed json record");
     assert!(matches!(
         res.err().unwrap(),
@@ -429,7 +430,7 @@ fn missing_replacement_fails_closed() {
     });
 
     let stdout = format!("{}\n", record_no_replacement);
-    let res = parse_ast_grep_output(&workspace, &stdout);
+    let res = parse_ast_grep_output(&workspace, &stdout, None);
     assert!(res.is_err(), "must fail closed when replacement is missing");
     assert!(matches!(
         res.err().unwrap(),
@@ -455,7 +456,7 @@ fn unaligned_utf8_byte_offsets_fail_closed() {
     });
 
     let stdout = format!("{}\n", record);
-    let res = parse_ast_grep_output(&workspace, &stdout);
+    let res = parse_ast_grep_output(&workspace, &stdout, None);
     assert!(
         res.is_err(),
         "must fail closed when byte offset is not on UTF-8 boundary"
@@ -463,5 +464,101 @@ fn unaligned_utf8_byte_offsets_fail_closed() {
     assert!(matches!(
         res.err().unwrap(),
         StructuralError::InvalidByteRange { .. }
+    ));
+}
+
+#[test]
+fn concurrent_change_to_unrelated_bytes_while_ast_grep_is_scanning_is_detected_and_refused() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let orig_py = b"# Original header comment v1\ndef compute():\n    return multiply(2, 3)\n";
+    workspace.write_file_atomic("target.py", orig_py).unwrap();
+
+    let target_path = temp.path().join("target.py");
+
+    // Hook: when ast-grep subprocess spawns (while it is actively running/scanning),
+    // modify unrelated bytes (the header comment) in target.py
+    threadmoth::toolbelt::structural::fault_injection::set_on_subprocess_spawned(move || {
+        let _ = fs::write(
+            &target_path,
+            b"# Modified header comment v2 (concurrent drift!)\ndef compute():\n    return multiply(2, 3)\n",
+        );
+    });
+
+    let req = StructuralRequest {
+        pattern: "multiply($A, $B)".into(),
+        rewrite: "times($A, $B)".into(),
+        lang: Some("python".into()),
+        paths: vec!["target.py".into()],
+        max_files: None,
+    };
+
+    let res = execute_structural(&workspace, &req, None, false);
+    threadmoth::toolbelt::structural::fault_injection::clear_on_subprocess_spawned();
+
+    assert!(res.is_err(), "must detect concurrent drift during scan");
+    let err = res.err().unwrap();
+    assert!(
+        matches!(err, StructuralError::ConcurrentModification { .. }),
+        "expected ConcurrentModification, got {err:?}"
+    );
+}
+
+#[test]
+fn target_paths_with_command_option_prefixes_do_not_alter_ast_grep_behavior() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let orig = b"def test():\n    return old_fn(42)\n";
+    workspace
+        .write_file_atomic("-test_target.py", orig)
+        .unwrap();
+
+    let req = StructuralRequest {
+        pattern: "old_fn($X)".into(),
+        rewrite: "new_fn($X)".into(),
+        lang: Some("python".into()),
+        paths: vec!["./-test_target.py".into()],
+        max_files: None,
+    };
+
+    let outcome = execute_structural(&workspace, &req, None, false).unwrap();
+    match outcome {
+        StructuralOutcome::Applied { certificate } => {
+            assert_eq!(certificate.outcome, Outcome::Applied);
+        }
+        _ => panic!("expected Applied outcome, got {outcome:?}"),
+    }
+
+    let modified = workspace.read_file("-test_target.py").unwrap();
+    assert_eq!(modified, b"def test():\n    return new_fn(42)\n");
+}
+
+#[test]
+fn snapshot_validation_detects_mismatched_pre_scan_hash_directly() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let orig = b"def foo():\n    return 1\n";
+    workspace.write_file_atomic("mod.py", orig).unwrap();
+
+    let mut pre_scan_hashes = BTreeMap::new();
+    // Simulate a pre-scan hash that does NOT match current on-disk content
+    pre_scan_hashes.insert("mod.py".to_string(), "stale_hash_from_earlier".to_string());
+
+    let record = serde_json::json!({
+        "text": "1",
+        "range": { "byteOffset": { "start": 22, "end": 23 } },
+        "file": "mod.py",
+        "replacement": "2"
+    });
+    let stdout = format!("{}\n", record);
+
+    let res = parse_ast_grep_output(&workspace, &stdout, Some(&pre_scan_hashes));
+    assert!(res.is_err());
+    assert!(matches!(
+        res.err().unwrap(),
+        StructuralError::ConcurrentModification { .. }
     ));
 }
