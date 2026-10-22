@@ -1,7 +1,9 @@
 use std::fs;
 use tempfile::TempDir;
 use threadmoth::engine::compute_sha256;
-use threadmoth::pipeline::{apply_prepared_plan, prepare_transaction_plan, rollback_entries};
+use threadmoth::pipeline::{
+    apply_prepared_plan, commit_and_cleanup_journal, prepare_transaction_plan, rollback_entries,
+};
 use threadmoth::protocol::{
     Cardinality, FailureReason, OperationPayload, Outcome, PlanApplyResult, Request,
     TransactionRequest, PROTOCOL_VERSION,
@@ -735,4 +737,207 @@ fn post_rename_fsync_error_treats_transaction_as_committed_and_never_rolls_back(
     // Candidate files are still intact after recovery
     assert_eq!(fs::read(temp.path().join("f1.txt")).unwrap(), f1_cand);
     assert_eq!(fs::read(temp.path().join("f2.txt")).unwrap(), f2_cand);
+}
+
+#[test]
+fn commit_marker_failure_with_successful_journal_removal_triggers_rollback_and_fails() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let f1_orig = b"beta1 original\n";
+    let f2_orig = b"beta2 original\n";
+    fs::write(temp.path().join("f1.txt"), f1_orig).unwrap();
+    fs::write(temp.path().join("f2.txt"), f2_orig).unwrap();
+
+    let tx = TransactionRequest {
+        version: PROTOCOL_VERSION.into(),
+        transaction_id: "tx-commit-fail-remove-ok".into(),
+        requests: vec![
+            text_request("f1.txt", "beta1 original", "beta1 new"),
+            text_request("f2.txt", "beta2 original", "beta2 new"),
+        ],
+        budget: Default::default(),
+    };
+
+    // Inject commit marker failure BUT allow journal removal to succeed
+    recovery::fault_injection::set_fail_commit_marker(true);
+    // remove_journal failure is false by default
+
+    let cert = threadmoth::pipeline::execute_transaction(&workspace, &tx, false);
+    recovery::fault_injection::reset();
+
+    // Critical invariant for PR #70 correctness:
+    // Even though journal removal succeeded, the commit was NEVER recorded as Committed on disk.
+    // Threadmoth MUST NOT acknowledge this transaction as Applied!
+    // It must roll back all candidate files to original and report Failed!
+    assert_eq!(
+        cert.outcome,
+        Outcome::Failed,
+        "must fail if commit marker fails, even if journal removal succeeds"
+    );
+    assert_eq!(
+        cert.rollback_state, "rolled_back",
+        "must have rolled back all committed members"
+    );
+    assert!(
+        matches!(
+            cert.failure_reason,
+            Some(FailureReason::CommitFailure { .. })
+        ),
+        "must report CommitFailure"
+    );
+
+    // Both files on disk MUST be rolled back to their original content
+    assert_eq!(
+        fs::read(temp.path().join("f1.txt")).unwrap(),
+        f1_orig,
+        "f1.txt must be rolled back to original bytes"
+    );
+    assert_eq!(
+        fs::read(temp.path().join("f2.txt")).unwrap(),
+        f2_orig,
+        "f2.txt must be rolled back to original bytes"
+    );
+
+    // Journal was cleaned up during rollback
+    assert!(
+        recovery::list(&workspace).entries.is_empty(),
+        "journal should be cleanly removed"
+    );
+
+    // Recovery sees nothing to recover
+    let report = recovery::recover_all(&workspace);
+    assert_eq!(report.completed, 0);
+    assert_eq!(report.restored, 0);
+    assert_eq!(report.cleaned, 0);
+}
+
+#[test]
+fn post_rename_marker_error_with_successful_journal_removal_acknowledges_applied() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let f1_orig = b"gamma1 original\n";
+    let f1_cand = b"gamma1 candidate\n";
+    fs::write(temp.path().join("f1.txt"), f1_orig).unwrap();
+
+    let tx = TransactionRequest {
+        version: PROTOCOL_VERSION.into(),
+        transaction_id: "tx-post-rename-remove-ok".into(),
+        requests: vec![text_request(
+            "f1.txt",
+            "gamma1 original",
+            "gamma1 candidate",
+        )],
+        budget: Default::default(),
+    };
+
+    // Post-rename fsync error, but remove_journal succeeds
+    recovery::fault_injection::set_fail_after_commit_rename(true);
+
+    let cert = threadmoth::pipeline::execute_transaction(&workspace, &tx, false);
+    recovery::fault_injection::reset();
+
+    // Since rename succeeded, Committed was written on disk.
+    // Cleanup succeeded, so outcome is Applied with not_required rollback state.
+    assert_eq!(cert.outcome, Outcome::Applied);
+    assert_eq!(cert.rollback_state, "not_required");
+
+    // Candidate bytes preserved
+    assert_eq!(fs::read(temp.path().join("f1.txt")).unwrap(), f1_cand);
+
+    // Journal removed
+    assert!(recovery::list(&workspace).entries.is_empty());
+}
+
+#[test]
+fn commit_decision_on_missing_journal_triggers_rollback_and_fails() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let orig = b"original data\n";
+    let cand = b"candidate data\n";
+    workspace.write_file_atomic("data.txt", cand).unwrap();
+
+    let entry = make_journal_entry("data.txt", orig, cand);
+    let committed = vec![&entry];
+
+    // Transaction ID has no journal written on disk
+    let result = commit_and_cleanup_journal(&workspace, "tx-nonexistent", &committed);
+
+    assert!(result.is_err(), "must fail when journal is missing");
+    let (rollback, msg) = result.unwrap_err();
+
+    assert_eq!(rollback.rollback_state(), "rolled_back");
+    assert_eq!(rollback.restored, 1);
+    assert_eq!(rollback.failed.len(), 0);
+    assert!(msg.contains("commit decision failed"));
+
+    // Candidate file must have been rolled back to original
+    assert_eq!(workspace.read_file("data.txt").unwrap(), orig);
+}
+
+#[test]
+fn commit_decision_on_unreadable_or_corrupt_journal_triggers_rollback_and_fails() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let orig = b"secret original\n";
+    let cand = b"secret candidate\n";
+    workspace.write_file_atomic("secret.txt", cand).unwrap();
+
+    let entry = make_journal_entry("secret.txt", orig, cand);
+    let committed = vec![&entry];
+
+    // Create a corrupted journal file on disk (invalid JSON)
+    let rec_dir = temp.path().join(".threadmoth-recovery");
+    fs::create_dir_all(&rec_dir).unwrap();
+    fs::write(
+        rec_dir.join("tx-corrupted.json"),
+        b"invalid-json-payload-{{{",
+    )
+    .unwrap();
+
+    let result = commit_and_cleanup_journal(&workspace, "tx-corrupted", &committed);
+
+    assert!(result.is_err(), "must fail when journal is corrupt");
+    let (rollback, msg) = result.unwrap_err();
+
+    assert_eq!(rollback.rollback_state(), "rolled_back");
+    assert_eq!(rollback.restored, 1);
+    assert_eq!(rollback.failed.len(), 0);
+    assert!(msg.contains("commit decision failed"));
+
+    // Candidate file must have been rolled back to original
+    assert_eq!(workspace.read_file("secret.txt").unwrap(), orig);
+}
+
+#[test]
+fn crash_recovery_cleans_prepared_journal_when_files_were_already_rolled_back() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let orig = b"steady original\n";
+    let cand = b"proposed candidate\n";
+    // File on disk is already Original (e.g. process crashed after rollback but before journal removal)
+    workspace.write_file_atomic("steady.txt", orig).unwrap();
+
+    recovery::write_journal(
+        &workspace,
+        &Journal {
+            protocol_version: PROTOCOL_VERSION.into(),
+            transaction_id: "tx-crashed-after-rollback".into(),
+            entries: vec![make_journal_entry("steady.txt", orig, cand)],
+            phase: Some(JournalPhase::Prepared),
+        },
+    )
+    .unwrap();
+
+    let report = recovery::recover_all(&workspace);
+
+    assert_eq!(report.completed, 0);
+    assert_eq!(report.restored, 0);
+    assert_eq!(report.cleaned, 1, "prepared journal must be cleaned up");
+    assert_eq!(workspace.read_file("steady.txt").unwrap(), orig);
+    assert!(!temp.path().join(".threadmoth-recovery").exists());
 }
