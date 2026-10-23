@@ -21,6 +21,22 @@ jobs:
           components: rustfmt, clippy
       - run: cargo fmt -- --check
       - run: cargo clippy --locked --all-targets --all-features -- -D warnings
+      - name: Install ast-grep (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -sSL -o /tmp/ast-grep.zip https://github.com/ast-grep/ast-grep/releases/download/0.45.3/app-x86_64-unknown-linux-gnu.zip
+          unzip -q /tmp/ast-grep.zip -d /tmp/ast-grep
+          sudo mv /tmp/ast-grep/ast-grep /usr/local/bin/
+          rm -rf /tmp/ast-grep.zip /tmp/ast-grep
+          ast-grep --version
+      - name: Install ast-grep (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          curl.exe -sSL -o "$env:TEMP\ast-grep.zip" https://github.com/ast-grep/ast-grep/releases/download/0.45.3/app-x86_64-pc-windows-msvc.zip
+          Expand-Archive -Path "$env:TEMP\ast-grep.zip" -DestinationPath "$env:TEMP\ast-grep" -Force
+          Copy-Item "$env:TEMP\ast-grep\ast-grep.exe" -Destination "C:\Windows\System32\"
+          Remove-Item "$env:TEMP\ast-grep.zip", "$env:TEMP\ast-grep" -Recurse -Force
+          ast-grep --version
       - run: cargo test --locked --all-features
       - run: cargo build --locked --release
       - run: cargo run --locked --release -- benchmark --quick --json

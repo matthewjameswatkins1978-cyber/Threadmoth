@@ -9,15 +9,6 @@ use threadmoth::toolbelt::structural::{
 };
 use threadmoth::workspace::Workspace;
 
-fn require_ast_grep() -> bool {
-    if threadmoth::toolbelt::structural::detect_ast_grep().is_none() {
-        eprintln!("skipping test because ast-grep is not installed on PATH");
-        false
-    } else {
-        true
-    }
-}
-
 #[test]
 fn structural_capability_is_discoverable_and_reports_engine() {
     let temp = TempDir::new().unwrap();
@@ -26,28 +17,25 @@ fn structural_capability_is_discoverable_and_reports_engine() {
     let info = discover(&workspace);
     assert_eq!(info.name, "structural");
     assert_eq!(info.engine, "ast-grep");
-    if info.available {
-        assert!(info.version.is_some(), "version should be reported");
-        assert!(
-            info.supported_languages.contains(&"python".to_string()),
-            "python should be supported"
-        );
-        assert!(
-            info.supported_languages.contains(&"rust".to_string()),
-            "rust should be supported"
-        );
-    } else {
-        assert!(info.version.is_none());
-    }
+    assert!(
+        info.available,
+        "ast-grep must be installed and discoverable on PATH"
+    );
+    assert!(info.version.is_some(), "version should be reported");
+    assert!(
+        info.supported_languages.contains(&"python".to_string()),
+        "python should be supported"
+    );
+    assert!(
+        info.supported_languages.contains(&"rust".to_string()),
+        "rust should be supported"
+    );
 
     // Orientation view check
     let orient = threadmoth::metadata::orientation(temp.path().to_str().unwrap());
-    assert_eq!(
-        orient["toolbelt"]["structural"]["available"]
-            .as_bool()
-            .unwrap(),
-        info.available
-    );
+    assert!(orient["toolbelt"]["structural"]["available"]
+        .as_bool()
+        .unwrap());
     assert_eq!(orient["toolbelt"]["structural"]["engine"], "ast-grep");
 
     // Capability view check
@@ -56,27 +44,42 @@ fn structural_capability_is_discoverable_and_reports_engine() {
 }
 
 #[test]
-fn missing_ast_grep_reports_engine_unavailable_when_absent() {
-    if threadmoth::toolbelt::structural::detect_ast_grep().is_none() {
+#[cfg(feature = "test-fault-injection")]
+fn engine_unavailable_behavior_is_verified_separately() {
+    threadmoth::toolbelt::structural::fault_injection::with_forced_unavailable(|| {
         let temp = TempDir::new().unwrap();
         let workspace = Workspace::new(temp.path()).unwrap();
+
+        let info = discover(&workspace);
+        assert_eq!(info.name, "structural");
+        assert_eq!(info.engine, "ast-grep");
+        assert!(!info.available, "engine should be reported as unavailable");
+        assert!(info.version.is_none());
+
+        let orient = threadmoth::metadata::orientation(temp.path().to_str().unwrap());
+        assert_eq!(orient["toolbelt"]["structural"]["available"], false);
+
         let req = StructuralRequest {
             pattern: "x".into(),
             rewrite: "y".into(),
             lang: Some("python".into()),
-            paths: vec![],
+            paths: vec!["test.py".into()],
             max_files: None,
         };
+        workspace
+            .write_file_atomic("test.py", b"def test(): pass\n")
+            .unwrap();
+
         let err = execute_structural(&workspace, &req, None, false).unwrap_err();
-        assert!(matches!(err, StructuralError::AstGrepNotFound));
-    }
+        assert!(
+            matches!(err, StructuralError::AstGrepNotFound),
+            "expected AstGrepNotFound, got {err:?}"
+        );
+    });
 }
 
 #[test]
 fn single_file_structural_transformation_locates_and_rewrites_pattern() {
-    if !require_ast_grep() {
-        return;
-    }
     let temp = TempDir::new().unwrap();
     let workspace = Workspace::new(temp.path()).unwrap();
 
@@ -111,9 +114,6 @@ fn single_file_structural_transformation_locates_and_rewrites_pattern() {
 
 #[test]
 fn repeated_matches_across_multiple_files_transformed_atomically() {
-    if !require_ast_grep() {
-        return;
-    }
     let temp = TempDir::new().unwrap();
     let workspace = Workspace::new(temp.path()).unwrap();
 
@@ -154,9 +154,6 @@ fn repeated_matches_across_multiple_files_transformed_atomically() {
 
 #[test]
 fn structural_preview_does_not_modify_disk() {
-    if !require_ast_grep() {
-        return;
-    }
     let temp = TempDir::new().unwrap();
     let workspace = Workspace::new(temp.path()).unwrap();
 
@@ -186,9 +183,6 @@ fn structural_preview_does_not_modify_disk() {
 
 #[test]
 fn structural_plan_can_be_prepared_and_applied_separately() {
-    if !require_ast_grep() {
-        return;
-    }
     let temp = TempDir::new().unwrap();
     let workspace = Workspace::new(temp.path()).unwrap();
 
@@ -236,9 +230,6 @@ fn structural_plan_can_be_prepared_and_applied_separately() {
 
 #[test]
 fn structural_no_change_is_reported_cleanly() {
-    if !require_ast_grep() {
-        return;
-    }
     let temp = TempDir::new().unwrap();
     let workspace = Workspace::new(temp.path()).unwrap();
 
@@ -266,9 +257,6 @@ fn structural_no_change_is_reported_cleanly() {
 
 #[test]
 fn workspace_escape_attempt_is_refused() {
-    if !require_ast_grep() {
-        return;
-    }
     let temp = TempDir::new().unwrap();
     let workspace = Workspace::new(temp.path()).unwrap();
 
@@ -291,9 +279,6 @@ fn workspace_escape_attempt_is_refused() {
 
 #[test]
 fn multibyte_utf8_offsets_handled_safely_and_byte_boundaries_respected() {
-    if !require_ast_grep() {
-        return;
-    }
     let temp = TempDir::new().unwrap();
     let workspace = Workspace::new(temp.path()).unwrap();
 
@@ -327,9 +312,6 @@ fn multibyte_utf8_offsets_handled_safely_and_byte_boundaries_respected() {
 
 #[test]
 fn crlf_line_endings_preserved_exactly() {
-    if !require_ast_grep() {
-        return;
-    }
     let temp = TempDir::new().unwrap();
     let workspace = Workspace::new(temp.path()).unwrap();
 
@@ -422,9 +404,6 @@ fn unsupported_language_is_refused() {
 
 #[test]
 fn plan_output_traversal_and_collision_refused() {
-    if !require_ast_grep() {
-        return;
-    }
     let temp = TempDir::new().unwrap();
     let workspace = Workspace::new(temp.path()).unwrap();
 
@@ -454,7 +433,7 @@ fn plan_output_traversal_and_collision_refused() {
     assert!(res_collide.is_err());
     assert!(matches!(
         res_collide.err().unwrap(),
-        StructuralError::PlanOutputCollision(_)
+        StructuralError::PlanOutputCollision(_) | StructuralError::PlanOutputAlreadyExists(_)
     ));
 }
 
@@ -529,9 +508,6 @@ fn unaligned_utf8_byte_offsets_fail_closed() {
 #[test]
 #[cfg(feature = "test-fault-injection")]
 fn concurrent_change_to_unrelated_bytes_while_ast_grep_is_scanning_is_detected_and_refused() {
-    if !require_ast_grep() {
-        return;
-    }
     let temp = TempDir::new().unwrap();
     let workspace = Workspace::new(temp.path()).unwrap();
 
@@ -570,9 +546,6 @@ fn concurrent_change_to_unrelated_bytes_while_ast_grep_is_scanning_is_detected_a
 
 #[test]
 fn target_paths_with_command_option_prefixes_do_not_alter_ast_grep_behavior() {
-    if !require_ast_grep() {
-        return;
-    }
     let temp = TempDir::new().unwrap();
     let workspace = Workspace::new(temp.path()).unwrap();
 
@@ -627,4 +600,154 @@ fn snapshot_validation_detects_mismatched_pre_scan_hash_directly() {
         res.err().unwrap(),
         StructuralError::ConcurrentModification { .. }
     ));
+}
+
+#[test]
+fn plan_output_refuses_to_overwrite_existing_file() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let readme_orig = b"# Project Documentation\nDo not overwrite this file.\n";
+    workspace
+        .write_file_atomic("README.md", readme_orig)
+        .unwrap();
+
+    let code_orig = b"def calc():\n    return multiply(2, 3)\n";
+    workspace.write_file_atomic("calc.py", code_orig).unwrap();
+
+    let req = StructuralRequest {
+        pattern: "multiply($A, $B)".into(),
+        rewrite: "times($B, $A)".into(),
+        lang: Some("python".into()),
+        paths: vec!["calc.py".into()],
+        max_files: None,
+    };
+
+    let plan_path = Path::new("README.md");
+    let res = execute_structural(&workspace, &req, Some(plan_path), false);
+
+    assert!(
+        res.is_err(),
+        "must refuse to overwrite existing README.md with plan"
+    );
+    let err = res.err().unwrap();
+    assert!(
+        matches!(err, StructuralError::PlanOutputAlreadyExists(_)),
+        "expected PlanOutputAlreadyExists, got {err:?}"
+    );
+
+    // Assert README.md bytes remain completely unchanged
+    let readme_after = workspace.read_file("README.md").unwrap();
+    assert_eq!(
+        readme_after, readme_orig,
+        "README.md bytes must remain exact and untouched"
+    );
+
+    // Also assert calc.py was not modified
+    let code_after = workspace.read_file("calc.py").unwrap();
+    assert_eq!(
+        code_after, code_orig,
+        "source files must not be modified in plan mode"
+    );
+}
+
+#[test]
+fn pre_scan_traversal_does_not_follow_directory_symlinks() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    workspace
+        .write_file_atomic("real_dir/file.py", b"def a(): return 1\n")
+        .unwrap();
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        let _ = symlink(
+            temp.path().join("real_dir"),
+            temp.path().join("symlink_dir"),
+        );
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::symlink_dir;
+        let _ = symlink_dir(
+            temp.path().join("real_dir"),
+            temp.path().join("symlink_dir"),
+        );
+    }
+
+    let hashes = threadmoth::toolbelt::structural::collect_pre_scan_hashes(
+        &workspace,
+        &["real_dir".to_string()],
+        Some("python"),
+    )
+    .unwrap();
+
+    assert_eq!(hashes.len(), 1);
+    assert!(hashes.contains_key("real_dir/file.py"));
+    assert!(!hashes.contains_key("symlink_dir/file.py"));
+}
+
+#[test]
+fn pre_scan_rejects_unreadable_relevant_source_files() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    workspace
+        .write_file_atomic("src/good.py", b"def good(): pass\n")
+        .unwrap();
+    workspace
+        .write_file_atomic("src/locked.py", b"def locked(): pass\n")
+        .unwrap();
+
+    let locked_path = temp.path().join("src/locked.py");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&locked_path).unwrap().permissions();
+        perms.set_mode(0o000);
+        let _ = std::fs::set_permissions(&locked_path, perms);
+        let res = threadmoth::toolbelt::structural::collect_pre_scan_hashes(
+            &workspace,
+            &["src".to_string()],
+            Some("python"),
+        );
+        assert!(
+            res.is_err(),
+            "must reject unreadable path rather than treating incomplete snapshot as complete"
+        );
+        assert!(matches!(
+            res.err().unwrap(),
+            StructuralError::SourceRead { .. }
+        ));
+    }
+    #[cfg(windows)]
+    {
+        use std::fs::OpenOptions;
+        use std::os::windows::fs::OpenOptionsExt;
+        // FILE_SHARE_READ is 1; passing share_mode 0 denies all sharing
+        let _lock_file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(0)
+            .open(&locked_path);
+
+        if let Ok(_lock) = _lock_file {
+            let res = threadmoth::toolbelt::structural::collect_pre_scan_hashes(
+                &workspace,
+                &["src".to_string()],
+                Some("python"),
+            );
+            assert!(
+                res.is_err(),
+                "must reject unreadable path rather than treating incomplete snapshot as complete"
+            );
+            assert!(matches!(
+                res.err().unwrap(),
+                StructuralError::SourceRead { .. }
+            ));
+        }
+    }
 }

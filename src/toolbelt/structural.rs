@@ -13,8 +13,8 @@ use crate::toolbelt::AttachmentInfo;
 use crate::workspace::{Workspace, WorkspaceError};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
-use std::path::Path;
+use std::collections::{BTreeMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use thiserror::Error;
@@ -50,12 +50,19 @@ pub const MAX_STDOUT_BYTES: usize = 16 * 1024 * 1024; // 16 MB
 pub const MAX_STDERR_BYTES: usize = 1024 * 1024; // 1 MB
 pub const MAX_TOTAL_MATCHES: usize = 5000;
 pub const MAX_FILES_AFFECTED: usize = 256;
+pub const MAX_PRE_SCAN_FILES: usize = 10_000;
+pub const MAX_TRAVERSAL_DEPTH: usize = 32;
 
 #[cfg(feature = "test-fault-injection")]
 pub mod fault_injection {
+    use std::cell::Cell;
     use std::sync::Mutex;
 
     static SPAWN_HOOK: Mutex<Option<Box<dyn Fn() + Send + 'static>>> = Mutex::new(None);
+
+    thread_local! {
+        static FORCE_UNAVAILABLE: Cell<bool> = const { Cell::new(false) };
+    }
 
     pub fn set_on_subprocess_spawned<F: Fn() + Send + 'static>(f: F) {
         *SPAWN_HOOK.lock().unwrap() = Some(Box::new(f));
@@ -69,6 +76,22 @@ pub mod fault_injection {
         if let Some(hook) = SPAWN_HOOK.lock().unwrap().as_ref() {
             hook();
         }
+    }
+
+    pub fn is_ast_grep_unavailable_forced() -> bool {
+        FORCE_UNAVAILABLE.with(|c| c.get())
+    }
+
+    pub fn with_forced_unavailable<R, F: FnOnce() -> R>(f: F) -> R {
+        FORCE_UNAVAILABLE.with(|c| c.set(true));
+        struct Reset;
+        impl Drop for Reset {
+            fn drop(&mut self) {
+                FORCE_UNAVAILABLE.with(|c| c.set(false));
+            }
+        }
+        let _reset = Reset;
+        f()
     }
 }
 
@@ -166,6 +189,9 @@ pub enum StructuralError {
     #[error("plan output path collides with target source file: {0}")]
     PlanOutputCollision(String),
 
+    #[error("plan output file already exists: '{0}' (Threadmoth will not overwrite an existing file with a plan)")]
+    PlanOutputAlreadyExists(String),
+
     #[error("failed to prepare plan: {0:?}")]
     PlanPreparation(Box<TransactionCertificate>),
 
@@ -257,6 +283,11 @@ pub struct FileProposalGroup {
 
 /// Check if ast-grep is installed and query its version.
 pub fn detect_ast_grep() -> Option<String> {
+    #[cfg(feature = "test-fault-injection")]
+    if fault_injection::is_ast_grep_unavailable_forced() {
+        return None;
+    }
+
     let mut cmd = Command::new("ast-grep");
     cmd.arg("--version");
     let output = cmd.output().ok()?;
@@ -414,6 +445,8 @@ pub fn collect_pre_scan_hashes(
     lang: Option<&str>,
 ) -> Result<BTreeMap<String, String>, StructuralError> {
     let mut hashes = BTreeMap::new();
+    let mut visited_dirs = HashSet::new();
+
     for target in paths {
         let canonical = validate_and_canonicalize_target_path(workspace, target)?;
         let resolved = if canonical == "." {
@@ -421,6 +454,18 @@ pub fn collect_pre_scan_hashes(
         } else {
             workspace.root().join(&canonical)
         };
+
+        let sym_meta =
+            std::fs::symlink_metadata(&resolved).map_err(|e| StructuralError::SourceRead {
+                file: canonical.clone(),
+                error: WorkspaceError::Io(e),
+            })?;
+
+        if sym_meta.file_type().is_symlink() {
+            return Err(StructuralError::SecurityViolation(format!(
+                "target path '{canonical}' is a symlink or junction, which is not permitted"
+            )));
+        }
 
         if resolved.is_file() {
             let bytes =
@@ -432,7 +477,14 @@ pub fn collect_pre_scan_hashes(
                     })?;
             hashes.insert(canonical, compute_sha256(&bytes));
         } else if resolved.is_dir() {
-            collect_dir_hashes(workspace, &resolved, lang, &mut hashes)?;
+            collect_dir_hashes(
+                workspace,
+                &resolved,
+                lang,
+                &mut hashes,
+                &mut visited_dirs,
+                0,
+            )?;
         }
     }
     Ok(hashes)
@@ -443,26 +495,93 @@ fn collect_dir_hashes(
     dir: &Path,
     lang: Option<&str>,
     hashes: &mut BTreeMap<String, String>,
+    visited_dirs: &mut HashSet<PathBuf>,
+    depth: usize,
 ) -> Result<(), StructuralError> {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return Ok(()),
-    };
+    if depth > MAX_TRAVERSAL_DEPTH {
+        return Err(StructuralError::LimitExceeded {
+            dimension: "traversal_depth",
+            limit: MAX_TRAVERSAL_DEPTH,
+            actual: depth,
+        });
+    }
 
-    for entry in entries.flatten() {
+    let canonical_dir = dir
+        .canonicalize()
+        .map_err(|e| StructuralError::SourceRead {
+            file: dir
+                .strip_prefix(workspace.root())
+                .unwrap_or(dir)
+                .to_string_lossy()
+                .to_string(),
+            error: WorkspaceError::Io(e),
+        })?;
+
+    if !visited_dirs.insert(canonical_dir) {
+        // Directory already visited; skip cycle
+        return Ok(());
+    }
+
+    let entries = std::fs::read_dir(dir).map_err(|e| StructuralError::SourceRead {
+        file: dir
+            .strip_prefix(workspace.root())
+            .unwrap_or(dir)
+            .to_string_lossy()
+            .to_string(),
+        error: WorkspaceError::Io(e),
+    })?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| StructuralError::SourceRead {
+            file: dir
+                .strip_prefix(workspace.root())
+                .unwrap_or(dir)
+                .to_string_lossy()
+                .to_string(),
+            error: WorkspaceError::Io(e),
+        })?;
+
         let path = entry.path();
         let file_name = entry.file_name();
         let name_str = file_name.to_string_lossy();
 
-        if path.is_dir() {
-            if name_str.starts_with('.') || name_str == "target" || name_str == "node_modules" {
-                continue;
+        let is_symlink = match entry.file_type() {
+            Ok(ft) => ft.is_symlink(),
+            Err(e) => {
+                return Err(StructuralError::SourceRead {
+                    file: path
+                        .strip_prefix(workspace.root())
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .to_string(),
+                    error: WorkspaceError::Io(e),
+                });
             }
-            collect_dir_hashes(workspace, &path, lang, hashes)?;
+        };
+
+        if is_symlink {
+            // Do not follow directory symlinks or junctions
             continue;
         }
 
-        if !path.is_file() {
+        let meta = entry.metadata().map_err(|e| StructuralError::SourceRead {
+            file: path
+                .strip_prefix(workspace.root())
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .to_string(),
+            error: WorkspaceError::Io(e),
+        })?;
+
+        if meta.is_dir() {
+            if name_str.starts_with('.') || name_str == "target" || name_str == "node_modules" {
+                continue;
+            }
+            collect_dir_hashes(workspace, &path, lang, hashes, visited_dirs, depth + 1)?;
+            continue;
+        }
+
+        if !meta.is_file() {
             continue;
         }
 
@@ -478,12 +597,28 @@ fn collect_dir_hashes(
             continue;
         }
 
-        if let Ok(rel) = path.strip_prefix(workspace.root()) {
-            let rel_str = rel.to_string_lossy().replace('\\', "/");
-            if let Ok(bytes) = workspace.read_file(&rel_str) {
-                hashes.insert(rel_str, compute_sha256(&bytes));
-            }
+        if hashes.len() >= MAX_PRE_SCAN_FILES {
+            return Err(StructuralError::LimitExceeded {
+                dimension: "max_pre_scan_files",
+                limit: MAX_PRE_SCAN_FILES,
+                actual: hashes.len(),
+            });
         }
+
+        let rel = path.strip_prefix(workspace.root()).map_err(|_| {
+            StructuralError::WorkspaceEscape(format!(
+                "path outside workspace root: {}",
+                path.display()
+            ))
+        })?;
+        let rel_str = rel.to_string_lossy().replace('\\', "/");
+        let bytes = workspace
+            .read_file(&rel_str)
+            .map_err(|e| StructuralError::SourceRead {
+                file: rel_str.clone(),
+                error: e,
+            })?;
+        hashes.insert(rel_str, compute_sha256(&bytes));
     }
     Ok(())
 }
@@ -1005,6 +1140,28 @@ pub fn execute_structural(
             ));
         }
 
+        // Guard against overwriting an existing file with a plan
+        let resolved = workspace
+            .resolve_path(&rel_output_str)
+            .map_err(|e| match e {
+                WorkspaceError::Traversal(t) => {
+                    StructuralError::WorkspaceEscape(format!("plan output traversal: {t}"))
+                }
+                WorkspaceError::SymlinkEscape(s) => StructuralError::SecurityViolation(format!(
+                    "plan output escapes via symlink: {s}"
+                )),
+                WorkspaceError::WorkspaceRootMismatch { target, .. } => {
+                    StructuralError::WorkspaceEscape(format!(
+                        "plan output outside workspace root: {target}"
+                    ))
+                }
+                other => StructuralError::SecurityViolation(other.to_string()),
+            })?;
+
+        if resolved.exists() {
+            return Err(StructuralError::PlanOutputAlreadyExists(rel_output_str));
+        }
+
         // Guard against overwriting any file targeted by the transaction
         if tx.requests.iter().any(|r| r.file_path == rel_output_str) {
             return Err(StructuralError::PlanOutputCollision(rel_output_str));
@@ -1015,8 +1172,9 @@ pub fn execute_structural(
 
         let bytes = serde_json::to_vec_pretty(&prepared_plan)?;
         workspace
-            .write_file_atomic(&rel_output_str, &bytes)
+            .create_file_new(&rel_output_str, &bytes)
             .map_err(|e| match e {
+                WorkspaceError::AlreadyExists(p) => StructuralError::PlanOutputAlreadyExists(p),
                 WorkspaceError::Io(io_err) => StructuralError::Io(io_err),
                 other => StructuralError::SecurityViolation(other.to_string()),
             })?;
