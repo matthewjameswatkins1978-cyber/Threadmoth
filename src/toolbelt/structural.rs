@@ -55,27 +55,27 @@ pub const MAX_TRAVERSAL_DEPTH: usize = 32;
 
 #[cfg(feature = "test-fault-injection")]
 pub mod fault_injection {
-    use std::cell::Cell;
-    use std::sync::Mutex;
-
-    static SPAWN_HOOK: Mutex<Option<Box<dyn Fn() + Send + 'static>>> = Mutex::new(None);
+    use std::cell::{Cell, RefCell};
 
     thread_local! {
+        static SPAWN_HOOK: RefCell<Option<Box<dyn Fn()>>> = const { RefCell::new(None) };
         static FORCE_UNAVAILABLE: Cell<bool> = const { Cell::new(false) };
     }
 
-    pub fn set_on_subprocess_spawned<F: Fn() + Send + 'static>(f: F) {
-        *SPAWN_HOOK.lock().unwrap() = Some(Box::new(f));
+    pub fn set_on_subprocess_spawned<F: Fn() + 'static>(f: F) {
+        SPAWN_HOOK.with(|h| *h.borrow_mut() = Some(Box::new(f)));
     }
 
     pub fn clear_on_subprocess_spawned() {
-        *SPAWN_HOOK.lock().unwrap() = None;
+        SPAWN_HOOK.with(|h| *h.borrow_mut() = None);
     }
 
     pub fn run_spawn_hook() {
-        if let Some(hook) = SPAWN_HOOK.lock().unwrap().as_ref() {
-            hook();
-        }
+        SPAWN_HOOK.with(|h| {
+            if let Some(hook) = h.borrow().as_ref() {
+                hook();
+            }
+        });
     }
 
     pub fn is_ast_grep_unavailable_forced() -> bool {
