@@ -3,23 +3,100 @@
 use crate::engine::compute_sha256;
 use crate::protocol::SUPPORTED_PROTOCOL_VERSIONS;
 use crate::workspace::{Workspace, WorkspaceError};
+use atomic_write_file::AtomicWriteFile;
 use serde::de::{self, SeqAccess, Visitor};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fs;
-use std::io;
+use std::io::{self, Write};
+
+#[cfg(feature = "test-fault-injection")]
+#[doc(hidden)]
+pub mod fault_injection {
+    use std::cell::Cell;
+
+    thread_local! {
+        static FAIL_COMMIT_MARKER: Cell<bool> = const { Cell::new(false) };
+        static FAIL_STAGE_WRITE: Cell<bool> = const { Cell::new(false) };
+        static FAIL_BEFORE_COMMIT_RENAME: Cell<bool> = const { Cell::new(false) };
+        static FAIL_AFTER_COMMIT_RENAME: Cell<bool> = const { Cell::new(false) };
+        static FAIL_REMOVE_JOURNAL: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub fn set_fail_commit_marker(fail: bool) {
+        FAIL_COMMIT_MARKER.with(|c| c.set(fail));
+    }
+
+    pub fn fail_commit_marker() -> bool {
+        FAIL_COMMIT_MARKER.with(|c| c.get())
+            || std::env::var_os("THREADMOTH_FAULT_COMMIT_MARKER").is_some()
+    }
+
+    pub fn set_fail_stage_write(fail: bool) {
+        FAIL_STAGE_WRITE.with(|c| c.set(fail));
+    }
+
+    pub fn fail_stage_write() -> bool {
+        FAIL_STAGE_WRITE.with(|c| c.get())
+            || std::env::var_os("THREADMOTH_FAULT_STAGE_WRITE").is_some()
+    }
+
+    pub fn set_fail_before_commit_rename(fail: bool) {
+        FAIL_BEFORE_COMMIT_RENAME.with(|c| c.set(fail));
+    }
+
+    pub fn fail_before_commit_rename() -> bool {
+        FAIL_BEFORE_COMMIT_RENAME.with(|c| c.get())
+            || std::env::var_os("THREADMOTH_FAULT_BEFORE_RENAME").is_some()
+    }
+
+    pub fn set_fail_after_commit_rename(fail: bool) {
+        FAIL_AFTER_COMMIT_RENAME.with(|c| c.set(fail));
+    }
+
+    pub fn fail_after_commit_rename() -> bool {
+        FAIL_AFTER_COMMIT_RENAME.with(|c| c.get())
+            || std::env::var_os("THREADMOTH_FAULT_AFTER_RENAME").is_some()
+    }
+
+    pub fn set_fail_remove_journal(fail: bool) {
+        FAIL_REMOVE_JOURNAL.with(|c| c.set(fail));
+    }
+
+    pub fn fail_remove_journal() -> bool {
+        FAIL_REMOVE_JOURNAL.with(|c| c.get())
+            || std::env::var_os("THREADMOTH_FAULT_REMOVE_JOURNAL").is_some()
+    }
+
+    pub fn reset() {
+        FAIL_COMMIT_MARKER.with(|c| c.set(false));
+        FAIL_STAGE_WRITE.with(|c| c.set(false));
+        FAIL_BEFORE_COMMIT_RENAME.with(|c| c.set(false));
+        FAIL_AFTER_COMMIT_RENAME.with(|c| c.set(false));
+        FAIL_REMOVE_JOURNAL.with(|c| c.set(false));
+    }
+}
 
 const RECOVERY_DIR: &str = ".threadmoth-recovery";
 const LEGACY_RECOVERY_DIR: &str = ".suture-recovery";
 pub(crate) const MAX_JOURNAL_BYTES: usize = 8 * 1024 * 1024;
 const MAX_JOURNAL_ENTRIES: usize = 256;
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum JournalPhase {
+    Prepared,
+    Committed,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Journal {
     pub protocol_version: String,
     pub transaction_id: String,
     pub entries: Vec<JournalEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<JournalPhase>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -53,7 +130,11 @@ pub(crate) fn check_journal_size(journal: &Journal) -> Result<(), WorkspaceError
 }
 
 pub fn write_journal(workspace: &Workspace, journal: &Journal) -> Result<(), WorkspaceError> {
-    let bytes = serialize_journal(journal)?;
+    let mut j = journal.clone();
+    if j.phase.is_none() {
+        j.phase = Some(JournalPhase::Prepared);
+    }
+    let bytes = serialize_journal(&j)?;
     let dir = workspace.root().join(RECOVERY_DIR);
     fs::create_dir_all(&dir)?;
     let path = dir.join(format!("{}.json", safe_id(&journal.transaction_id)));
@@ -66,7 +147,90 @@ pub fn write_journal(workspace: &Workspace, journal: &Journal) -> Result<(), Wor
     Ok(())
 }
 
+pub fn read_journal_phase(
+    workspace: &Workspace,
+    transaction_id: &str,
+) -> Result<Option<JournalPhase>, WorkspaceError> {
+    let filename = format!("{}.json", safe_id(transaction_id));
+    for dir in recovery_dirs(workspace) {
+        let path = dir.join(&filename);
+        if path.exists() {
+            let bytes = fs::read(&path)?;
+            let journal: Journal = serde_json::from_slice(&bytes)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            return Ok(journal.phase);
+        }
+    }
+    Ok(None)
+}
+
+pub fn mark_journal_committed(
+    workspace: &Workspace,
+    transaction_id: &str,
+) -> Result<(), WorkspaceError> {
+    #[cfg(feature = "test-fault-injection")]
+    if fault_injection::fail_commit_marker() {
+        return Err(WorkspaceError::Io(io::Error::other(
+            "fault injected: mark_journal_committed failure",
+        )));
+    }
+    let filename = format!("{}.json", safe_id(transaction_id));
+    for dir in recovery_dirs(workspace) {
+        let path = dir.join(&filename);
+        if path.exists() {
+            let bytes = fs::read(&path)?;
+            let mut journal: Journal = serde_json::from_slice(&bytes)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            journal.phase = Some(JournalPhase::Committed);
+            let updated_bytes = serialize_journal(&journal)?;
+
+            #[cfg(feature = "test-fault-injection")]
+            if fault_injection::fail_stage_write() {
+                let tmp_path = dir.join(format!("{}.stage.tmp", safe_id(transaction_id)));
+                let _ = fs::write(&tmp_path, &updated_bytes[..updated_bytes.len().min(16)]);
+                return Err(WorkspaceError::Io(io::Error::other(
+                    "fault injected: partial stage write failure",
+                )));
+            }
+
+            // Staged atomic replacement: write to a temporary file in the same directory,
+            // then atomically rename over the original path.
+            // This guarantees the original journal is never truncated or destroyed if interrupted.
+            let mut file = AtomicWriteFile::open(&path)?;
+            std::io::Write::write_all(&mut file, &updated_bytes)?;
+            file.flush()?;
+
+            #[cfg(feature = "test-fault-injection")]
+            if fault_injection::fail_before_commit_rename() {
+                return Err(WorkspaceError::Io(io::Error::other(
+                    "fault injected: failure before commit rename",
+                )));
+            }
+
+            file.commit()?;
+
+            #[cfg(feature = "test-fault-injection")]
+            if fault_injection::fail_after_commit_rename() {
+                return Err(WorkspaceError::Io(io::Error::other(
+                    "fault injected: post-rename fsync failure",
+                )));
+            }
+
+            return Ok(());
+        }
+    }
+    Err(WorkspaceError::NotFound(format!(
+        "journal for transaction {transaction_id} not found"
+    )))
+}
+
 pub fn remove_journal(workspace: &Workspace, transaction_id: &str) -> Result<(), WorkspaceError> {
+    #[cfg(feature = "test-fault-injection")]
+    if fault_injection::fail_remove_journal() {
+        return Err(WorkspaceError::Io(io::Error::other(
+            "fault injected: remove_journal failure",
+        )));
+    }
     let filename = format!("{}.json", safe_id(transaction_id));
     for dir in recovery_dirs(workspace) {
         match fs::remove_file(dir.join(&filename)) {
@@ -184,22 +348,47 @@ pub fn list(workspace: &Workspace) -> RecoveryListReport {
         };
         let states = member_inspections(workspace, &journal);
         let safe = states.iter().all(|member| member.automatic_recovery_safe);
-        let apparent_state = if !safe {
-            "drifted"
-        } else if states
+        let all_candidate = states
             .iter()
-            .all(|member| member.classification == "CANDIDATE")
-        {
-            "complete"
+            .all(|member| member.classification == "CANDIDATE");
+        let all_original = states
+            .iter()
+            .all(|member| member.classification == "ORIGINAL");
+        let (apparent_state, automatic_safe) = if !safe {
+            ("drifted".to_string(), false)
         } else {
-            "partial"
+            match journal.phase {
+                Some(JournalPhase::Committed) => {
+                    if all_candidate {
+                        ("complete".to_string(), true)
+                    } else {
+                        ("inconsistent".to_string(), false)
+                    }
+                }
+                Some(JournalPhase::Prepared) => {
+                    if all_original || all_candidate {
+                        ("uncommitted".to_string(), true)
+                    } else {
+                        ("partial".to_string(), true)
+                    }
+                }
+                None => {
+                    if all_original {
+                        ("uncommitted".to_string(), true)
+                    } else if all_candidate {
+                        ("ambiguous".to_string(), false)
+                    } else {
+                        ("partial".to_string(), true)
+                    }
+                }
+            }
         };
         entries.push(RecoveryListEntry {
             transaction_id,
             journal_validity: "valid".into(),
             member_count: states.len(),
-            apparent_state: apparent_state.into(),
-            automatic_recovery_safe: safe,
+            apparent_state,
+            automatic_recovery_safe: automatic_safe,
         });
     }
     RecoveryListReport { entries }
@@ -228,11 +417,20 @@ pub fn inspect(workspace: &Workspace, transaction_id: &str) -> RecoveryInspectRe
         }
     };
     let members = member_inspections(workspace, &journal);
+    let all_candidate = members.iter().all(|m| m.classification == "CANDIDATE");
+    let safe = members.iter().all(|member| member.automatic_recovery_safe);
+    let automatic_recovery_safe = safe
+        && match journal.phase {
+            Some(JournalPhase::Committed) => all_candidate,
+            Some(JournalPhase::Prepared) => true,
+            None if all_candidate => false,
+            _ => true,
+        };
     RecoveryInspectReport {
         transaction_id: transaction_id.into(),
         journal_validity: "valid".into(),
         member_count: members.len(),
-        automatic_recovery_safe: members.iter().all(|member| member.automatic_recovery_safe),
+        automatic_recovery_safe,
         members,
     }
 }
@@ -312,15 +510,39 @@ fn recover_item(workspace: &Workspace, path: &std::path::Path, report: &mut Reco
     if states.contains(&EntryState::Manual) {
         return;
     }
-    if states.iter().all(|state| *state == EntryState::Candidate) {
+    if journal.phase == Some(JournalPhase::Committed) {
+        if states.iter().all(|state| *state == EntryState::Candidate) {
+            if fs::remove_file(path).is_ok() {
+                report.completed += 1;
+                report.cleaned += 1;
+            }
+        } else {
+            // A committed transaction must NEVER automatically become an uncommitted rollback!
+            // If members exhibit unexpected or mixed states, preserve the journal and report
+            // the inconsistency for human inspection.
+            report.manual.push(format!(
+                "{}: committed transaction has unexpected member states (not all candidate); manual inspection required",
+                path.display()
+            ));
+        }
+        return;
+    }
+    if journal.phase.is_none() && states.iter().all(|state| *state == EntryState::Candidate) {
+        // Ambiguous legacy journal state (all candidate, but unrecorded commit decision).
+        report.manual.push(format!(
+            "{}: ambiguous legacy journal state (all candidate, commit unrecorded); manual recovery required",
+            path.display()
+        ));
+        return;
+    }
+    if states.iter().all(|state| *state == EntryState::Original) {
         if fs::remove_file(path).is_ok() {
-            report.completed += 1;
             report.cleaned += 1;
         }
         return;
     }
     let mut safe = true;
-    for (entry, state) in journal.entries.iter().zip(states) {
+    for (entry, state) in journal.entries.iter().rev().zip(states.into_iter().rev()) {
         if state != EntryState::Candidate {
             continue;
         }
@@ -489,6 +711,7 @@ mod tests {
                 protocol_version: "1.1.0".into(),
                 transaction_id: transaction_id.into(),
                 entries,
+                phase: Some(JournalPhase::Prepared),
             },
         )
         .unwrap();
@@ -514,6 +737,7 @@ mod tests {
             "completed",
             vec![entry("x.txt", b"old", b"new")],
         );
+        mark_journal_committed(&workspace, "completed").unwrap();
 
         let report = recover_all(&workspace);
 
@@ -604,6 +828,7 @@ mod tests {
         let journal = serde_json::json!({
             "protocol_version": "1.1.0",
             "transaction_id": "legacy",
+            "phase": "committed",
             "entries": [{
                 "path": "x.txt",
                 "pre_hash": compute_sha256(b"old"),
@@ -637,6 +862,7 @@ mod tests {
                 protocol_version: PROTOCOL_VERSION.into(),
                 transaction_id: "oversized".into(),
                 entries: vec![entry("x.txt", &payload, &payload)],
+                phase: Some(JournalPhase::Prepared),
             },
         )
         .unwrap_err();
@@ -661,6 +887,7 @@ mod tests {
             protocol_version: PROTOCOL_VERSION.into(),
             transaction_id: "one-megabyte".into(),
             entries: vec![entry("x.bin", &payload, &payload)],
+            phase: Some(JournalPhase::Prepared),
         };
 
         let encoded = serialize_journal(&journal).unwrap();
@@ -679,6 +906,7 @@ mod tests {
             protocol_version: PROTOCOL_VERSION.into(),
             transaction_id: "binary-round-trip".into(),
             entries: vec![entry("x.bin", &original, &candidate)],
+            phase: Some(JournalPhase::Prepared),
         };
 
         let decoded: Journal =
@@ -695,6 +923,7 @@ mod tests {
                 protocol_version: PROTOCOL_VERSION.into(),
                 transaction_id: format!("size-{size}"),
                 entries: vec![entry("x.bin", &payload, &payload)],
+                phase: Some(JournalPhase::Prepared),
             };
             let encoded = serialize_journal(&journal).unwrap();
             assert!(encoded.len() < MAX_JOURNAL_BYTES);

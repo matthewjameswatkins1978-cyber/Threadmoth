@@ -1100,6 +1100,7 @@ pub fn apply_prepared_plan(workspace: &Workspace, plan: &PreparedPlan) -> PlanAp
         protocol_version: plan.protocol_version.clone(),
         transaction_id: transaction_id.clone(),
         entries,
+        phase: Some(recovery::JournalPhase::Prepared),
     };
     let transaction = TransactionRequest {
         version: plan.protocol_version.clone(),
@@ -1121,7 +1122,7 @@ pub fn apply_prepared_plan(workspace: &Workspace, plan: &PreparedPlan) -> PlanAp
         &plan.assertions,
     );
     match result {
-        Ok(certificates) => {
+        Ok((certificates, recovery_state, cleanup_err)) => {
             if plan.operations.len() == 1 {
                 PlanApplyResult::Certificate(certificates.into_iter().next().unwrap())
             } else {
@@ -1134,10 +1135,12 @@ pub fn apply_prepared_plan(workspace: &Workspace, plan: &PreparedPlan) -> PlanAp
                         Outcome::Applied
                     },
                     certificates,
-                    rollback_state: "not_required".into(),
+                    rollback_state: recovery_state.into(),
                     transaction_guarantee: "transactional_with_rollback".into(),
                     refusal_reason: None,
-                    failure_reason: None,
+                    failure_reason: cleanup_err.map(|error| FailureReason::CommitFailure {
+                        message: format!("recovery journal cleanup failed: {error}"),
+                    }),
                     reason_code: None,
                     recovery: None,
                     schema_diagnostic: None,
@@ -1173,7 +1176,7 @@ fn commit_prepared_plan(
     aggregate: EffectUsage,
     prepared: Vec<(String, Vec<u8>, Vec<u8>, Vec<ByteEdit>)>,
     assertions: &[Assertion],
-) -> Result<Vec<Certificate>, Certificate> {
+) -> Result<(Vec<Certificate>, &'static str, Option<WorkspaceError>), Certificate> {
     if let Err(error) = recovery::check_journal_size(journal) {
         return Err(failure(
             &transaction.requests[0],
@@ -1201,23 +1204,16 @@ fn commit_prepared_plan(
         if let Err(error) =
             workspace.write_file_atomic_checked(&entry.path, &entry.pre_hash, &entry.candidate)
         {
-            let rollback_ok = rollback_entries(workspace, &committed);
-            return Err(failure(
+            let rollback = rollback_entries(workspace, &committed);
+            return Err(failure_with_rollback(
                 &transaction.requests[0],
                 &entry.path,
                 "plan",
                 entry.pre_hash.clone(),
                 FailureReason::CommitFailure {
-                    message: format!(
-                        "{} (rollback: {})",
-                        error,
-                        if rollback_ok {
-                            "ok"
-                        } else {
-                            "manual recovery required"
-                        }
-                    ),
+                    message: rollback.format_message(&error.to_string()),
                 },
+                rollback.rollback_state(),
             ));
         }
         committed.push(entry);
@@ -1227,38 +1223,40 @@ fn commit_prepared_plan(
         let landed = match workspace.read_file(&entry.path) {
             Ok(bytes) => bytes,
             Err(error) => {
-                let rollback_ok = rollback_entries(workspace, &committed);
-                return Err(failure(
+                let rollback = rollback_entries(workspace, &committed);
+                return Err(failure_with_rollback(
                     &transaction.requests[0],
                     &entry.path,
                     "plan",
                     entry.pre_hash.clone(),
                     FailureReason::PostCommitVerificationFailure {
                         expected_hash: entry.candidate_hash.clone(),
-                        actual_hash: format!("read failed: {error}; rollback={rollback_ok}"),
+                        actual_hash: rollback.format_message(&format!("read failed: {error}")),
                     },
+                    rollback.rollback_state(),
                 ));
             }
         };
         if compute_sha256(&landed) != entry.candidate_hash {
             let actual_hash = compute_sha256(&landed);
-            let rollback_ok = rollback_entries(workspace, &committed);
-            return Err(failure(
+            let rollback = rollback_entries(workspace, &committed);
+            return Err(failure_with_rollback(
                 &transaction.requests[0],
                 &entry.path,
                 "plan",
                 entry.pre_hash.clone(),
                 FailureReason::PostCommitVerificationFailure {
                     expected_hash: entry.candidate_hash.clone(),
-                    actual_hash: format!("{actual_hash}; rollback={rollback_ok}"),
+                    actual_hash: rollback.format_message(&actual_hash),
                 },
+                rollback.rollback_state(),
             ));
         }
         overrides.insert(entry.path.clone(), landed);
     }
     if let Err(reason) = evaluate_assertions(workspace, assertions, &overrides, "committed") {
-        let rollback_ok = rollback_entries(workspace, &committed);
-        return Err(failure(
+        let rollback = rollback_entries(workspace, &committed);
+        return Err(failure_with_rollback(
             &transaction.requests[0],
             &journal.entries[0].path,
             "plan",
@@ -1266,12 +1264,28 @@ fn commit_prepared_plan(
             FailureReason::PostCommitAssertionFailed {
                 assertion: format!("{reason:?}"),
                 expected: "assertion satisfied".into(),
-                observed: format!("rollback={rollback_ok}"),
+                observed: rollback.format_message("post-commit assertion failed"),
                 path: journal.entries[0].path.clone(),
             },
+            rollback.rollback_state(),
         ));
     }
-    let _ = recovery::remove_journal(workspace, &journal.transaction_id);
+    let recovery_state =
+        match commit_and_cleanup_journal(workspace, &journal.transaction_id, &committed) {
+            Ok(state) => state,
+            Err((rollback, msg)) => {
+                return Err(failure_with_rollback(
+                    &transaction.requests[0],
+                    &journal.entries[0].path,
+                    "plan",
+                    journal.entries[0].pre_hash.clone(),
+                    FailureReason::CommitFailure {
+                        message: rollback.format_message(&msg),
+                    },
+                    rollback.rollback_state(),
+                ));
+            }
+        };
     let mut certificates = Vec::new();
     for (index, (path, original, candidate, edits)) in prepared.into_iter().enumerate() {
         let request = transaction
@@ -1316,15 +1330,148 @@ fn commit_prepared_plan(
         };
         certificates.push(certificate);
     }
-    Ok(certificates)
+    mark_transaction_certificates(&mut certificates, recovery_state);
+    let cleanup_err = if recovery_state == "recovery_available" {
+        Some(WorkspaceError::Io(std::io::Error::other(
+            "recovery journal cleanup failed; transaction remains committed",
+        )))
+    } else {
+        None
+    };
+    Ok((certificates, recovery_state, cleanup_err))
 }
 
-fn rollback_entries(workspace: &Workspace, committed: &[&JournalEntry]) -> bool {
-    committed.iter().rev().all(|entry| {
-        workspace
-            .write_file_atomic_checked(&entry.path, &entry.candidate_hash, &entry.original)
-            .is_ok()
-    })
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RollbackReport {
+    pub total: usize,
+    pub restored: usize,
+    pub failed: Vec<String>,
+}
+
+impl RollbackReport {
+    pub fn is_all_ok(&self) -> bool {
+        self.failed.is_empty()
+    }
+
+    pub fn is_partial(&self) -> bool {
+        !self.failed.is_empty() && self.restored > 0
+    }
+
+    pub fn rollback_state(&self) -> &'static str {
+        if self.total == 0 {
+            "not_started"
+        } else if self.failed.is_empty() {
+            "rolled_back"
+        } else {
+            "manual_recovery_required"
+        }
+    }
+
+    pub fn format_message(&self, base_error: &str) -> String {
+        if self.total == 0 {
+            format!("{base_error} (rollback: not required)")
+        } else if self.failed.is_empty() {
+            format!("{base_error} (rollback: ok)")
+        } else if self.restored > 0 {
+            format!(
+                "{} (rollback partial: {}/{} restored, failed: [{}]; manual recovery required)",
+                base_error,
+                self.restored,
+                self.total,
+                self.failed.join(", ")
+            )
+        } else {
+            format!(
+                "{} (rollback failed: 0/{} restored, failed: [{}]; manual recovery required)",
+                base_error,
+                self.total,
+                self.failed.join(", ")
+            )
+        }
+    }
+}
+
+pub fn rollback_entries(workspace: &Workspace, committed: &[&JournalEntry]) -> RollbackReport {
+    let mut restored = 0;
+    let mut failed = Vec::new();
+    for entry in committed.iter().rev() {
+        match workspace.write_file_atomic_checked(
+            &entry.path,
+            &entry.candidate_hash,
+            &entry.original,
+        ) {
+            Ok(()) => restored += 1,
+            Err(_) => failed.push(entry.path.clone()),
+        }
+    }
+    RollbackReport {
+        total: committed.len(),
+        restored,
+        failed,
+    }
+}
+
+pub fn commit_and_cleanup_journal(
+    workspace: &Workspace,
+    transaction_id: &str,
+    committed: &[&JournalEntry],
+) -> Result<&'static str, (RollbackReport, String)> {
+    let mark_result = recovery::mark_journal_committed(workspace, transaction_id);
+    let disk_phase = recovery::read_journal_phase(workspace, transaction_id);
+
+    if mark_result.is_ok() || matches!(disk_phase, Ok(Some(recovery::JournalPhase::Committed))) {
+        // Journal was successfully published to disk as Committed!
+        // We MUST NEVER roll back candidate files.
+        match recovery::remove_journal(workspace, transaction_id) {
+            Ok(()) => Ok("not_required"),
+            Err(_) => Ok("recovery_available"),
+        }
+    } else {
+        // Commit decision was NOT established on disk (mark failed and disk phase is not Committed).
+        // Threadmoth MUST NOT acknowledge this transaction as Applied even if journal removal succeeds.
+        // Roll back all committed files to original, attempt best-effort journal removal,
+        // and return an error with the rollback report.
+        // Attempt exhaustive reverse-order rollback of all committed files.
+        let rollback = rollback_entries(workspace, committed);
+        let mark_err = mark_result
+            .err()
+            .map(|e| e.to_string())
+            .unwrap_or_else(|| format!("journal phase is {:?}", disk_phase.ok().flatten()));
+
+        if rollback.is_all_ok() {
+            // All committed files were verified restored to original.
+            // Journal cleanup is safe and permitted.
+            let cleanup_result = recovery::remove_journal(workspace, transaction_id);
+            let clean_err = cleanup_result
+                .err()
+                .map(|e| format!("; cleanup error: {e}"))
+                .unwrap_or_default();
+            let msg = format!(
+                "commit decision failed: could not record committed state ({mark_err}){clean_err}"
+            );
+            Err((rollback, msg))
+        } else {
+            // Rollback was partial or failed: NEVER remove journal!
+            // The journal on disk contains critical original/candidate evidence required for manual recovery.
+            let msg = format!(
+                "commit decision failed: could not record committed state ({mark_err}); rollback incomplete, journal retained for manual recovery"
+            );
+            Err((rollback, msg))
+        }
+    }
+}
+
+fn failure_with_rollback(
+    r: &Request,
+    path: &str,
+    provider: &str,
+    pre: String,
+    reason: FailureReason,
+    recovery_state: &str,
+) -> Certificate {
+    let mut c = failure(r, path, provider, pre, reason);
+    c.recovery_state = recovery_state.into();
+    c
 }
 
 /// Read-only plan checks used by `explain --plan`. Applying a plan repeats these checks and then
@@ -1732,6 +1879,7 @@ pub fn execute_transaction(
                 candidate: candidate.clone(),
             })
             .collect(),
+        phase: Some(recovery::JournalPhase::Prepared),
     };
     if let Err(error) = recovery::check_journal_size(&journal) {
         return transaction_journal_error(transaction, error);
@@ -1744,33 +1892,17 @@ pub fn execute_transaction(
         match workspace.write_file_atomic_checked(&entry.path, &entry.pre_hash, &entry.candidate) {
             Ok(()) => committed.push(entry),
             Err(error) => {
-                let mut rollback_ok = true;
-                for prior in committed.iter().rev() {
-                    if workspace
-                        .write_file_atomic_checked(
-                            &prior.path,
-                            &prior.candidate_hash,
-                            &prior.original,
-                        )
-                        .is_err()
-                    {
-                        rollback_ok = false;
-                    }
-                }
+                let rollback = rollback_entries(workspace, &committed);
                 return TransactionCertificate {
                     protocol_version: transaction.version.clone(),
                     transaction_id: transaction.transaction_id.clone(),
                     outcome: Outcome::Failed,
                     certificates,
-                    rollback_state: if rollback_ok {
-                        "rolled_back".into()
-                    } else {
-                        "manual_recovery_required".into()
-                    },
+                    rollback_state: rollback.rollback_state().into(),
                     transaction_guarantee: "transactional_with_rollback".into(),
                     refusal_reason: None,
                     failure_reason: Some(FailureReason::CommitFailure {
-                        message: error.to_string(),
+                        message: rollback.format_message(&error.to_string()),
                     }),
                     reason_code: Some("COMMIT_FAILED".into()),
                     recovery: None,
@@ -1783,34 +1915,18 @@ pub fn execute_transaction(
         let landed = match workspace.read_file(&entry.path) {
             Ok(bytes) => bytes,
             Err(error) => {
-                let mut rollback_ok = true;
-                for prior in committed.iter().rev() {
-                    if workspace
-                        .write_file_atomic_checked(
-                            &prior.path,
-                            &prior.candidate_hash,
-                            &prior.original,
-                        )
-                        .is_err()
-                    {
-                        rollback_ok = false;
-                    }
-                }
+                let rollback = rollback_entries(workspace, &committed);
                 return TransactionCertificate {
                     protocol_version: transaction.version.clone(),
                     transaction_id: transaction.transaction_id.clone(),
                     outcome: Outcome::Failed,
                     certificates,
-                    rollback_state: if rollback_ok {
-                        "rolled_back".into()
-                    } else {
-                        "manual_recovery_required".into()
-                    },
+                    rollback_state: rollback.rollback_state().into(),
                     transaction_guarantee: "transactional_with_rollback".into(),
                     refusal_reason: None,
                     failure_reason: Some(FailureReason::PostCommitVerificationFailure {
                         expected_hash: entry.candidate_hash.clone(),
-                        actual_hash: format!("read failed: {error}"),
+                        actual_hash: rollback.format_message(&format!("read failed: {error}")),
                     }),
                     reason_code: Some("POST_COMMIT_VERIFICATION_FAILED".into()),
                     recovery: None,
@@ -1820,30 +1936,18 @@ pub fn execute_transaction(
         };
         if landed != entry.candidate {
             let actual_hash = compute_sha256(&landed);
-            let mut rollback_ok = true;
-            for prior in committed.iter().rev() {
-                if workspace
-                    .write_file_atomic_checked(&prior.path, &prior.candidate_hash, &prior.original)
-                    .is_err()
-                {
-                    rollback_ok = false;
-                }
-            }
+            let rollback = rollback_entries(workspace, &committed);
             return TransactionCertificate {
                 protocol_version: transaction.version.clone(),
                 transaction_id: transaction.transaction_id.clone(),
                 outcome: Outcome::Failed,
                 certificates,
-                rollback_state: if rollback_ok {
-                    "rolled_back".into()
-                } else {
-                    "manual_recovery_required".into()
-                },
+                rollback_state: rollback.rollback_state().into(),
                 transaction_guarantee: "transactional_with_rollback".into(),
                 refusal_reason: None,
                 failure_reason: Some(FailureReason::PostCommitVerificationFailure {
                     expected_hash: entry.candidate_hash.clone(),
-                    actual_hash,
+                    actual_hash: rollback.format_message(&actual_hash),
                 }),
                 reason_code: Some("POST_COMMIT_VERIFICATION_FAILED".into()),
                 recovery: None,
@@ -1851,12 +1955,27 @@ pub fn execute_transaction(
             };
         }
     }
-    let cleanup = recovery::remove_journal(workspace, &transaction.transaction_id);
-    let recovery_state = if cleanup.is_ok() {
-        "not_required"
-    } else {
-        "recovery_available"
-    };
+    let recovery_state =
+        match commit_and_cleanup_journal(workspace, &transaction.transaction_id, &committed) {
+            Ok(state) => state,
+            Err((rollback, msg)) => {
+                return TransactionCertificate {
+                    protocol_version: transaction.version.clone(),
+                    transaction_id: transaction.transaction_id.clone(),
+                    outcome: Outcome::Failed,
+                    certificates,
+                    rollback_state: rollback.rollback_state().into(),
+                    transaction_guarantee: "transactional_with_rollback".into(),
+                    refusal_reason: None,
+                    failure_reason: Some(FailureReason::CommitFailure {
+                        message: rollback.format_message(&msg),
+                    }),
+                    reason_code: Some("COMMIT_FAILED".into()),
+                    recovery: None,
+                    schema_diagnostic: None,
+                };
+            }
+        };
     mark_transaction_certificates(&mut certificates, recovery_state);
     TransactionCertificate {
         protocol_version: transaction.version.clone(),
@@ -1870,9 +1989,13 @@ pub fn execute_transaction(
         rollback_state: recovery_state.into(),
         transaction_guarantee: "transactional_with_rollback".into(),
         refusal_reason: None,
-        failure_reason: cleanup.err().map(|error| FailureReason::CommitFailure {
-            message: format!("recovery journal cleanup failed: {error}"),
-        }),
+        failure_reason: if recovery_state == "recovery_available" {
+            Some(FailureReason::CommitFailure {
+                message: "recovery journal cleanup failed; transaction remains committed".into(),
+            })
+        } else {
+            None
+        },
         reason_code: None,
         recovery: None,
         schema_diagnostic: None,
@@ -2122,6 +2245,7 @@ fn execute_single_file_transaction(
             original,
             candidate: current,
         }],
+        phase: Some(recovery::JournalPhase::Prepared),
     };
     if let Err(error) = recovery::check_journal_size(&journal) {
         return transaction_journal_error(transaction, error);
@@ -2175,11 +2299,30 @@ fn execute_single_file_transaction(
                     schema_diagnostic: None,
                 };
             }
-            let cleanup = recovery::remove_journal(workspace, &transaction.transaction_id);
-            let recovery_state = if cleanup.is_ok() {
-                "not_required"
-            } else {
-                "recovery_available"
+            let committed_entries = vec![&journal.entries[0]];
+            let recovery_state = match commit_and_cleanup_journal(
+                workspace,
+                &transaction.transaction_id,
+                &committed_entries,
+            ) {
+                Ok(state) => state,
+                Err((rollback, msg)) => {
+                    return TransactionCertificate {
+                        protocol_version: transaction.version.clone(),
+                        transaction_id: transaction.transaction_id.clone(),
+                        outcome: Outcome::Failed,
+                        certificates,
+                        rollback_state: rollback.rollback_state().into(),
+                        transaction_guarantee: "transactional_with_rollback".into(),
+                        refusal_reason: None,
+                        failure_reason: Some(FailureReason::CommitFailure {
+                            message: rollback.format_message(&msg),
+                        }),
+                        reason_code: Some("COMMIT_FAILED".into()),
+                        recovery: None,
+                        schema_diagnostic: None,
+                    };
+                }
             };
             mark_transaction_certificates(&mut certificates, recovery_state);
             TransactionCertificate {
@@ -2190,9 +2333,14 @@ fn execute_single_file_transaction(
                 rollback_state: recovery_state.into(),
                 transaction_guarantee: "transactional_with_rollback".into(),
                 refusal_reason: None,
-                failure_reason: cleanup.err().map(|error| FailureReason::CommitFailure {
-                    message: format!("recovery journal cleanup failed: {error}"),
-                }),
+                failure_reason: if recovery_state == "recovery_available" {
+                    Some(FailureReason::CommitFailure {
+                        message: "recovery journal cleanup failed; transaction remains committed"
+                            .into(),
+                    })
+                } else {
+                    None
+                },
                 reason_code: None,
                 recovery: None,
                 schema_diagnostic: None,
