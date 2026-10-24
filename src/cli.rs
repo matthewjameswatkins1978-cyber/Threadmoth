@@ -78,6 +78,13 @@ pub enum Command {
     )]
     PrepareEdits(PrepareEditsArgs),
 
+    /// Perform structural AST pattern search and rewrite using the Toolbelt ast-grep attachment.
+    #[command(
+        name = "structural",
+        after_help = "Examples:\n  threadmoth structural --pattern 'old($A)' --rewrite 'new($A)' --lang python src/\n  threadmoth structural --pattern 'foo($A)' --rewrite 'bar($A)' src/ --preview\n  threadmoth structural --pattern 'foo($A)' --rewrite 'bar($A)' src/ --plan plan.json\nThen review: threadmoth explain --plan plan.json --format diff\nThen apply: threadmoth apply-plan --plan plan.json --summary"
+    )]
+    Structural(StructuralArgs),
+
     /// Legacy alias for `transact --preview`.
     #[command(hide = true)]
     TransactionPreview(RequestArgs),
@@ -369,6 +376,41 @@ pub struct PrepareTextArgs {
     /// Read the complete source-aware request from this JSON file, or stdin when omitted.
     #[arg(short = 'r', long, value_hint = ValueHint::FilePath)]
     pub request: Option<std::path::PathBuf>,
+}
+
+#[derive(Args, Clone, Debug)]
+pub struct StructuralArgs {
+    /// AST pattern to search (e.g. 'foo($A, $B)')
+    #[arg(short, long)]
+    pub pattern: String,
+
+    /// Replacement template using matched metavariables (e.g. 'bar($B, $A)')
+    #[arg(short, long)]
+    pub rewrite: String,
+
+    /// Language of the pattern and files (e.g. python, rust, typescript). Inferred from file extension if omitted.
+    #[arg(short, long)]
+    pub lang: Option<String>,
+
+    /// Target files or directories within the workspace
+    #[arg(default_value = ".")]
+    pub paths: Vec<String>,
+
+    /// Save the prepared plan to this file for review and execution
+    #[arg(long, value_hint = ValueHint::FilePath)]
+    pub plan: Option<std::path::PathBuf>,
+
+    /// Preview the prospective diff without writing to disk
+    #[arg(long)]
+    pub preview: bool,
+
+    /// Maximum number of files permitted to be modified
+    #[arg(long)]
+    pub max_files: Option<usize>,
+
+    /// Output full JSON certificate or summary
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]

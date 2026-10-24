@@ -98,6 +98,21 @@ struct OrientToolArgs {}
 
 #[derive(Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+struct StructuralToolArgs {
+    pattern: String,
+    rewrite: String,
+    #[serde(default)]
+    lang: Option<String>,
+    #[serde(default)]
+    paths: Vec<String>,
+    #[serde(default)]
+    dry_run: bool,
+    #[serde(default)]
+    max_files: Option<usize>,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 struct EditToolArgs {
     #[serde(default)]
     #[serde(rename = "file_path", alias = "path", alias = "target", alias = "file")]
@@ -243,7 +258,8 @@ fn handle_mcp_message(
                     {"name": "threadmoth_transact", "description": "Prepare and commit a guarded transaction", "inputSchema": schema_for!(TransactionRequest)},
                     {"name": "threadmoth_exact_replace", "description": "Safely replace one exact text occurrence through the canonical pipeline after the occurrence is uniquely established", "inputSchema": schema_for!(ExactReplaceToolArgs)},
                     {"name": "threadmoth_set_value", "description": "Safely set one selected JSON, JSONC, TOML, YAML, INI or dotenv value through the canonical registry and Core pipeline; do not guess among plausible targets", "inputSchema": schema_for!(SetValueToolArgs)},
-                    {"name": "threadmoth_orient", "description": "Return workspace-bound discovery, the compact prepare-text → review → apply-plan CLI path, MCP preparation/application tools and exit-code map; does not select or change a workspace", "inputSchema": schema_for!(OrientToolArgs)}
+                    {"name": "threadmoth_orient", "description": "Return workspace-bound discovery, the compact prepare-text → review → apply-plan CLI path, MCP preparation/application tools and exit-code map; does not select or change a workspace", "inputSchema": schema_for!(OrientToolArgs)},
+                    {"name": "threadmoth_structural", "description": "Perform structural AST pattern search and rewrite across workspace files using the ast-grep toolbelt attachment, guarded by Threadmoth's transaction and rollback engine", "inputSchema": schema_for!(StructuralToolArgs)}
                 ]}
             }),
             Some("tools/call") => {
@@ -545,6 +561,42 @@ fn call_tool(
                 ))
                 .map_err(|e| e.to_string())?,
             )
+        }
+        "threadmoth_structural" => {
+            let args: StructuralToolArgs = serde_json::from_value(arguments)
+                .map_err(|e| format!("Invalid structural arguments: {e}"))?;
+            let req = threadmoth::toolbelt::structural::StructuralRequest {
+                pattern: args.pattern,
+                rewrite: args.rewrite,
+                lang: args.lang,
+                paths: args.paths,
+                max_files: args.max_files,
+            };
+            match threadmoth::toolbelt::structural::execute_structural(
+                workspace,
+                &req,
+                None,
+                args.dry_run,
+            ) {
+                Ok(threadmoth::toolbelt::structural::StructuralOutcome::NoChange { message }) => {
+                    Ok(serde_json::json!({
+                        "outcome": "no_change",
+                        "message": message,
+                    }))
+                }
+                Ok(threadmoth::toolbelt::structural::StructuralOutcome::Preview {
+                    certificate,
+                })
+                | Ok(threadmoth::toolbelt::structural::StructuralOutcome::Applied {
+                    certificate,
+                }) => serde_json::to_value(certificate).map_err(|e| e.to_string()),
+                Ok(threadmoth::toolbelt::structural::StructuralOutcome::PlanPrepared {
+                    ..
+                }) => {
+                    unreachable!()
+                }
+                Err(e) => Err(e.to_string()),
+            }
         }
         _ => Err("unknown Threadmoth tool".into()),
     }

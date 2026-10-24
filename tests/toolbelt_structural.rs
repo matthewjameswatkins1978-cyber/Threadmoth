@@ -1,0 +1,753 @@
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::Path;
+use tempfile::TempDir;
+use threadmoth::protocol::Outcome;
+use threadmoth::toolbelt::structural::{
+    discover, execute_structural, parse_ast_grep_output, StructuralError, StructuralOutcome,
+    StructuralRequest,
+};
+use threadmoth::workspace::Workspace;
+
+#[test]
+fn structural_capability_is_discoverable_and_reports_engine() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let info = discover(&workspace);
+    assert_eq!(info.name, "structural");
+    assert_eq!(info.engine, "ast-grep");
+    assert!(
+        info.available,
+        "ast-grep must be installed and discoverable on PATH"
+    );
+    assert!(info.version.is_some(), "version should be reported");
+    assert!(
+        info.supported_languages.contains(&"python".to_string()),
+        "python should be supported"
+    );
+    assert!(
+        info.supported_languages.contains(&"rust".to_string()),
+        "rust should be supported"
+    );
+
+    // Orientation view check
+    let orient = threadmoth::metadata::orientation(temp.path().to_str().unwrap());
+    assert!(orient["toolbelt"]["structural"]["available"]
+        .as_bool()
+        .unwrap());
+    assert_eq!(orient["toolbelt"]["structural"]["engine"], "ast-grep");
+
+    // Capability view check
+    let cap = threadmoth::metadata::capability_view(Some("toolbelt"));
+    assert!(cap["attachments"].as_array().is_some());
+}
+
+#[test]
+#[cfg(feature = "test-fault-injection")]
+fn engine_unavailable_behavior_is_verified_separately() {
+    threadmoth::toolbelt::structural::fault_injection::with_forced_unavailable(|| {
+        let temp = TempDir::new().unwrap();
+        let workspace = Workspace::new(temp.path()).unwrap();
+
+        let info = discover(&workspace);
+        assert_eq!(info.name, "structural");
+        assert_eq!(info.engine, "ast-grep");
+        assert!(!info.available, "engine should be reported as unavailable");
+        assert!(info.version.is_none());
+
+        let orient = threadmoth::metadata::orientation(temp.path().to_str().unwrap());
+        assert_eq!(orient["toolbelt"]["structural"]["available"], false);
+
+        let req = StructuralRequest {
+            pattern: "x".into(),
+            rewrite: "y".into(),
+            lang: Some("python".into()),
+            paths: vec!["test.py".into()],
+            max_files: None,
+        };
+        workspace
+            .write_file_atomic("test.py", b"def test(): pass\n")
+            .unwrap();
+
+        let err = execute_structural(&workspace, &req, None, false).unwrap_err();
+        assert!(
+            matches!(err, StructuralError::AstGrepNotFound),
+            "expected AstGrepNotFound, got {err:?}"
+        );
+    });
+}
+
+#[test]
+fn single_file_structural_transformation_locates_and_rewrites_pattern() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let initial_py = b"def calc():\n    return multiply(2, 3)\n\ndef other():\n    pass\n";
+    workspace.write_file_atomic("calc.py", initial_py).unwrap();
+
+    let req = StructuralRequest {
+        pattern: "multiply($A, $B)".into(),
+        rewrite: "times($B, $A)".into(),
+        lang: Some("python".into()),
+        paths: vec!["calc.py".into()],
+        max_files: None,
+    };
+
+    let outcome = execute_structural(&workspace, &req, None, false).unwrap();
+    match outcome {
+        StructuralOutcome::Applied { certificate } => {
+            assert_eq!(certificate.outcome, Outcome::Applied);
+            assert_eq!(certificate.certificates.len(), 1);
+            assert_eq!(certificate.certificates[0].file_path, "calc.py");
+        }
+        _ => panic!("expected Applied outcome, got {outcome:?}"),
+    }
+
+    let modified = workspace.read_file("calc.py").unwrap();
+    let expected = b"def calc():\n    return times(3, 2)\n\ndef other():\n    pass\n";
+    assert_eq!(
+        modified, expected,
+        "arguments should be swapped and function renamed"
+    );
+}
+
+#[test]
+fn repeated_matches_across_multiple_files_transformed_atomically() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let f1_orig = b"x = log_error(\"msg1\", 10)\ny = log_error(\"msg2\", 20)\n";
+    let f2_orig = b"z = log_error(\"msg3\", 30)\n";
+    workspace.write_file_atomic("src/a.py", f1_orig).unwrap();
+    workspace.write_file_atomic("src/b.py", f2_orig).unwrap();
+
+    let req = StructuralRequest {
+        pattern: "log_error($M, $C)".into(),
+        rewrite: "logger.error($M, code=$C)".into(),
+        lang: Some("python".into()),
+        paths: vec!["src".into()],
+        max_files: None,
+    };
+
+    let outcome = execute_structural(&workspace, &req, None, false).unwrap();
+    match outcome {
+        StructuralOutcome::Applied { certificate } => {
+            assert_eq!(certificate.outcome, Outcome::Applied);
+            assert_eq!(
+                certificate.certificates.len(),
+                2,
+                "both files should be modified"
+            );
+        }
+        _ => panic!("expected Applied outcome, got {outcome:?}"),
+    }
+
+    let f1_mod = workspace.read_file("src/a.py").unwrap();
+    let f1_expected = b"x = logger.error(\"msg1\", code=10)\ny = logger.error(\"msg2\", code=20)\n";
+    assert_eq!(f1_mod, f1_expected);
+
+    let f2_mod = workspace.read_file("src/b.py").unwrap();
+    let f2_expected = b"z = logger.error(\"msg3\", code=30)\n";
+    assert_eq!(f2_mod, f2_expected);
+}
+
+#[test]
+fn structural_preview_does_not_modify_disk() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let orig = b"fn main() { run_task(42); }\n";
+    workspace.write_file_atomic("main.rs", orig).unwrap();
+
+    let req = StructuralRequest {
+        pattern: "run_task($X)".into(),
+        rewrite: "execute_task($X)".into(),
+        lang: Some("rust".into()),
+        paths: vec!["main.rs".into()],
+        max_files: None,
+    };
+
+    let outcome = execute_structural(&workspace, &req, None, true).unwrap();
+    match outcome {
+        StructuralOutcome::Preview { certificate } => {
+            assert_eq!(certificate.outcome, Outcome::Applied);
+            assert_eq!(certificate.certificates.len(), 1);
+        }
+        _ => panic!("expected Preview outcome"),
+    }
+
+    // Disk content MUST remain unchanged!
+    assert_eq!(workspace.read_file("main.rs").unwrap(), orig);
+}
+
+#[test]
+fn structural_plan_can_be_prepared_and_applied_separately() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let orig = b"const x = getValue(100);\n";
+    workspace.write_file_atomic("app.js", orig).unwrap();
+
+    let req = StructuralRequest {
+        pattern: "getValue($V)".into(),
+        rewrite: "fetchValue($V)".into(),
+        lang: Some("javascript".into()),
+        paths: vec!["app.js".into()],
+        max_files: None,
+    };
+
+    let plan_path = temp.path().join("structural.plan.json");
+    let outcome = execute_structural(&workspace, &req, Some(&plan_path), false).unwrap();
+    match outcome {
+        StructuralOutcome::PlanPrepared { files_affected, .. } => {
+            assert_eq!(files_affected, 1);
+            assert!(plan_path.exists(), "plan file should be written to disk");
+        }
+        _ => panic!("expected PlanPrepared outcome"),
+    }
+
+    // Disk content is unchanged until plan is applied
+    assert_eq!(workspace.read_file("app.js").unwrap(), orig);
+
+    // Apply the plan through Threadmoth's standard apply_prepared_plan
+    let plan_bytes = fs::read(&plan_path).unwrap();
+    let plan: threadmoth::protocol::PreparedPlan = serde_json::from_slice(&plan_bytes).unwrap();
+    let apply_res = threadmoth::pipeline::apply_prepared_plan(&workspace, &plan);
+
+    match apply_res {
+        threadmoth::protocol::PlanApplyResult::Certificate(cert) => {
+            assert_eq!(cert.outcome, Outcome::Applied);
+        }
+        threadmoth::protocol::PlanApplyResult::Transaction(cert) => {
+            assert_eq!(cert.outcome, Outcome::Applied);
+        }
+    }
+
+    let modified = workspace.read_file("app.js").unwrap();
+    assert_eq!(modified, b"const x = fetchValue(100);\n");
+}
+
+#[test]
+fn structural_no_change_is_reported_cleanly() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let orig = b"fn keep_same() {}\n";
+    workspace.write_file_atomic("lib.rs", orig).unwrap();
+
+    let req = StructuralRequest {
+        pattern: "non_existent_call($A)".into(),
+        rewrite: "replacement($A)".into(),
+        lang: Some("rust".into()),
+        paths: vec!["lib.rs".into()],
+        max_files: None,
+    };
+
+    let outcome = execute_structural(&workspace, &req, None, false).unwrap();
+    match outcome {
+        StructuralOutcome::NoChange { message } => {
+            assert!(message.contains("No matching structural patterns found"));
+        }
+        _ => panic!("expected NoChange outcome"),
+    }
+
+    assert_eq!(workspace.read_file("lib.rs").unwrap(), orig);
+}
+
+#[test]
+fn workspace_escape_attempt_is_refused() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let req = StructuralRequest {
+        pattern: "foo()".into(),
+        rewrite: "bar()".into(),
+        lang: Some("python".into()),
+        paths: vec!["../outside_workspace.py".into()],
+        max_files: None,
+    };
+
+    let res = execute_structural(&workspace, &req, None, false);
+    assert!(res.is_err());
+    let err = res.err().unwrap().to_string();
+    assert!(
+        err.contains("path traversal not allowed") || err.contains("outside workspace root"),
+        "escape attempt should be refused: {err}"
+    );
+}
+
+#[test]
+fn multibyte_utf8_offsets_handled_safely_and_byte_boundaries_respected() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    // Source contains 3-byte Japanese characters and 4-byte rocket emoji
+    let utf8_src = "# 日本語コメント: データ処理\ndef process_rocket():\n    return emit_payload(123, \"🚀\")\n";
+    workspace
+        .write_file_atomic("multibyte.py", utf8_src.as_bytes())
+        .unwrap();
+
+    let req = StructuralRequest {
+        pattern: "emit_payload($A, $B)".into(),
+        rewrite: "send_data($B, $A)".into(),
+        lang: Some("python".into()),
+        paths: vec!["multibyte.py".into()],
+        max_files: None,
+    };
+
+    let outcome = execute_structural(&workspace, &req, None, false).unwrap();
+    match outcome {
+        StructuralOutcome::Applied { certificate } => {
+            assert_eq!(certificate.outcome, Outcome::Applied);
+        }
+        _ => panic!("expected Applied outcome"),
+    }
+
+    let modified_bytes = workspace.read_file("multibyte.py").unwrap();
+    let modified_str = String::from_utf8(modified_bytes).expect("must remain valid UTF-8");
+    assert!(modified_str.contains("# 日本語コメント: データ処理"));
+    assert!(modified_str.contains("return send_data(\"🚀\", 123)"));
+}
+
+#[test]
+fn crlf_line_endings_preserved_exactly() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let crlf_src = b"// Header line\r\nfunction run() {\r\n    return calculate(10);\r\n}\r\n// Footer line\r\n";
+    workspace
+        .write_file_atomic("crlf_sample.js", crlf_src)
+        .unwrap();
+
+    let req = StructuralRequest {
+        pattern: "calculate($N)".into(),
+        rewrite: "computeResult($N)".into(),
+        lang: Some("javascript".into()),
+        paths: vec!["crlf_sample.js".into()],
+        max_files: None,
+    };
+
+    let outcome = execute_structural(&workspace, &req, None, false).unwrap();
+    match outcome {
+        StructuralOutcome::Applied { certificate } => {
+            assert_eq!(certificate.outcome, Outcome::Applied);
+        }
+        _ => panic!("expected Applied outcome"),
+    }
+
+    let modified_bytes = workspace.read_file("crlf_sample.js").unwrap();
+    assert!(
+        modified_bytes.windows(2).any(|w| w == b"\r\n"),
+        "must preserve CRLF line endings"
+    );
+    let expected = b"// Header line\r\nfunction run() {\r\n    return computeResult(10);\r\n}\r\n// Footer line\r\n";
+    assert_eq!(modified_bytes, expected);
+}
+
+#[test]
+fn stale_source_drift_detected_and_refused() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let orig = b"def handler():\n    return step_one(42)\n";
+    workspace.write_file_atomic("task.py", orig).unwrap();
+
+    // Mock proposals parsed against initial snapshot
+    let record_json = serde_json::json!({
+        "text": "step_one(42)",
+        "range": { "byteOffset": { "start": 26, "end": 38 } },
+        "file": "task.py",
+        "replacement": "step_two(42)"
+    });
+
+    let stdout = format!("{}\n", record_json);
+    let proposals = parse_ast_grep_output(&workspace, &stdout, None).unwrap();
+    assert_eq!(proposals.len(), 1);
+
+    // Now intervene: modify file on disk before building transaction
+    workspace
+        .write_file_atomic(
+            "task.py",
+            b"def handler():\n    # intervening edit\n    return step_one(42)\n",
+        )
+        .unwrap();
+
+    // Verify build_transaction detects drift between proposal observation and live bytes
+    let group = proposals.get("task.py").unwrap();
+    let live_bytes = workspace.read_file("task.py").unwrap();
+    let live_hash = threadmoth::engine::compute_sha256(&live_bytes);
+    assert_ne!(
+        live_hash, group.observed_hash,
+        "live file hash must have drifted"
+    );
+}
+
+#[test]
+fn unsupported_language_is_refused() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let req = StructuralRequest {
+        pattern: "foo()".into(),
+        rewrite: "bar()".into(),
+        lang: Some("unsupported_custom_lang_xyz".into()),
+        paths: vec!["code.xyz".into()],
+        max_files: None,
+    };
+
+    let res = execute_structural(&workspace, &req, None, false);
+    assert!(res.is_err());
+    let err = res.err().unwrap();
+    assert!(matches!(err, StructuralError::UnsupportedLanguage(_)));
+}
+
+#[test]
+fn plan_output_traversal_and_collision_refused() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let orig = b"def compute():\n    return calc(1, 2)\n";
+    workspace.write_file_atomic("calc.py", orig).unwrap();
+
+    let req = StructuralRequest {
+        pattern: "calc($A, $B)".into(),
+        rewrite: "add($A, $B)".into(),
+        lang: Some("python".into()),
+        paths: vec!["calc.py".into()],
+        max_files: None,
+    };
+
+    // 1. Plan output outside workspace root is refused
+    let outside_path = Path::new("../escaped_plan.json");
+    let res_outside = execute_structural(&workspace, &req, Some(outside_path), false);
+    assert!(res_outside.is_err());
+    assert!(matches!(
+        res_outside.err().unwrap(),
+        StructuralError::WorkspaceEscape(_)
+    ));
+
+    // 2. Plan output colliding with target source file is refused
+    let collide_path = Path::new("calc.py");
+    let res_collide = execute_structural(&workspace, &req, Some(collide_path), false);
+    assert!(res_collide.is_err());
+    assert!(matches!(
+        res_collide.err().unwrap(),
+        StructuralError::PlanOutputCollision(_) | StructuralError::PlanOutputAlreadyExists(_)
+    ));
+}
+
+#[test]
+fn malformed_ast_grep_json_fails_closed() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let malformed_stdout = "{ this is not valid json\n";
+    let res = parse_ast_grep_output(&workspace, malformed_stdout, None);
+    assert!(res.is_err(), "must fail closed on malformed json record");
+    assert!(matches!(
+        res.err().unwrap(),
+        StructuralError::MalformedRecord { .. }
+    ));
+}
+
+#[test]
+fn missing_replacement_fails_closed() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    workspace
+        .write_file_atomic("sample.py", b"def foo(): pass\n")
+        .unwrap();
+
+    let record_no_replacement = serde_json::json!({
+        "text": "foo()",
+        "range": { "byteOffset": { "start": 4, "end": 9 } },
+        "file": "sample.py"
+        // missing "replacement"
+    });
+
+    let stdout = format!("{}\n", record_no_replacement);
+    let res = parse_ast_grep_output(&workspace, &stdout, None);
+    assert!(res.is_err(), "must fail closed when replacement is missing");
+    assert!(matches!(
+        res.err().unwrap(),
+        StructuralError::MissingReplacement { .. }
+    ));
+}
+
+#[test]
+fn unaligned_utf8_byte_offsets_fail_closed() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    // 🚀 is 4 bytes: [240, 159, 154, 128] at indices 13..17
+    let src = b"// Comments: \xf0\x9f\x9a\x80 rocket\n";
+    workspace.write_file_atomic("emoji.rs", src).unwrap();
+
+    // Invalid range that slices into the middle of 🚀 (index 14)
+    let record = serde_json::json!({
+        "text": "invalid",
+        "range": { "byteOffset": { "start": 14, "end": 18 } },
+        "file": "emoji.rs",
+        "replacement": "repaired"
+    });
+
+    let stdout = format!("{}\n", record);
+    let res = parse_ast_grep_output(&workspace, &stdout, None);
+    assert!(
+        res.is_err(),
+        "must fail closed when byte offset is not on UTF-8 boundary"
+    );
+    assert!(matches!(
+        res.err().unwrap(),
+        StructuralError::InvalidByteRange { .. }
+    ));
+}
+
+#[test]
+#[cfg(feature = "test-fault-injection")]
+fn concurrent_change_to_unrelated_bytes_while_ast_grep_is_scanning_is_detected_and_refused() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let orig_py = b"# Original header comment v1\ndef compute():\n    return multiply(2, 3)\n";
+    workspace.write_file_atomic("target.py", orig_py).unwrap();
+
+    let target_path = temp.path().join("target.py");
+
+    // Hook: when ast-grep subprocess spawns (while it is actively running/scanning),
+    // modify unrelated bytes (the header comment) in target.py
+    threadmoth::toolbelt::structural::fault_injection::set_on_subprocess_spawned(move || {
+        let _ = fs::write(
+            &target_path,
+            b"# Modified header comment v2 (concurrent drift!)\ndef compute():\n    return multiply(2, 3)\n",
+        );
+    });
+
+    let req = StructuralRequest {
+        pattern: "multiply($A, $B)".into(),
+        rewrite: "times($A, $B)".into(),
+        lang: Some("python".into()),
+        paths: vec!["target.py".into()],
+        max_files: None,
+    };
+
+    let res = execute_structural(&workspace, &req, None, false);
+    threadmoth::toolbelt::structural::fault_injection::clear_on_subprocess_spawned();
+
+    assert!(res.is_err(), "must detect concurrent drift during scan");
+    let err = res.err().unwrap();
+    assert!(
+        matches!(err, StructuralError::ConcurrentModification { .. }),
+        "expected ConcurrentModification, got {err:?}"
+    );
+}
+
+#[test]
+fn target_paths_with_command_option_prefixes_do_not_alter_ast_grep_behavior() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let orig = b"def test():\n    return old_fn(42)\n";
+    workspace
+        .write_file_atomic("-test_target.py", orig)
+        .unwrap();
+
+    let req = StructuralRequest {
+        pattern: "old_fn($X)".into(),
+        rewrite: "new_fn($X)".into(),
+        lang: Some("python".into()),
+        paths: vec!["./-test_target.py".into()],
+        max_files: None,
+    };
+
+    let outcome = execute_structural(&workspace, &req, None, false).unwrap();
+    match outcome {
+        StructuralOutcome::Applied { certificate } => {
+            assert_eq!(certificate.outcome, Outcome::Applied);
+        }
+        _ => panic!("expected Applied outcome, got {outcome:?}"),
+    }
+
+    let modified = workspace.read_file("-test_target.py").unwrap();
+    assert_eq!(modified, b"def test():\n    return new_fn(42)\n");
+}
+
+#[test]
+fn snapshot_validation_detects_mismatched_pre_scan_hash_directly() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let orig = b"def foo():\n    return 1\n";
+    workspace.write_file_atomic("mod.py", orig).unwrap();
+
+    let mut pre_scan_hashes = BTreeMap::new();
+    // Simulate a pre-scan hash that does NOT match current on-disk content
+    pre_scan_hashes.insert("mod.py".to_string(), "stale_hash_from_earlier".to_string());
+
+    let record = serde_json::json!({
+        "text": "1",
+        "range": { "byteOffset": { "start": 22, "end": 23 } },
+        "file": "mod.py",
+        "replacement": "2"
+    });
+    let stdout = format!("{}\n", record);
+
+    let res = parse_ast_grep_output(&workspace, &stdout, Some(&pre_scan_hashes));
+    assert!(res.is_err());
+    assert!(matches!(
+        res.err().unwrap(),
+        StructuralError::ConcurrentModification { .. }
+    ));
+}
+
+#[test]
+fn plan_output_refuses_to_overwrite_existing_file() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let readme_orig = b"# Project Documentation\nDo not overwrite this file.\n";
+    workspace
+        .write_file_atomic("README.md", readme_orig)
+        .unwrap();
+
+    let code_orig = b"def calc():\n    return multiply(2, 3)\n";
+    workspace.write_file_atomic("calc.py", code_orig).unwrap();
+
+    let req = StructuralRequest {
+        pattern: "multiply($A, $B)".into(),
+        rewrite: "times($B, $A)".into(),
+        lang: Some("python".into()),
+        paths: vec!["calc.py".into()],
+        max_files: None,
+    };
+
+    let plan_path = Path::new("README.md");
+    let res = execute_structural(&workspace, &req, Some(plan_path), false);
+
+    assert!(
+        res.is_err(),
+        "must refuse to overwrite existing README.md with plan"
+    );
+    let err = res.err().unwrap();
+    assert!(
+        matches!(err, StructuralError::PlanOutputAlreadyExists(_)),
+        "expected PlanOutputAlreadyExists, got {err:?}"
+    );
+
+    // Assert README.md bytes remain completely unchanged
+    let readme_after = workspace.read_file("README.md").unwrap();
+    assert_eq!(
+        readme_after, readme_orig,
+        "README.md bytes must remain exact and untouched"
+    );
+
+    // Also assert calc.py was not modified
+    let code_after = workspace.read_file("calc.py").unwrap();
+    assert_eq!(
+        code_after, code_orig,
+        "source files must not be modified in plan mode"
+    );
+}
+
+#[test]
+fn pre_scan_traversal_does_not_follow_directory_symlinks() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    workspace
+        .write_file_atomic("real_dir/file.py", b"def a(): return 1\n")
+        .unwrap();
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        let _ = symlink(
+            temp.path().join("real_dir"),
+            temp.path().join("symlink_dir"),
+        );
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::symlink_dir;
+        let _ = symlink_dir(
+            temp.path().join("real_dir"),
+            temp.path().join("symlink_dir"),
+        );
+    }
+
+    let hashes = threadmoth::toolbelt::structural::collect_pre_scan_hashes(
+        &workspace,
+        &["real_dir".to_string()],
+        Some("python"),
+    )
+    .unwrap();
+
+    assert_eq!(hashes.len(), 1);
+    assert!(hashes.contains_key("real_dir/file.py"));
+    assert!(!hashes.contains_key("symlink_dir/file.py"));
+}
+
+#[test]
+fn pre_scan_rejects_unreadable_relevant_source_files() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    workspace
+        .write_file_atomic("src/good.py", b"def good(): pass\n")
+        .unwrap();
+    workspace
+        .write_file_atomic("src/locked.py", b"def locked(): pass\n")
+        .unwrap();
+
+    let locked_path = temp.path().join("src/locked.py");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&locked_path).unwrap().permissions();
+        perms.set_mode(0o000);
+        let _ = std::fs::set_permissions(&locked_path, perms);
+        let res = threadmoth::toolbelt::structural::collect_pre_scan_hashes(
+            &workspace,
+            &["src".to_string()],
+            Some("python"),
+        );
+        assert!(
+            res.is_err(),
+            "must reject unreadable path rather than treating incomplete snapshot as complete"
+        );
+        assert!(matches!(
+            res.err().unwrap(),
+            StructuralError::SourceRead { .. }
+        ));
+    }
+    #[cfg(windows)]
+    {
+        use std::fs::OpenOptions;
+        use std::os::windows::fs::OpenOptionsExt;
+        // FILE_SHARE_READ is 1; passing share_mode 0 denies all sharing
+        let _lock_file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(0)
+            .open(&locked_path);
+
+        if let Ok(_lock) = _lock_file {
+            let res = threadmoth::toolbelt::structural::collect_pre_scan_hashes(
+                &workspace,
+                &["src".to_string()],
+                Some("python"),
+            );
+            assert!(
+                res.is_err(),
+                "must reject unreadable path rather than treating incomplete snapshot as complete"
+            );
+            assert!(matches!(
+                res.err().unwrap(),
+                StructuralError::SourceRead { .. }
+            ));
+        }
+    }
+}
