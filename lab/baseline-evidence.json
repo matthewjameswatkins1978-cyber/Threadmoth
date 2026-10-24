@@ -1,0 +1,5426 @@
+{
+  "format": "threadmoth-toolbelt-baseline/v1",
+  "repository": "https://github.com/matthewjameswatkins1978-cyber/Threadmoth",
+  "revision": "502fd3b097b53163b2212cb648b61036c88b610c",
+  "branch": "codex/toolbelt-lab",
+  "runtime_version": "threadmoth 1.20.0",
+  "runtime_sha256": "76dd9389546917ec252d9011b258376819766844b81395e8a11b3d9a8ec1fc75",
+  "runtime_build": "C:\\Users\\Matmus\\Documents\\Codex\\2026-10-22\\files-pasted-by-the-user-mission\\work\\threadmoth-toolbelt-lab\\target\\debug\\threadmoth.exe (cargo build --locked debug profile, x86_64-pc-windows-msvc)",
+  "toolchain": {
+    "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+    "cargo": "cargo 1.99.1 (5f94df478 2026-08-27)",
+    "python": "Python 3.13.16",
+    "ast_grep": "ast-grep 0.45.3",
+    "rust_analyzer": "rust-analyzer 1.99.1 (58cf8f9c 2026-10-13)"
+  },
+  "internal_suite": {
+    "command": "cargo test --locked",
+    "state": "PASS",
+    "test_binaries": 23,
+    "tests_passed": 292,
+    "tests_failed": 0
+  },
+  "benchmarks": {
+    "quick": {
+      "tool": "threadmoth benchmark",
+      "profile": "quick",
+      "state": "PASS",
+      "cases": [
+        {
+          "name": "tiny",
+          "bytes": 21,
+          "iterations": 3,
+          "wrong_applied": 0,
+          "average_us": 1276.4,
+          "certificate_bytes": 1497,
+          "state": "PASS"
+        },
+        {
+          "name": "config_30k",
+          "bytes": 30008,
+          "iterations": 3,
+          "wrong_applied": 0,
+          "average_us": 8069.433333333333,
+          "certificate_bytes": 1517,
+          "state": "PASS"
+        },
+        {
+          "name": "text_1m",
+          "bytes": 1000008,
+          "iterations": 3,
+          "wrong_applied": 0,
+          "average_us": 154628.19999999998,
+          "certificate_bytes": 1522,
+          "state": "PASS"
+        }
+      ],
+      "wrong_applied": 0
+    },
+    "tough": {
+      "tool": "threadmoth benchmark",
+      "profile": "tough",
+      "state": "PASS",
+      "cases": [
+        {
+          "name": "tiny",
+          "bytes": 21,
+          "iterations": 100,
+          "wrong_applied": 0,
+          "average_us": 821.7739999999999,
+          "certificate_bytes": 1497,
+          "state": "PASS"
+        },
+        {
+          "name": "config_30k",
+          "bytes": 30008,
+          "iterations": 50,
+          "wrong_applied": 0,
+          "average_us": 6077.786,
+          "certificate_bytes": 1517,
+          "state": "PASS"
+        },
+        {
+          "name": "text_1m",
+          "bytes": 1000008,
+          "iterations": 25,
+          "wrong_applied": 0,
+          "average_us": 159033.74800000002,
+          "certificate_bytes": 1522,
+          "state": "PASS"
+        },
+        {
+          "name": "text_5m",
+          "bytes": 5000008,
+          "iterations": 10,
+          "wrong_applied": 0,
+          "average_us": 709307.48,
+          "certificate_bytes": 1522,
+          "state": "PASS"
+        },
+        {
+          "name": "text_32m",
+          "bytes": 32000008,
+          "iterations": 3,
+          "wrong_applied": 0,
+          "average_us": 5020892.6,
+          "certificate_bytes": 1527,
+          "state": "PASS"
+        },
+        {
+          "name": "many_lines_2m",
+          "bytes": 1999992,
+          "iterations": 10,
+          "wrong_applied": 0,
+          "average_us": 1113776.26,
+          "certificate_bytes": 1538,
+          "state": "PASS"
+        },
+        {
+          "name": "long_line_refinement_2m",
+          "bytes": 2000006,
+          "iterations": 5,
+          "wrong_applied": 0,
+          "average_us": 473746.84,
+          "certificate_bytes": 5859,
+          "state": "PASS"
+        },
+        {
+          "name": "small_files_250",
+          "bytes": 2500,
+          "iterations": 250,
+          "wrong_applied": 0,
+          "average_us": 3574.7111999999997,
+          "certificate_bytes": 1509,
+          "state": "PASS"
+        }
+      ],
+      "wrong_applied": 0
+    },
+    "torture": {
+      "tool": "threadmoth torture",
+      "state": "PASS",
+      "passed": 9,
+      "failed": 0,
+      "skipped": 1,
+      "invocations": 108,
+      "footgun_safe": 100,
+      "footgun_total": 100,
+      "cases": [
+        {
+          "name": "exact replacement applies",
+          "state": "PASS",
+          "detail": "outcome=Applied"
+        },
+        {
+          "name": "ambiguous.txt",
+          "state": "PASS",
+          "detail": "outcome=Refused"
+        },
+        {
+          "name": "missing.txt",
+          "state": "PASS",
+          "detail": "outcome=Refused"
+        },
+        {
+          "name": "empty-set.txt",
+          "state": "PASS",
+          "detail": "outcome=Refused"
+        },
+        {
+          "name": "empty-rename.txt",
+          "state": "PASS",
+          "detail": "outcome=Refused"
+        },
+        {
+          "name": "stale.txt",
+          "state": "PASS",
+          "detail": "outcome=Refused"
+        },
+        {
+          "name": "read-only staged-residue cleanup",
+          "state": "PASS",
+          "detail": "outcome=Failed residue=false"
+        },
+        {
+          "name": "FOOTGUN-100",
+          "state": "PASS",
+          "detail": "safe=100/100"
+        },
+        {
+          "name": "symlink escape",
+          "state": "SKIP",
+          "detail": "symbolic-link creation unavailable"
+        },
+        {
+          "name": "successful transaction cleanup",
+          "state": "PASS",
+          "detail": "outcome=Applied recovery_dir_present=false"
+        }
+      ]
+    }
+  },
+  "independent_lab": {
+    "format": "threadmoth-toolbelt-lab/v1",
+    "state": "PASS",
+    "executable": "C:\\Users\\Matmus\\Documents\\Codex\\2026-10-22\\files-pasted-by-the-user-mission\\work\\threadmoth-toolbelt-lab\\target\\debug\\threadmoth.exe",
+    "version": "threadmoth 1.20.0",
+    "doctor": {
+      "build": {
+        "build_flavor": "portable",
+        "cpu_baseline": "default",
+        "optimization_profile": "debug",
+        "pgo_used": false,
+        "target_triple": "x86_64-pc-windows-msvc"
+      },
+      "executable": "C:\\Users\\Matmus\\Documents\\Codex\\2026-10-22\\files-pasted-by-the-user-mission\\work\\threadmoth-toolbelt-lab\\target\\debug\\threadmoth.exe",
+      "installation_kind": "standalone",
+      "path_configured": false,
+      "platform": {
+        "arch": "x86_64",
+        "os": "windows"
+      },
+      "protocol": "1.4.0",
+      "recovery_journals": {
+        "entries": []
+      },
+      "self_update_eligible": true,
+      "shell": "powershell",
+      "version": "1.20.0",
+      "workspace_readiness": "ready"
+    },
+    "capabilities": {
+      "ast_grounded": true,
+      "ast_typed": true,
+      "capability_set_id": "4bd0384a6eba5e92d42e93ac",
+      "code_languages": [
+        "javascript",
+        "jsx",
+        "typescript",
+        "tsx",
+        "python",
+        "rust",
+        "go",
+        "c",
+        "cpp",
+        "java",
+        "csharp",
+        "php",
+        "hcl",
+        "bash",
+        "powershell",
+        "sql"
+      ],
+      "coverage_levels": [
+        "structured",
+        "syntax",
+        "region",
+        "exact",
+        "opaque"
+      ],
+      "desired_state": true,
+      "effect_budget_dimensions": [
+        "max_files",
+        "max_matches",
+        "max_changed_regions",
+        "max_changed_lines",
+        "max_changed_bytes",
+        "allowed_path_prefixes"
+      ],
+      "encodings": [
+        "utf8",
+        "utf8_bom"
+      ],
+      "features": {
+        "candidate_selection": true,
+        "composite_selectors": false,
+        "plan_apply": true,
+        "plans": true,
+        "postconditions": true
+      },
+      "format_version": "1.3",
+      "guard_modes": [
+        "immediate",
+        "strict_snapshot",
+        "region_snapshot",
+        "structural_snapshot"
+      ],
+      "operations": [
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "mixed",
+          "idempotent": false,
+          "local_only": true,
+          "name": "replace",
+          "preservation": [
+            "unrelated_bytes",
+            "utf8",
+            "newline_profile",
+            "final_newline"
+          ],
+          "previewable": true,
+          "purpose": "Replace an exact target.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "literal",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "mixed",
+          "idempotent": false,
+          "local_only": true,
+          "name": "replace_sequence",
+          "preservation": [
+            "unrelated_bytes",
+            "utf8",
+            "newline_profile",
+            "final_newline"
+          ],
+          "previewable": true,
+          "purpose": "Apply ordered exact replacements against one observed source state.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "literal",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "additive",
+          "idempotent": false,
+          "local_only": true,
+          "name": "insert_before",
+          "preservation": [
+            "unrelated_bytes",
+            "utf8",
+            "newline_profile",
+            "final_newline"
+          ],
+          "previewable": true,
+          "purpose": "Insert content before an exact target.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "literal",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "additive",
+          "idempotent": false,
+          "local_only": true,
+          "name": "insert_after",
+          "preservation": [
+            "unrelated_bytes",
+            "utf8",
+            "newline_profile",
+            "final_newline"
+          ],
+          "previewable": true,
+          "purpose": "Insert content after an exact target.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "literal",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "destructive",
+          "idempotent": false,
+          "local_only": true,
+          "name": "delete",
+          "preservation": [
+            "unrelated_bytes",
+            "utf8",
+            "newline_profile",
+            "final_newline"
+          ],
+          "previewable": true,
+          "purpose": "Delete an exact target.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "literal",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "mixed",
+          "idempotent": false,
+          "local_only": true,
+          "name": "move",
+          "preservation": [
+            "unrelated_bytes",
+            "utf8",
+            "newline_profile",
+            "final_newline"
+          ],
+          "previewable": true,
+          "purpose": "Move one exact target before another.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "literal",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "additive",
+          "idempotent": true,
+          "local_only": true,
+          "name": "ensure_present",
+          "preservation": [
+            "unrelated_bytes",
+            "utf8",
+            "newline_profile",
+            "final_newline"
+          ],
+          "previewable": true,
+          "purpose": "Ensure desired content exists; replay is safe.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "literal",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "destructive",
+          "idempotent": true,
+          "local_only": true,
+          "name": "ensure_absent",
+          "preservation": [
+            "unrelated_bytes",
+            "utf8",
+            "newline_profile",
+            "final_newline"
+          ],
+          "previewable": true,
+          "purpose": "Ensure a target is absent; replay is safe.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "literal",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "mixed",
+          "idempotent": false,
+          "local_only": true,
+          "name": "set",
+          "preservation": [
+            "unrelated_bytes",
+            "utf8",
+            "newline_profile",
+            "final_newline"
+          ],
+          "previewable": true,
+          "purpose": "Set a selected value or exact target.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "provider_selector",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "destructive",
+          "idempotent": true,
+          "local_only": true,
+          "name": "unset",
+          "preservation": [
+            "unrelated_bytes",
+            "utf8",
+            "newline_profile",
+            "final_newline"
+          ],
+          "previewable": true,
+          "purpose": "Remove a selected value or exact target.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "provider_selector",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "mixed",
+          "idempotent": false,
+          "local_only": true,
+          "name": "rename",
+          "preservation": [
+            "unrelated_bytes",
+            "utf8",
+            "newline_profile",
+            "final_newline"
+          ],
+          "previewable": true,
+          "purpose": "Rename a selected key or exact target.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "provider_selector",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "additive",
+          "idempotent": false,
+          "local_only": true,
+          "name": "insert",
+          "preservation": [
+            "unrelated_bytes"
+          ],
+          "previewable": true,
+          "purpose": "Insert a structured member or array item.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "dotted_key",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "mixed",
+          "idempotent": false,
+          "local_only": true,
+          "name": "rename_key",
+          "preservation": [
+            "unrelated_bytes"
+          ],
+          "previewable": true,
+          "purpose": "Rename one structured key.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "dotted_key",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "mixed",
+          "idempotent": false,
+          "local_only": true,
+          "name": "replace_section",
+          "preservation": [
+            "unrelated_bytes"
+          ],
+          "previewable": true,
+          "purpose": "Replace one bounded Markdown section.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "heading",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "additive",
+          "idempotent": true,
+          "local_only": true,
+          "name": "ensure_section",
+          "preservation": [
+            "unrelated_bytes"
+          ],
+          "previewable": true,
+          "purpose": "Ensure one Markdown section exists.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "heading",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "destructive",
+          "idempotent": false,
+          "local_only": true,
+          "name": "delete_section",
+          "preservation": [
+            "unrelated_bytes"
+          ],
+          "previewable": true,
+          "purpose": "Delete one bounded Markdown section.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "heading",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "additive",
+          "idempotent": false,
+          "local_only": true,
+          "name": "insert_after_heading",
+          "preservation": [
+            "unrelated_bytes"
+          ],
+          "previewable": true,
+          "purpose": "Insert content after one Markdown heading.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "heading",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "mixed",
+          "idempotent": false,
+          "local_only": true,
+          "name": "replace_list_item",
+          "preservation": [
+            "unrelated_bytes"
+          ],
+          "previewable": true,
+          "purpose": "Replace one bounded Markdown list item.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "list_item",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "additive",
+          "idempotent": true,
+          "local_only": true,
+          "name": "ensure_list_item",
+          "preservation": [
+            "unrelated_bytes"
+          ],
+          "previewable": true,
+          "purpose": "Ensure one Markdown list item exists.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "list_item",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "destructive",
+          "idempotent": false,
+          "local_only": true,
+          "name": "delete_list_item",
+          "preservation": [
+            "unrelated_bytes"
+          ],
+          "previewable": true,
+          "purpose": "Delete one bounded Markdown list item.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "list_item",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "mixed",
+          "idempotent": false,
+          "local_only": true,
+          "name": "replace_fenced_block",
+          "preservation": [
+            "unrelated_bytes"
+          ],
+          "previewable": true,
+          "purpose": "Replace one fenced Markdown block body.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "fenced_region",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "mixed",
+          "idempotent": false,
+          "local_only": true,
+          "name": "replace_node",
+          "preservation": [
+            "unrelated_bytes"
+          ],
+          "previewable": true,
+          "purpose": "Replace one parsed syntax node.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "syntax_node_text",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "additive",
+          "idempotent": false,
+          "local_only": true,
+          "name": "insert_before_node",
+          "preservation": [
+            "unrelated_bytes"
+          ],
+          "previewable": true,
+          "purpose": "Insert content before one parsed syntax node.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "syntax_node_text",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "additive",
+          "idempotent": false,
+          "local_only": true,
+          "name": "insert_after_node",
+          "preservation": [
+            "unrelated_bytes"
+          ],
+          "previewable": true,
+          "purpose": "Insert content after one parsed syntax node.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "syntax_node_text",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "destructive",
+          "idempotent": false,
+          "local_only": true,
+          "name": "remove_node",
+          "preservation": [
+            "unrelated_bytes"
+          ],
+          "previewable": true,
+          "purpose": "Remove one parsed syntax node.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "syntax_node_text",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "mixed",
+          "idempotent": true,
+          "local_only": true,
+          "name": "replace_desired_state",
+          "preservation": [
+            "explicit_desired_divergence"
+          ],
+          "previewable": true,
+          "purpose": "Derive bounded edits for explicitly supplied desired bytes.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "desired_bytes",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "mixed",
+          "idempotent": false,
+          "local_only": true,
+          "name": "unified_diff",
+          "preservation": [
+            "exact_context"
+          ],
+          "previewable": true,
+          "purpose": "Apply one exact unified diff.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "exact_preimage",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "additive",
+          "idempotent": false,
+          "local_only": true,
+          "name": "create_file",
+          "preservation": [
+            "identity_and_confinement"
+          ],
+          "previewable": true,
+          "purpose": "Create a missing file without overwriting.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "workspace_relative_path",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "destructive",
+          "idempotent": false,
+          "local_only": true,
+          "name": "delete_file",
+          "preservation": [
+            "identity_and_confinement"
+          ],
+          "previewable": true,
+          "purpose": "Delete a file guarded by identity.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "workspace_relative_path",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "mixed",
+          "idempotent": false,
+          "local_only": true,
+          "name": "rename_file",
+          "preservation": [
+            "identity_and_confinement"
+          ],
+          "previewable": true,
+          "purpose": "Rename a file with source and destination guards.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "workspace_relative_path",
+          "transactional": true
+        },
+        {
+          "default_cardinality": "exactly_one",
+          "effect": "mixed",
+          "idempotent": false,
+          "local_only": true,
+          "name": "move_file",
+          "preservation": [
+            "identity_and_confinement"
+          ],
+          "previewable": true,
+          "purpose": "Move a file with source and destination guards.",
+          "read_only": false,
+          "recoverable": true,
+          "required_selector": "workspace_relative_path",
+          "transactional": true
+        }
+      ],
+      "path_namespaces": [
+        "native",
+        "windows",
+        "wsl",
+        "posix"
+      ],
+      "plan_limits": {
+        "max_assertion_literal_bytes": 65536,
+        "max_assertions": 256,
+        "max_candidate_evidence": 4096,
+        "max_plan_bytes": 8388608,
+        "max_plan_operations": 256
+      },
+      "preservation_guarantees": [
+        "unrelated_bytes",
+        "utf8",
+        "utf8_bom",
+        "lf",
+        "crlf",
+        "final_newline",
+        "comments_where_supported"
+      ],
+      "protocol_version": "1.4.0",
+      "protocol_versions": [
+        "1.4.0",
+        "1.3.1",
+        "1.3.0",
+        "1.2.0",
+        "1.1.0"
+      ],
+      "providers": [
+        {
+          "durable_anchor_support": true,
+          "encodings": [
+            "utf8",
+            "utf8_bom"
+          ],
+          "languages": [],
+          "name": "text",
+          "operations": [
+            "replace",
+            "replace_sequence",
+            "insert_before",
+            "insert_after",
+            "delete",
+            "move",
+            "ensure_present",
+            "ensure_absent",
+            "set",
+            "unset",
+            "rename"
+          ],
+          "preservation": [
+            "utf8, BOM, newline profile"
+          ],
+          "selectors": [
+            "literal"
+          ],
+          "transaction_support": "single_file_and_multi_file",
+          "version": "text-byte-v1"
+        },
+        {
+          "durable_anchor_support": true,
+          "encodings": [
+            "utf8",
+            "utf8_bom"
+          ],
+          "languages": [],
+          "name": "json",
+          "operations": [
+            "set",
+            "insert",
+            "delete",
+            "rename_key",
+            "ensure_present",
+            "ensure_absent",
+            "unset",
+            "rename"
+          ],
+          "preservation": [
+            "source ranges, unrelated bytes"
+          ],
+          "selectors": [
+            "dotted_key"
+          ],
+          "transaction_support": "single_file_and_multi_file",
+          "version": "json-source-v1"
+        },
+        {
+          "durable_anchor_support": true,
+          "encodings": [
+            "utf8",
+            "utf8_bom"
+          ],
+          "languages": [],
+          "name": "jsonc",
+          "operations": [
+            "set",
+            "insert",
+            "delete",
+            "rename_key",
+            "ensure_present",
+            "ensure_absent",
+            "unset",
+            "rename"
+          ],
+          "preservation": [
+            "comments and source ranges"
+          ],
+          "selectors": [
+            "dotted_key"
+          ],
+          "transaction_support": "single_file_and_multi_file",
+          "version": "jsonc-source-v1"
+        },
+        {
+          "durable_anchor_support": true,
+          "encodings": [
+            "utf8",
+            "utf8_bom"
+          ],
+          "languages": [],
+          "name": "toml",
+          "operations": [
+            "set",
+            "insert",
+            "delete",
+            "rename_key",
+            "ensure_present",
+            "ensure_absent",
+            "unset",
+            "rename"
+          ],
+          "preservation": [
+            "comments, ordering where supported"
+          ],
+          "selectors": [
+            "dotted_key"
+          ],
+          "transaction_support": "single_file_and_multi_file",
+          "version": "toml-edit-narrow-v1"
+        },
+        {
+          "durable_anchor_support": true,
+          "encodings": [
+            "utf8",
+            "utf8_bom"
+          ],
+          "languages": [],
+          "name": "yaml",
+          "operations": [
+            "set",
+            "ensure_present",
+            "delete",
+            "ensure_absent"
+          ],
+          "preservation": [
+            "comments for supported scalar forms"
+          ],
+          "selectors": [
+            "yaml_path"
+          ],
+          "transaction_support": "single_file_and_multi_file",
+          "version": "yaml-conservative-source-v1"
+        },
+        {
+          "durable_anchor_support": true,
+          "encodings": [
+            "utf8",
+            "utf8_bom"
+          ],
+          "languages": [],
+          "name": "markdown",
+          "operations": [
+            "replace_section",
+            "ensure_section",
+            "delete_section",
+            "insert_after_heading",
+            "replace_list_item",
+            "ensure_list_item",
+            "delete_list_item",
+            "replace_fenced_block"
+          ],
+          "preservation": [
+            "unrelated markdown bytes"
+          ],
+          "selectors": [
+            "heading",
+            "section",
+            "fenced_region"
+          ],
+          "transaction_support": "single_file_and_multi_file",
+          "version": "markdown-regions-v2"
+        },
+        {
+          "durable_anchor_support": true,
+          "encodings": [
+            "utf8",
+            "utf8_bom"
+          ],
+          "languages": [],
+          "name": "dotenv",
+          "operations": [
+            "set",
+            "unset",
+            "ensure_present"
+          ],
+          "preservation": [
+            "comments and unrelated lines"
+          ],
+          "selectors": [
+            "key"
+          ],
+          "transaction_support": "single_file_and_multi_file",
+          "version": "dotenv-lines-v1"
+        },
+        {
+          "durable_anchor_support": true,
+          "encodings": [
+            "utf8",
+            "utf8_bom"
+          ],
+          "languages": [],
+          "name": "ini",
+          "operations": [
+            "set",
+            "unset",
+            "ensure_present",
+            "ensure_absent",
+            "rename_key",
+            "ensure_section"
+          ],
+          "preservation": [
+            "comments, ordering, whitespace and unrelated lines"
+          ],
+          "selectors": [
+            "section",
+            "section_key",
+            "key"
+          ],
+          "transaction_support": "single_file_and_multi_file",
+          "version": "ini-source-v1"
+        },
+        {
+          "durable_anchor_support": true,
+          "encodings": [
+            "utf8",
+            "utf8_bom"
+          ],
+          "languages": [],
+          "name": "pattern",
+          "operations": [
+            "replace",
+            "delete",
+            "ensure_absent"
+          ],
+          "preservation": [
+            "unrelated bytes"
+          ],
+          "selectors": [
+            "bounded_pattern"
+          ],
+          "transaction_support": "single_file_and_multi_file",
+          "version": "regex-automata-bounded-v1"
+        },
+        {
+          "durable_anchor_support": true,
+          "encodings": [
+            "utf8",
+            "utf8_bom"
+          ],
+          "languages": [],
+          "name": "patch",
+          "operations": [
+            "unified_diff"
+          ],
+          "preservation": [
+            "exact patch context"
+          ],
+          "selectors": [
+            "exact_preimage",
+            "exact_context"
+          ],
+          "transaction_support": "single_file_and_multi_file",
+          "version": "unified-diff-strict-v1"
+        },
+        {
+          "durable_anchor_support": true,
+          "encodings": [
+            "utf8",
+            "utf8_bom"
+          ],
+          "languages": [
+            "javascript",
+            "jsx",
+            "typescript",
+            "tsx",
+            "python",
+            "rust",
+            "go",
+            "c",
+            "cpp",
+            "java",
+            "csharp",
+            "php",
+            "hcl",
+            "bash",
+            "powershell",
+            "sql"
+          ],
+          "name": "code",
+          "operations": [
+            "replace_node",
+            "insert_before_node",
+            "insert_after_node",
+            "remove_node"
+          ],
+          "preservation": [
+            "unrelated source bytes where ranges permit"
+          ],
+          "selectors": [
+            "syntax_node_text",
+            "syntax_node_kind"
+          ],
+          "transaction_support": "single_file_and_multi_file",
+          "version": "tree-sitter-node-v1"
+        },
+        {
+          "durable_anchor_support": true,
+          "encodings": [
+            "utf8",
+            "utf8_bom"
+          ],
+          "languages": [
+            "html",
+            "css",
+            "xml"
+          ],
+          "name": "web",
+          "operations": [
+            "replace_node",
+            "insert_before_node",
+            "insert_after_node",
+            "remove_node"
+          ],
+          "preservation": [
+            "unrelated source bytes where ranges permit"
+          ],
+          "selectors": [
+            "syntax_node_text",
+            "syntax_node_kind"
+          ],
+          "transaction_support": "single_file_and_multi_file",
+          "version": "tree-sitter-web-node-v1"
+        },
+        {
+          "durable_anchor_support": false,
+          "encodings": [
+            "utf8",
+            "utf8_bom"
+          ],
+          "languages": [],
+          "name": "desired_state",
+          "operations": [
+            "replace_desired_state"
+          ],
+          "preservation": [
+            "all divergence is explicit in supplied desired bytes"
+          ],
+          "selectors": [
+            "workspace_relative_path",
+            "desired_bytes"
+          ],
+          "transaction_support": "single_file_and_multi_file",
+          "version": "strict-derived-bounded-edits-v1"
+        },
+        {
+          "durable_anchor_support": true,
+          "encodings": [
+            "utf8",
+            "utf8_bom"
+          ],
+          "languages": [],
+          "name": "filesystem",
+          "operations": [
+            "create_file",
+            "delete_file",
+            "rename_file",
+            "move_file"
+          ],
+          "preservation": [
+            "identity and confinement"
+          ],
+          "selectors": [
+            "workspace_relative_path"
+          ],
+          "transaction_support": "single_file",
+          "version": "lifecycle-checked-v1"
+        }
+      ],
+      "reason_codes": [
+        {
+          "code": "CARDINALITY_MISMATCH",
+          "meaning": "The observed match count did not equal the requested count.",
+          "recovery_category": "narrow_target",
+          "relevant_commands": [
+            "inspect",
+            "suggest",
+            "preview"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "Threadmoth will not choose an unintended target."
+        },
+        {
+          "code": "TARGET_NOT_FOUND",
+          "meaning": "No exact target was found.",
+          "recovery_category": "correct_selector",
+          "relevant_commands": [
+            "inspect",
+            "suggest"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "The requested precondition is absent."
+        },
+        {
+          "code": "TARGET_AMBIGUOUS",
+          "meaning": "More than one plausible target was found.",
+          "recovery_category": "choose_candidate",
+          "relevant_commands": [
+            "suggest",
+            "preview"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "Choosing the first match would be unsafe."
+        },
+        {
+          "code": "CANDIDATE_SELECTION_INVALID",
+          "meaning": "The supplied candidate identity did not select one reported physical occurrence.",
+          "recovery_category": "refresh_candidate_identity",
+          "relevant_commands": [
+            "inspect",
+            "preview",
+            "explain"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "Candidate selection is bound to the exact observed file hash, span and provider."
+        },
+        {
+          "code": "STALE_IDENTITY",
+          "meaning": "The accepted source or guarded region changed.",
+          "recovery_category": "refresh_guard",
+          "relevant_commands": [
+            "inspect",
+            "preview"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "The request no longer describes the state being mutated."
+        },
+        {
+          "code": "PLAN_STALE",
+          "meaning": "A prepared plan no longer matches one or more files.",
+          "recovery_category": "rebuild_plan",
+          "relevant_commands": [
+            "plan",
+            "explain",
+            "suggest"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "Applying any part of a stale plan could mutate the wrong state."
+        },
+        {
+          "code": "WORKSPACE_BUSY",
+          "meaning": "Another cooperating Threadmoth process owns the mutation boundary.",
+          "recovery_category": "retry_after_lock_release",
+          "relevant_commands": [
+            "doctor",
+            "suggest"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "Concurrent Threadmoth writers must not commit conflicting observations."
+        },
+        {
+          "code": "SCHEMA_INVALID",
+          "meaning": "The request used a strict schema incorrectly.",
+          "recovery_category": "correct_request_schema",
+          "relevant_commands": [
+            "schema",
+            "examples"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "Threadmoth will not reinterpret an unknown or misspelled field."
+        },
+        {
+          "code": "EFFECT_BUDGET_EXCEEDED",
+          "meaning": "The prepared effect exceeds a caller limit.",
+          "recovery_category": "narrow_or_confirm_budget",
+          "relevant_commands": [
+            "suggest",
+            "preview"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "No bytes are written when a declared budget fails."
+        },
+        {
+          "code": "RESOURCE_LIMIT_EXCEEDED",
+          "meaning": "The request or observed file exceeds a built-in safety limit.",
+          "recovery_category": "reduce_input_or_split_work",
+          "relevant_commands": [
+            "capabilities",
+            "inspect"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "Threadmoth bounds parser and memory exposure before mutation."
+        },
+        {
+          "code": "WORKSPACE_ROOT_MISMATCH",
+          "meaning": "The absolute target is outside the workspace root bound to this Threadmoth process.",
+          "recovery_category": "run_checkout_local_cli_from_target_workspace",
+          "relevant_commands": [
+            "doctor",
+            "preview",
+            "explain",
+            "suggest"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "A hosted bridge cannot be rebound by a request boundary. If this is the intended authorized checkout, use the checkout-local CLI from that checkout and preview again."
+        },
+        {
+          "code": "WORKSPACE_ESCAPE",
+          "meaning": "The path or scope leaves the workspace.",
+          "recovery_category": "correct_path",
+          "relevant_commands": [
+            "inspect",
+            "suggest"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "Threadmoth only mutates confined workspace state."
+        },
+        {
+          "code": "SYMLINK_ESCAPE",
+          "meaning": "A symlink or reparse path escapes confinement.",
+          "recovery_category": "correct_path",
+          "relevant_commands": [
+            "inspect"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "Path spelling cannot override physical containment."
+        },
+        {
+          "code": "PROVIDER_UNSUPPORTED",
+          "meaning": "No advertised provider capability supports the request.",
+          "recovery_category": "choose_supported_provider",
+          "relevant_commands": [
+            "capabilities",
+            "suggest"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "Threadmoth never silently falls back to another provider."
+        },
+        {
+          "code": "PRESERVATION_UNAVAILABLE",
+          "meaning": "The requested source-preservation guarantee cannot be proved.",
+          "recovery_category": "choose_guarantee",
+          "relevant_commands": [
+            "capabilities",
+            "suggest"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "Threadmoth refuses lossy rewriting."
+        },
+        {
+          "code": "INVALID_STRUCTURE",
+          "meaning": "The candidate failed provider validation.",
+          "recovery_category": "correct_request",
+          "relevant_commands": [
+            "schema",
+            "suggest"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "A syntactically invalid result cannot be committed."
+        },
+        {
+          "code": "ENCODING_UNSUPPORTED",
+          "meaning": "The file encoding is not safely supported.",
+          "recovery_category": "convert_explicitly",
+          "relevant_commands": [
+            "inspect"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "Threadmoth never guesses a legacy encoding."
+        },
+        {
+          "code": "TRANSACTION_CONFLICT",
+          "meaning": "A transaction member could not be prepared coherently.",
+          "recovery_category": "split_or_correct_transaction",
+          "relevant_commands": [
+            "suggest",
+            "preview"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "Partial transaction application is not implicit."
+        },
+        {
+          "code": "OVERLAPPING_EDITS",
+          "meaning": "Prepared edits overlap.",
+          "recovery_category": "split_operations",
+          "relevant_commands": [
+            "suggest",
+            "preview"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "Overlapping byte ranges do not have an unambiguous result."
+        },
+        {
+          "code": "GENERATED_FILE_REQUIRES_OPT_IN",
+          "meaning": "The target appears generated or marked do-not-edit.",
+          "recovery_category": "explicit_opt_in",
+          "relevant_commands": [
+            "suggest"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "Generated state is protected by default."
+        },
+        {
+          "code": "DESTINATION_EXISTS",
+          "meaning": "The requested file destination already exists.",
+          "recovery_category": "choose_destination",
+          "relevant_commands": [
+            "inspect",
+            "suggest"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "Lifecycle operations never overwrite silently."
+        },
+        {
+          "code": "INVALID_INPUT",
+          "meaning": "The request could not be parsed or contains invalid input.",
+          "recovery_category": "correct_request",
+          "relevant_commands": [
+            "schema",
+            "examples"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "A malformed request cannot be interpreted safely."
+        },
+        {
+          "code": "LOSSY_OPERATION_REQUIRES_OPT_IN",
+          "meaning": "The operation could change source details that were not authorized.",
+          "recovery_category": "choose_guarantee",
+          "relevant_commands": [
+            "capabilities",
+            "suggest"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "Threadmoth does not silently accept lossy rewriting."
+        },
+        {
+          "code": "OPERATION_UNSUPPORTED",
+          "meaning": "The selected provider does not implement this operation.",
+          "recovery_category": "choose_supported_operation",
+          "relevant_commands": [
+            "capabilities",
+            "schema"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "Provider selection is explicit and never falls back silently."
+        },
+        {
+          "code": "PROTOCOL_UNSUPPORTED",
+          "meaning": "The request protocol version is not supported by this binary.",
+          "recovery_category": "upgrade_or_use_matching_binary",
+          "relevant_commands": [
+            "capabilities",
+            "schema"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "Threadmoth will not reinterpret a different contract."
+        },
+        {
+          "code": "REFUSED",
+          "meaning": "The request was refused without a more specific public reason.",
+          "recovery_category": "inspect_certificate",
+          "relevant_commands": [
+            "explain",
+            "suggest"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "The request did not meet a safe execution precondition."
+        },
+        {
+          "code": "BINARY_INPUT",
+          "meaning": "The target contains binary data and is outside content-mutation scope.",
+          "recovery_category": "choose_text_target",
+          "relevant_commands": [
+            "inspect"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "Threadmoth does not guess how binary bytes should be edited."
+        },
+        {
+          "code": "PATH_UNMAPPABLE",
+          "meaning": "The declared path namespace cannot be mapped to this execution environment.",
+          "recovery_category": "correct_path_namespace",
+          "relevant_commands": [
+            "capabilities",
+            "inspect"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "Threadmoth will not guess a drive, mount, or distribution mapping."
+        },
+        {
+          "code": "COMMIT_FAILED",
+          "meaning": "The prepared candidate could not be committed.",
+          "recovery_category": "recover",
+          "relevant_commands": [
+            "recover"
+          ],
+          "retry_unchanged": true,
+          "why_refused": "The certificate reports commit or recovery state explicitly."
+        },
+        {
+          "code": "POST_COMMIT_VERIFICATION_FAILED",
+          "meaning": "The landed bytes differ from the verified candidate.",
+          "recovery_category": "recover",
+          "relevant_commands": [
+            "recover",
+            "inspect"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "The mutation cannot be reported as successful without matching evidence."
+        },
+        {
+          "code": "IO_ERROR",
+          "meaning": "The workspace could not be read or accessed.",
+          "recovery_category": "repair_workspace",
+          "relevant_commands": [
+            "doctor",
+            "recover"
+          ],
+          "retry_unchanged": true,
+          "why_refused": "The requested state was not safely observable."
+        },
+        {
+          "code": "INTERNAL_INVARIANT",
+          "meaning": "An internal Threadmoth invariant failed while preparing a candidate.",
+          "recovery_category": "report_defect",
+          "relevant_commands": [
+            "inspect",
+            "recover"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "Threadmoth fails closed rather than committing an unverified result."
+        },
+        {
+          "code": "FAILED",
+          "meaning": "The operation failed without a more specific public reason.",
+          "recovery_category": "inspect_certificate",
+          "relevant_commands": [
+            "recover"
+          ],
+          "retry_unchanged": false,
+          "why_refused": "The certificate contains the failure details and recovery state."
+        }
+      ],
+      "recovery_inspection": true,
+      "resource_limits": {
+        "max_diagnostic_bytes": 4096,
+        "max_file_bytes": 67108864,
+        "max_pattern_bytes": 8192,
+        "max_request_bytes": 1048576,
+        "max_transaction_requests": 256
+      },
+      "selectors": [
+        "literal",
+        "dotted_key",
+        "yaml_path",
+        "section",
+        "section_key",
+        "heading",
+        "bounded_pattern",
+        "syntax_node_text",
+        "syntax_node_kind",
+        "workspace_relative_path"
+      ],
+      "structural_operations": [
+        "replace_node",
+        "insert_before_node",
+        "insert_after_node",
+        "remove_node"
+      ],
+      "supported_assertions": [
+        "file_exists",
+        "file_absent",
+        "sha256",
+        "literal_count"
+      ],
+      "targets": [
+        {
+          "aliases": [
+            "js"
+          ],
+          "category": "programming_language",
+          "display_name": "JavaScript",
+          "exact_filenames": [],
+          "extensions": [
+            ".js",
+            ".mjs",
+            ".cjs"
+          ],
+          "fallback_available": true,
+          "id": "javascript",
+          "preservation_level": "unrelated_bytes",
+          "provider": "code",
+          "understanding_level": "syntax"
+        },
+        {
+          "aliases": [],
+          "category": "syntax_variant",
+          "display_name": "JSX",
+          "exact_filenames": [],
+          "extensions": [
+            ".jsx"
+          ],
+          "fallback_available": true,
+          "id": "jsx",
+          "preservation_level": "unrelated_bytes",
+          "provider": "code",
+          "understanding_level": "syntax"
+        },
+        {
+          "aliases": [
+            "ts"
+          ],
+          "category": "programming_language",
+          "display_name": "TypeScript",
+          "exact_filenames": [],
+          "extensions": [
+            ".ts"
+          ],
+          "fallback_available": true,
+          "id": "typescript",
+          "preservation_level": "unrelated_bytes",
+          "provider": "code",
+          "understanding_level": "syntax"
+        },
+        {
+          "aliases": [],
+          "category": "syntax_variant",
+          "display_name": "TSX",
+          "exact_filenames": [],
+          "extensions": [
+            ".tsx"
+          ],
+          "fallback_available": true,
+          "id": "tsx",
+          "preservation_level": "unrelated_bytes",
+          "provider": "code",
+          "understanding_level": "syntax"
+        },
+        {
+          "aliases": [
+            "py"
+          ],
+          "category": "programming_language",
+          "display_name": "Python",
+          "exact_filenames": [],
+          "extensions": [
+            ".py"
+          ],
+          "fallback_available": true,
+          "id": "python",
+          "preservation_level": "unrelated_bytes",
+          "provider": "code",
+          "understanding_level": "syntax"
+        },
+        {
+          "aliases": [
+            "rs"
+          ],
+          "category": "programming_language",
+          "display_name": "Rust",
+          "exact_filenames": [],
+          "extensions": [
+            ".rs"
+          ],
+          "fallback_available": true,
+          "id": "rust",
+          "preservation_level": "unrelated_bytes",
+          "provider": "code",
+          "understanding_level": "syntax"
+        },
+        {
+          "aliases": [
+            "golang"
+          ],
+          "category": "programming_language",
+          "display_name": "Go",
+          "exact_filenames": [],
+          "extensions": [
+            ".go"
+          ],
+          "fallback_available": true,
+          "id": "go",
+          "preservation_level": "unrelated_bytes",
+          "provider": "code",
+          "understanding_level": "syntax"
+        },
+        {
+          "aliases": [],
+          "category": "programming_language",
+          "display_name": "C",
+          "exact_filenames": [],
+          "extensions": [
+            ".c"
+          ],
+          "fallback_available": true,
+          "id": "c",
+          "preservation_level": "unrelated_bytes",
+          "provider": "code",
+          "understanding_level": "syntax"
+        },
+        {
+          "aliases": [
+            "c++"
+          ],
+          "category": "programming_language",
+          "display_name": "C++",
+          "exact_filenames": [],
+          "extensions": [
+            ".cpp",
+            ".cc",
+            ".cxx",
+            ".hpp"
+          ],
+          "fallback_available": true,
+          "id": "cpp",
+          "preservation_level": "unrelated_bytes",
+          "provider": "code",
+          "understanding_level": "syntax"
+        },
+        {
+          "aliases": [],
+          "category": "programming_language",
+          "display_name": "Java",
+          "exact_filenames": [],
+          "extensions": [
+            ".java"
+          ],
+          "fallback_available": true,
+          "id": "java",
+          "preservation_level": "unrelated_bytes",
+          "provider": "code",
+          "understanding_level": "syntax"
+        },
+        {
+          "aliases": [
+            "cs",
+            "c#"
+          ],
+          "category": "programming_language",
+          "display_name": "C#",
+          "exact_filenames": [],
+          "extensions": [
+            ".cs"
+          ],
+          "fallback_available": true,
+          "id": "csharp",
+          "preservation_level": "unrelated_bytes",
+          "provider": "code",
+          "understanding_level": "syntax"
+        },
+        {
+          "aliases": [],
+          "category": "programming_language",
+          "display_name": "PHP",
+          "exact_filenames": [],
+          "extensions": [
+            ".php"
+          ],
+          "fallback_available": true,
+          "id": "php",
+          "preservation_level": "unrelated_bytes",
+          "provider": "code",
+          "understanding_level": "syntax"
+        },
+        {
+          "aliases": [
+            "terraform",
+            "tf"
+          ],
+          "category": "declarative_language",
+          "display_name": "HCL / Terraform syntax",
+          "exact_filenames": [],
+          "extensions": [
+            ".tf",
+            ".tfvars",
+            ".hcl"
+          ],
+          "fallback_available": true,
+          "id": "hcl",
+          "preservation_level": "unrelated_bytes",
+          "provider": "code",
+          "understanding_level": "syntax"
+        },
+        {
+          "aliases": [
+            "sh",
+            "shell"
+          ],
+          "category": "programming_language",
+          "display_name": "Bash / Shell",
+          "exact_filenames": [],
+          "extensions": [
+            ".sh",
+            ".bash"
+          ],
+          "fallback_available": true,
+          "id": "bash",
+          "preservation_level": "unrelated_bytes",
+          "provider": "code",
+          "understanding_level": "syntax"
+        },
+        {
+          "aliases": [
+            "pwsh"
+          ],
+          "category": "programming_language",
+          "display_name": "PowerShell",
+          "exact_filenames": [],
+          "extensions": [
+            ".ps1",
+            ".psm1",
+            ".psd1"
+          ],
+          "fallback_available": true,
+          "id": "powershell",
+          "preservation_level": "unrelated_bytes",
+          "provider": "code",
+          "understanding_level": "syntax"
+        },
+        {
+          "aliases": [],
+          "category": "declarative_language",
+          "display_name": "SQL",
+          "exact_filenames": [],
+          "extensions": [
+            ".sql"
+          ],
+          "fallback_available": true,
+          "id": "sql",
+          "preservation_level": "unrelated_bytes",
+          "provider": "code",
+          "understanding_level": "syntax"
+        },
+        {
+          "aliases": [],
+          "category": "markup",
+          "display_name": "HTML",
+          "exact_filenames": [],
+          "extensions": [
+            ".html",
+            ".htm"
+          ],
+          "fallback_available": true,
+          "id": "html",
+          "preservation_level": "unrelated_bytes",
+          "provider": "web",
+          "understanding_level": "syntax"
+        },
+        {
+          "aliases": [],
+          "category": "markup",
+          "display_name": "CSS",
+          "exact_filenames": [],
+          "extensions": [
+            ".css"
+          ],
+          "fallback_available": true,
+          "id": "css",
+          "preservation_level": "unrelated_bytes",
+          "provider": "web",
+          "understanding_level": "syntax"
+        },
+        {
+          "aliases": [],
+          "category": "markup",
+          "display_name": "XML",
+          "exact_filenames": [],
+          "extensions": [
+            ".xml"
+          ],
+          "fallback_available": true,
+          "id": "xml",
+          "preservation_level": "unrelated_bytes",
+          "provider": "web",
+          "understanding_level": "syntax"
+        },
+        {
+          "aliases": [],
+          "category": "structured_format",
+          "display_name": "JSON",
+          "exact_filenames": [],
+          "extensions": [
+            ".json"
+          ],
+          "fallback_available": false,
+          "id": "json",
+          "preservation_level": "unrelated_bytes",
+          "provider": "json",
+          "understanding_level": "structured"
+        },
+        {
+          "aliases": [],
+          "category": "structured_format",
+          "display_name": "JSON with comments",
+          "exact_filenames": [],
+          "extensions": [
+            ".jsonc"
+          ],
+          "fallback_available": true,
+          "id": "jsonc",
+          "preservation_level": "unrelated_bytes",
+          "provider": "jsonc",
+          "understanding_level": "structured"
+        },
+        {
+          "aliases": [],
+          "category": "structured_format",
+          "display_name": "TOML",
+          "exact_filenames": [],
+          "extensions": [
+            ".toml"
+          ],
+          "fallback_available": true,
+          "id": "toml",
+          "preservation_level": "unrelated_bytes",
+          "provider": "toml",
+          "understanding_level": "structured"
+        },
+        {
+          "aliases": [
+            "yml"
+          ],
+          "category": "structured_format",
+          "display_name": "YAML",
+          "exact_filenames": [],
+          "extensions": [
+            ".yaml",
+            ".yml"
+          ],
+          "fallback_available": true,
+          "id": "yaml",
+          "preservation_level": "unrelated_bytes",
+          "provider": "yaml",
+          "understanding_level": "structured"
+        },
+        {
+          "aliases": [],
+          "category": "structured_format",
+          "display_name": "INI-style configuration",
+          "exact_filenames": [
+            "setup.cfg",
+            "tox.ini",
+            "pytest.ini",
+            ".editorconfig"
+          ],
+          "extensions": [
+            ".ini"
+          ],
+          "fallback_available": true,
+          "id": "ini",
+          "preservation_level": "unrelated_bytes",
+          "provider": "ini",
+          "understanding_level": "structured"
+        },
+        {
+          "aliases": [],
+          "category": "structured_format",
+          "display_name": "dotenv",
+          "exact_filenames": [],
+          "extensions": [
+            ".env"
+          ],
+          "fallback_available": true,
+          "id": "dotenv",
+          "preservation_level": "unrelated_bytes",
+          "provider": "dotenv",
+          "understanding_level": "structured"
+        },
+        {
+          "aliases": [
+            "md"
+          ],
+          "category": "document",
+          "display_name": "Markdown regions",
+          "exact_filenames": [],
+          "extensions": [
+            ".md",
+            ".markdown"
+          ],
+          "fallback_available": true,
+          "id": "markdown",
+          "preservation_level": "bounded_region",
+          "provider": "markdown",
+          "understanding_level": "region"
+        },
+        {
+          "aliases": [],
+          "category": "exact_text",
+          "display_name": "Dockerfile text",
+          "exact_filenames": [
+            "dockerfile"
+          ],
+          "extensions": [],
+          "fallback_available": true,
+          "id": "dockerfile",
+          "preservation_level": "unrelated_bytes",
+          "provider": "text",
+          "understanding_level": "exact"
+        },
+        {
+          "aliases": [],
+          "category": "exact_text",
+          "display_name": "Makefile text",
+          "exact_filenames": [
+            "makefile",
+            "gnumakefile"
+          ],
+          "extensions": [],
+          "fallback_available": true,
+          "id": "makefile",
+          "preservation_level": "unrelated_bytes",
+          "provider": "text",
+          "understanding_level": "exact"
+        }
+      ],
+      "threadmoth_version": "1.20.0",
+      "transaction_capabilities": {
+        "crash_recovery": true,
+        "multi_file": true,
+        "rollback": true,
+        "single_file": true
+      },
+      "web_formats": [
+        "html",
+        "css",
+        "xml"
+      ]
+    },
+    "host": {
+      "os": "nt",
+      "python": "3.13.16"
+    },
+    "summary": {
+      "cases": 14,
+      "passed": 14,
+      "failed": 0,
+      "case_invocations": 14,
+      "metadata_invocations": 3,
+      "total_invocations": 17,
+      "elapsed_ms": 885.402
+    },
+    "cases": [
+      {
+        "id": "utf8-multibyte-offset",
+        "state": "PASS",
+        "expected_outcome": "APPLIED",
+        "observed_outcome": "APPLIED",
+        "exit_code": 0,
+        "elapsed_ms": 129.758,
+        "invocations": 1,
+        "independent_bytes_match": true,
+        "original_sha256": {
+          "a.txt": "8a0c8ec40469b9c8078b9bb50ef8fdf058cbd5ec265832b95506fcc1ccfb9a3e"
+        },
+        "expected_sha256": {
+          "a.txt": "0694b10bbc666d9dcf759367153e100ce77bf24990c11e3fdb8ca04b1810544d"
+        },
+        "final_sha256": {
+          "a.txt": "0694b10bbc666d9dcf759367153e100ce77bf24990c11e3fdb8ca04b1810544d"
+        },
+        "certificate": {
+          "protocol_version": "1.4.0",
+          "request_id": "unicode",
+          "outcome": "APPLIED",
+          "file_path": "a.txt",
+          "provider": "text",
+          "provider_version": "text-byte-v1",
+          "expected_cardinality": {
+            "type": "exactly_one"
+          },
+          "observed_cardinality": 1,
+          "pre_hash": "8a0c8ec40469b9c8078b9bb50ef8fdf058cbd5ec265832b95506fcc1ccfb9a3e",
+          "post_hash": "0694b10bbc666d9dcf759367153e100ce77bf24990c11e3fdb8ca04b1810544d",
+          "changed_ranges": [
+            {
+              "start": 20,
+              "end": 23
+            }
+          ],
+          "changed_line_ranges": [
+            {
+              "start": 2,
+              "end": 2
+            }
+          ],
+          "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 20..23 @@\n-old\n+new\n",
+          "diff_truncated": false,
+          "structural_validation": "not_applicable",
+          "preservation": {
+            "unrelated_bytes_changed": false,
+            "line_endings_changed": false,
+            "bom_changed": false,
+            "final_newline_changed": false,
+            "comments_preserved": true,
+            "metadata": "content-only verification; replacement metadata not asserted",
+            "original_newline_profile": "lf",
+            "result_newline_profile": "lf"
+          },
+          "commit": {
+            "mode": "committed_atomic_replace",
+            "content_replacement": "atomic replacement after staged flush",
+            "permissions": "platform-dependent; not asserted",
+            "timestamps": "not preserved",
+            "acl_xattr": "unknown"
+          },
+          "refusal_reason": null,
+          "failure_reason": null,
+          "reason_code": null,
+          "diagnostics": [],
+          "budget": {
+            "max_files": 1,
+            "max_matches": 1,
+            "max_changed_regions": null,
+            "max_changed_lines": null,
+            "max_changed_bytes": null,
+            "allowed_path_prefixes": []
+          },
+          "effect": {
+            "files": 1,
+            "matches": 1,
+            "changed_regions": 1,
+            "changed_lines": 1,
+            "changed_bytes": 3,
+            "passed": true
+          },
+          "transaction_guarantee": "committed_atomic_replace",
+          "recovery_state": "not_required",
+          "desired_state": null
+        },
+        "stderr": ""
+      },
+      {
+        "id": "sixty-four-replacements",
+        "state": "PASS",
+        "expected_outcome": "APPLIED",
+        "observed_outcome": "APPLIED",
+        "exit_code": 0,
+        "elapsed_ms": 60.31,
+        "invocations": 1,
+        "independent_bytes_match": true,
+        "original_sha256": {
+          "many.txt": "0d5574dbcdf0466fd43f5cf3eac464cdda6dd269794760fe3428b13c74e7b13a"
+        },
+        "expected_sha256": {
+          "many.txt": "bb46e37fcb49a843a7b3c8b154b9ac755d164d06371f4acb889f8a97c683b4f2"
+        },
+        "final_sha256": {
+          "many.txt": "bb46e37fcb49a843a7b3c8b154b9ac755d164d06371f4acb889f8a97c683b4f2"
+        },
+        "certificate": {
+          "protocol_version": "1.4.0",
+          "request_id": "sixty-four",
+          "outcome": "APPLIED",
+          "file_path": "many.txt",
+          "provider": "text",
+          "provider_version": "text-byte-v1",
+          "expected_cardinality": {
+            "type": "exactly_one"
+          },
+          "observed_cardinality": 1,
+          "pre_hash": "0d5574dbcdf0466fd43f5cf3eac464cdda6dd269794760fe3428b13c74e7b13a",
+          "post_hash": "bb46e37fcb49a843a7b3c8b154b9ac755d164d06371f4acb889f8a97c683b4f2",
+          "changed_ranges": [
+            {
+              "start": 10,
+              "end": 13
+            },
+            {
+              "start": 24,
+              "end": 27
+            },
+            {
+              "start": 38,
+              "end": 41
+            },
+            {
+              "start": 52,
+              "end": 55
+            },
+            {
+              "start": 66,
+              "end": 69
+            },
+            {
+              "start": 80,
+              "end": 83
+            },
+            {
+              "start": 94,
+              "end": 97
+            },
+            {
+              "start": 108,
+              "end": 111
+            },
+            {
+              "start": 122,
+              "end": 125
+            },
+            {
+              "start": 136,
+              "end": 139
+            },
+            {
+              "start": 150,
+              "end": 153
+            },
+            {
+              "start": 164,
+              "end": 167
+            },
+            {
+              "start": 178,
+              "end": 181
+            },
+            {
+              "start": 192,
+              "end": 195
+            },
+            {
+              "start": 206,
+              "end": 209
+            },
+            {
+              "start": 220,
+              "end": 223
+            },
+            {
+              "start": 234,
+              "end": 237
+            },
+            {
+              "start": 248,
+              "end": 251
+            },
+            {
+              "start": 262,
+              "end": 265
+            },
+            {
+              "start": 276,
+              "end": 279
+            },
+            {
+              "start": 290,
+              "end": 293
+            },
+            {
+              "start": 304,
+              "end": 307
+            },
+            {
+              "start": 318,
+              "end": 321
+            },
+            {
+              "start": 332,
+              "end": 335
+            },
+            {
+              "start": 346,
+              "end": 349
+            },
+            {
+              "start": 360,
+              "end": 363
+            },
+            {
+              "start": 374,
+              "end": 377
+            },
+            {
+              "start": 388,
+              "end": 391
+            },
+            {
+              "start": 402,
+              "end": 405
+            },
+            {
+              "start": 416,
+              "end": 419
+            },
+            {
+              "start": 430,
+              "end": 433
+            },
+            {
+              "start": 444,
+              "end": 447
+            },
+            {
+              "start": 458,
+              "end": 461
+            },
+            {
+              "start": 472,
+              "end": 475
+            },
+            {
+              "start": 486,
+              "end": 489
+            },
+            {
+              "start": 500,
+              "end": 503
+            },
+            {
+              "start": 514,
+              "end": 517
+            },
+            {
+              "start": 528,
+              "end": 531
+            },
+            {
+              "start": 542,
+              "end": 545
+            },
+            {
+              "start": 556,
+              "end": 559
+            },
+            {
+              "start": 570,
+              "end": 573
+            },
+            {
+              "start": 584,
+              "end": 587
+            },
+            {
+              "start": 598,
+              "end": 601
+            },
+            {
+              "start": 612,
+              "end": 615
+            },
+            {
+              "start": 626,
+              "end": 629
+            },
+            {
+              "start": 640,
+              "end": 643
+            },
+            {
+              "start": 654,
+              "end": 657
+            },
+            {
+              "start": 668,
+              "end": 671
+            },
+            {
+              "start": 682,
+              "end": 685
+            },
+            {
+              "start": 696,
+              "end": 699
+            },
+            {
+              "start": 710,
+              "end": 713
+            },
+            {
+              "start": 724,
+              "end": 727
+            },
+            {
+              "start": 738,
+              "end": 741
+            },
+            {
+              "start": 752,
+              "end": 755
+            },
+            {
+              "start": 766,
+              "end": 769
+            },
+            {
+              "start": 780,
+              "end": 783
+            },
+            {
+              "start": 794,
+              "end": 797
+            },
+            {
+              "start": 808,
+              "end": 811
+            },
+            {
+              "start": 822,
+              "end": 825
+            },
+            {
+              "start": 836,
+              "end": 839
+            },
+            {
+              "start": 850,
+              "end": 853
+            },
+            {
+              "start": 864,
+              "end": 867
+            },
+            {
+              "start": 878,
+              "end": 881
+            },
+            {
+              "start": 892,
+              "end": 895
+            }
+          ],
+          "changed_line_ranges": [
+            {
+              "start": 1,
+              "end": 1
+            },
+            {
+              "start": 2,
+              "end": 2
+            },
+            {
+              "start": 3,
+              "end": 3
+            },
+            {
+              "start": 4,
+              "end": 4
+            },
+            {
+              "start": 5,
+              "end": 5
+            },
+            {
+              "start": 6,
+              "end": 6
+            },
+            {
+              "start": 7,
+              "end": 7
+            },
+            {
+              "start": 8,
+              "end": 8
+            },
+            {
+              "start": 9,
+              "end": 9
+            },
+            {
+              "start": 10,
+              "end": 10
+            },
+            {
+              "start": 11,
+              "end": 11
+            },
+            {
+              "start": 12,
+              "end": 12
+            },
+            {
+              "start": 13,
+              "end": 13
+            },
+            {
+              "start": 14,
+              "end": 14
+            },
+            {
+              "start": 15,
+              "end": 15
+            },
+            {
+              "start": 16,
+              "end": 16
+            },
+            {
+              "start": 17,
+              "end": 17
+            },
+            {
+              "start": 18,
+              "end": 18
+            },
+            {
+              "start": 19,
+              "end": 19
+            },
+            {
+              "start": 20,
+              "end": 20
+            },
+            {
+              "start": 21,
+              "end": 21
+            },
+            {
+              "start": 22,
+              "end": 22
+            },
+            {
+              "start": 23,
+              "end": 23
+            },
+            {
+              "start": 24,
+              "end": 24
+            },
+            {
+              "start": 25,
+              "end": 25
+            },
+            {
+              "start": 26,
+              "end": 26
+            },
+            {
+              "start": 27,
+              "end": 27
+            },
+            {
+              "start": 28,
+              "end": 28
+            },
+            {
+              "start": 29,
+              "end": 29
+            },
+            {
+              "start": 30,
+              "end": 30
+            },
+            {
+              "start": 31,
+              "end": 31
+            },
+            {
+              "start": 32,
+              "end": 32
+            },
+            {
+              "start": 33,
+              "end": 33
+            },
+            {
+              "start": 34,
+              "end": 34
+            },
+            {
+              "start": 35,
+              "end": 35
+            },
+            {
+              "start": 36,
+              "end": 36
+            },
+            {
+              "start": 37,
+              "end": 37
+            },
+            {
+              "start": 38,
+              "end": 38
+            },
+            {
+              "start": 39,
+              "end": 39
+            },
+            {
+              "start": 40,
+              "end": 40
+            },
+            {
+              "start": 41,
+              "end": 41
+            },
+            {
+              "start": 42,
+              "end": 42
+            },
+            {
+              "start": 43,
+              "end": 43
+            },
+            {
+              "start": 44,
+              "end": 44
+            },
+            {
+              "start": 45,
+              "end": 45
+            },
+            {
+              "start": 46,
+              "end": 46
+            },
+            {
+              "start": 47,
+              "end": 47
+            },
+            {
+              "start": 48,
+              "end": 48
+            },
+            {
+              "start": 49,
+              "end": 49
+            },
+            {
+              "start": 50,
+              "end": 50
+            },
+            {
+              "start": 51,
+              "end": 51
+            },
+            {
+              "start": 52,
+              "end": 52
+            },
+            {
+              "start": 53,
+              "end": 53
+            },
+            {
+              "start": 54,
+              "end": 54
+            },
+            {
+              "start": 55,
+              "end": 55
+            },
+            {
+              "start": 56,
+              "end": 56
+            },
+            {
+              "start": 57,
+              "end": 57
+            },
+            {
+              "start": 58,
+              "end": 58
+            },
+            {
+              "start": 59,
+              "end": 59
+            },
+            {
+              "start": 60,
+              "end": 60
+            },
+            {
+              "start": 61,
+              "end": 61
+            },
+            {
+              "start": 62,
+              "end": 62
+            },
+            {
+              "start": 63,
+              "end": 63
+            },
+            {
+              "start": 64,
+              "end": 64
+            }
+          ],
+          "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 10..13 @@\n-old\n+new\n@@ 24..27 @@\n-old\n+new\n@@ 38..41 @@\n-old\n+new\n@@ 52..55 @@\n-old\n+new\n@@ 66..69 @@\n-old\n+new\n@@ 80..83 @@\n-old\n+new\n@@ 94..97 @@\n-old\n+new\n@@ 108..111 @@\n-old\n+new\n@@ 122..125 @@\n-old\n+new\n@@ 136..139 @@\n-old\n+new\n@@ 150..153 @@\n-old\n+new\n@@ 164..167 @@\n-old\n+new\n@@ 178..181 @@\n-old\n+new\n@@ 192..195 @@\n-old\n+new\n@@ 206..209 @@\n-old\n+new\n@@ 220..223 @@\n-old\n+new\n@@ 234..237 @@\n-old\n+new\n@@ 248..251 @@\n-old\n+new\n@@ 262..265 @@\n-old\n+new\n@@ 276..279 @@\n-old\n+new\n@@ 290..293 @@\n-old\n+new\n@@ 304..307 @@\n-old\n+new\n@@ 318..321 @@\n-old\n+new\n@@ 332..335 @@\n-old\n+new\n@@ 346..349 @@\n-old\n+new\n@@ 360..363 @@\n-old\n+new\n@@ 374..377 @@\n-old\n+new\n@@ 388..391 @@\n-old\n+new\n@@ 402..405 @@\n-old\n+new\n@@ 416..419 @@\n-old\n+new\n@@ 430..433 @@\n-old\n+new\n@@ 444..447 @@\n-old\n+new\n@@ 458..461 @@\n-old\n+new\n@@ 472..475 @@\n-old\n+new\n@@ 486..489 @@\n-old\n+new\n@@ 500..503 @@\n-old\n+new\n@@ 514..517 @@\n-old\n+new\n@@ 528..531 @@\n-old\n+new\n@@ 542..545 @@\n-old\n+new\n@@ 556..559 @@\n-old\n+new\n@@ 570..573 @@\n-old\n+new\n@@ 584..587 @@\n-old\n+new\n@@ 598..601 @@\n-old\n+new\n@@ 612..615 @@\n-old\n+new\n@@ 626..629 @@\n-old\n+new\n@@ 640..643 @@\n-old\n+new\n@@ 654..657 @@\n-old\n+new\n@@ 668..671 @@\n-old\n+new\n@@ 682..685 @@\n-old\n+new\n@@ 696..699 @@\n-old\n+new\n@@ 710..713 @@\n-old\n+new\n@@ 724..727 @@\n-old\n+new\n@@ 738..741 @@\n-old\n+new\n@@ 752..755 @@\n-old\n+new\n@@ 766..769 @@\n-old\n+new\n@@ 780..783 @@\n-old\n+new\n@@ 794..797 @@\n-old\n+new\n@@ 808..811 @@\n-old\n+new\n@@ 822..825 @@\n-old\n+new\n@@ 836..839 @@\n-old\n+new\n@@ 850..853 @@\n-old\n+new\n@@ 864..867 @@\n-old\n+new\n@@ 878..881 @@\n-old\n+new\n@@ 892..895 @@\n-old\n+new\n",
+          "diff_truncated": false,
+          "structural_validation": "not_applicable",
+          "preservation": {
+            "unrelated_bytes_changed": false,
+            "line_endings_changed": false,
+            "bom_changed": false,
+            "final_newline_changed": false,
+            "comments_preserved": true,
+            "metadata": "content-only verification; replacement metadata not asserted",
+            "original_newline_profile": "lf",
+            "result_newline_profile": "lf"
+          },
+          "commit": {
+            "mode": "committed_atomic_replace",
+            "content_replacement": "atomic replacement after staged flush",
+            "permissions": "platform-dependent; not asserted",
+            "timestamps": "not preserved",
+            "acl_xattr": "unknown"
+          },
+          "refusal_reason": null,
+          "failure_reason": null,
+          "reason_code": null,
+          "diagnostics": [],
+          "budget": {
+            "max_files": 1,
+            "max_matches": 64,
+            "max_changed_regions": null,
+            "max_changed_lines": null,
+            "max_changed_bytes": null,
+            "allowed_path_prefixes": []
+          },
+          "effect": {
+            "files": 1,
+            "matches": 64,
+            "changed_regions": 64,
+            "changed_lines": 64,
+            "changed_bytes": 192,
+            "passed": true
+          },
+          "transaction_guarantee": "committed_atomic_replace",
+          "recovery_state": "not_required",
+          "desired_state": null
+        },
+        "stderr": ""
+      },
+      {
+        "id": "two-hundred-replacements-limit",
+        "state": "PASS",
+        "expected_outcome": "REFUSED",
+        "observed_outcome": "REFUSED",
+        "exit_code": 2,
+        "elapsed_ms": 42.169,
+        "invocations": 1,
+        "independent_bytes_match": true,
+        "original_sha256": {
+          "many.txt": "84bd0a692e4c32556fd54762b34f08d1993dc717490ca32acb24eb3d56bd8ff8"
+        },
+        "expected_sha256": {
+          "many.txt": "84bd0a692e4c32556fd54762b34f08d1993dc717490ca32acb24eb3d56bd8ff8"
+        },
+        "final_sha256": {
+          "many.txt": "84bd0a692e4c32556fd54762b34f08d1993dc717490ca32acb24eb3d56bd8ff8"
+        },
+        "certificate": {
+          "protocol_version": "1.4.0",
+          "request_id": "two-hundred",
+          "outcome": "REFUSED",
+          "file_path": "many.txt",
+          "provider": "text",
+          "provider_version": "text-byte-v1",
+          "expected_cardinality": {
+            "type": "exactly_one"
+          },
+          "observed_cardinality": 1,
+          "pre_hash": "84bd0a692e4c32556fd54762b34f08d1993dc717490ca32acb24eb3d56bd8ff8",
+          "post_hash": null,
+          "changed_ranges": [],
+          "changed_line_ranges": [],
+          "diff_summary": "ResourceLimitExceeded { dimension: \"source_text_edits\", limit: 64, actual: 200 }",
+          "diff_truncated": false,
+          "structural_validation": "not_applicable",
+          "preservation": {
+            "unrelated_bytes_changed": false,
+            "line_endings_changed": false,
+            "bom_changed": false,
+            "final_newline_changed": false,
+            "comments_preserved": null,
+            "metadata": "not_verified",
+            "original_newline_profile": "unknown",
+            "result_newline_profile": "unknown"
+          },
+          "commit": {
+            "mode": "not_committed",
+            "content_replacement": "not_applicable",
+            "permissions": "not_verified",
+            "timestamps": "not_preserved_by_replacement",
+            "acl_xattr": "unknown"
+          },
+          "refusal_reason": {
+            "resource_limit_exceeded": {
+              "dimension": "source_text_edits",
+              "limit": 64,
+              "actual": 200
+            }
+          },
+          "failure_reason": null,
+          "reason_code": "RESOURCE_LIMIT_EXCEEDED",
+          "diagnostics": [],
+          "budget": {
+            "max_files": 1,
+            "max_matches": 200,
+            "max_changed_regions": null,
+            "max_changed_lines": null,
+            "max_changed_bytes": null,
+            "allowed_path_prefixes": []
+          },
+          "effect": {
+            "files": 0,
+            "matches": 0,
+            "changed_regions": 0,
+            "changed_lines": 0,
+            "changed_bytes": 0,
+            "passed": true
+          },
+          "transaction_guarantee": "not_committed",
+          "recovery_state": "not_required",
+          "desired_state": null
+        },
+        "stderr": ""
+      },
+      {
+        "id": "twenty-file-transaction",
+        "state": "PASS",
+        "expected_outcome": "APPLIED",
+        "observed_outcome": "APPLIED",
+        "exit_code": 0,
+        "elapsed_ms": 180.596,
+        "invocations": 1,
+        "independent_bytes_match": true,
+        "original_sha256": {
+          "pkg/mod00.txt": "eb56adc7de824e6c73d9926c9a9c06ee7a9ca2bac5cac9b8b87dc97721e40814",
+          "pkg/mod01.txt": "99e10a89d0c482882f4656f4ec2dcddb8e3865fcb9f245e0fa221cf68023c28e",
+          "pkg/mod02.txt": "2b1ea0c1cd1a7e056a70fdbf3370596314effc2b4d3931edbafeae78b6f9c7e3",
+          "pkg/mod03.txt": "98b8feae50887589eeee9ad88c05b87b7af7d82b037f3adabd5b6e3d3aad2cda",
+          "pkg/mod04.txt": "6d4ba0234e125f23e078ecfae080fd555d1cf9824a76f278cd756b919a5c437f",
+          "pkg/mod05.txt": "307a37c135bd50f566980318ae929e98e819d8873a35a14fbb3763308eaeb0ad",
+          "pkg/mod06.txt": "6ad6d6b317ec626583fdd5c0ec4e0809c2050e79dd3397816b9667504d29b0ff",
+          "pkg/mod07.txt": "b47f27a39b02d11b6522a1c7d842cfa7e5a601f0cf3b8056a7054fdab52c8a5b",
+          "pkg/mod08.txt": "e589241c1edb4611fda1ced730cc0b743fe710502509481feede8085f8dab7e0",
+          "pkg/mod09.txt": "28f10a2d53a218eae250b3a6e72b572fc2cf620e9634d75dcda12879200c9eb1",
+          "pkg/mod10.txt": "8cd765772b1ed96da812ee8be9fa2200cae6510f3515791e1289c88f942ef51f",
+          "pkg/mod11.txt": "c90fe69adf74f67ef734ba1435dcc7fc451ad74674b434207f965736fb7a162b",
+          "pkg/mod12.txt": "49f716a2ce6b3c605261359f6cd9c4e11d34b4dab23dbbea784bc1cc94cbbd3e",
+          "pkg/mod13.txt": "01249140c62aa8bfaba2b90f9c32deacdc283b410d220a3eb596ddde4319afd7",
+          "pkg/mod14.txt": "5c8f30385dd8bbf0db6984f49fda2ed7278bfeaf1f42c874d2a658fbf85ea188",
+          "pkg/mod15.txt": "513d99d83070b6d2e9a91959ce5d389a3f182aae374ad48b063255c22ee933b2",
+          "pkg/mod16.txt": "8c6c6bfed1d8367a1a7ae65effe32b3fb275c20396ded90c818f9ea786a861fc",
+          "pkg/mod17.txt": "d9000ff87d7576743307d4cc790159895d3f3f2152ae7527071c8f2deb4a8a29",
+          "pkg/mod18.txt": "a1392bd3b6a1a486551b00599a065f10ffb02f1fd7639d7c5f1f9aae0e64d096",
+          "pkg/mod19.txt": "6f7c12921ed37a4115ec3482e1978b4209ebebb7ec993eee1c048b73b9fc5304"
+        },
+        "expected_sha256": {
+          "pkg/mod00.txt": "6e9a90f918cd375a70f8452e8266ac6cb2d91a5907a7918fe2141acad599ccb2",
+          "pkg/mod01.txt": "f1272dc15b607bb9e17a2a90d7630f77ed9a1167a1dfc0150492009f8c13dfd8",
+          "pkg/mod02.txt": "77f5c10dde4c69bc7c3408dc57ec77aeaeda7fe5795684c6430d1867ff064547",
+          "pkg/mod03.txt": "e62540728410ad5b1228fe3ea69bd7d4ecab8a759e556aa5d54832108ca28d8a",
+          "pkg/mod04.txt": "dc7975e43a8a59880b1924cc71c4f263a4d92c05ebadc553ed9abd5d691f0a42",
+          "pkg/mod05.txt": "8bc89872e6e18f7679f333402bed143465f1b08e95044ce093adae61ee3ccfe6",
+          "pkg/mod06.txt": "768e8d815fbae2f3d1a48b078577b3cf16b625a1c2bd7518f6f62d555873bf34",
+          "pkg/mod07.txt": "8080a82f94ce8c4998deb0e93c57f8a26be15750d8307e5f84f6e5b296a2828b",
+          "pkg/mod08.txt": "98a946a00d17c0c3a077e95055e61a28ebfab0aada0507133d78d1496d12af0f",
+          "pkg/mod09.txt": "5e343c35139aae84617e9ba702b53f522a61398d96bb51faef8035efbb59c6fa",
+          "pkg/mod10.txt": "228e7c8461f086cdac81ba9484642218e2c4c5c5f2fb4e81fa02670b140e534d",
+          "pkg/mod11.txt": "ef4c3bf7ddc160d5edaae5e9b30c5a7ef4206b459d1fdb34663a33021c9b69d2",
+          "pkg/mod12.txt": "1fff464e3f21c2ea65e3c073b25c3af6d995078aa90168b8d7039e9187ff2ec3",
+          "pkg/mod13.txt": "ba3c02dab35d8797333b211249c238beaa7e22058d90ad86d6a9201b7af78f48",
+          "pkg/mod14.txt": "a47992cd9c42bd534f4319c45e8b99ac4a29e723249a0d3ca2548dada3c73812",
+          "pkg/mod15.txt": "a4a1baea0cb8b2cea9f8c77db57f68f04d47891e8d591622b11fd486f9a70907",
+          "pkg/mod16.txt": "04a02a3e608a5cfbac65b6092f463d1144dc0836f538ee3aa70c100532ad8c27",
+          "pkg/mod17.txt": "46e8d3f002206567edb91f1f5e4b477bcf68d3653efd076da84f0593e183f480",
+          "pkg/mod18.txt": "c307d55026de93a2b0bcca16b57b39d4ce3ec4859a13922cb10805def9d036ff",
+          "pkg/mod19.txt": "c9dadb2a7880d3403e45888887ecbfbe12f260167219ade5c45f7106cbeae57a"
+        },
+        "final_sha256": {
+          "pkg/mod00.txt": "6e9a90f918cd375a70f8452e8266ac6cb2d91a5907a7918fe2141acad599ccb2",
+          "pkg/mod01.txt": "f1272dc15b607bb9e17a2a90d7630f77ed9a1167a1dfc0150492009f8c13dfd8",
+          "pkg/mod02.txt": "77f5c10dde4c69bc7c3408dc57ec77aeaeda7fe5795684c6430d1867ff064547",
+          "pkg/mod03.txt": "e62540728410ad5b1228fe3ea69bd7d4ecab8a759e556aa5d54832108ca28d8a",
+          "pkg/mod04.txt": "dc7975e43a8a59880b1924cc71c4f263a4d92c05ebadc553ed9abd5d691f0a42",
+          "pkg/mod05.txt": "8bc89872e6e18f7679f333402bed143465f1b08e95044ce093adae61ee3ccfe6",
+          "pkg/mod06.txt": "768e8d815fbae2f3d1a48b078577b3cf16b625a1c2bd7518f6f62d555873bf34",
+          "pkg/mod07.txt": "8080a82f94ce8c4998deb0e93c57f8a26be15750d8307e5f84f6e5b296a2828b",
+          "pkg/mod08.txt": "98a946a00d17c0c3a077e95055e61a28ebfab0aada0507133d78d1496d12af0f",
+          "pkg/mod09.txt": "5e343c35139aae84617e9ba702b53f522a61398d96bb51faef8035efbb59c6fa",
+          "pkg/mod10.txt": "228e7c8461f086cdac81ba9484642218e2c4c5c5f2fb4e81fa02670b140e534d",
+          "pkg/mod11.txt": "ef4c3bf7ddc160d5edaae5e9b30c5a7ef4206b459d1fdb34663a33021c9b69d2",
+          "pkg/mod12.txt": "1fff464e3f21c2ea65e3c073b25c3af6d995078aa90168b8d7039e9187ff2ec3",
+          "pkg/mod13.txt": "ba3c02dab35d8797333b211249c238beaa7e22058d90ad86d6a9201b7af78f48",
+          "pkg/mod14.txt": "a47992cd9c42bd534f4319c45e8b99ac4a29e723249a0d3ca2548dada3c73812",
+          "pkg/mod15.txt": "a4a1baea0cb8b2cea9f8c77db57f68f04d47891e8d591622b11fd486f9a70907",
+          "pkg/mod16.txt": "04a02a3e608a5cfbac65b6092f463d1144dc0836f538ee3aa70c100532ad8c27",
+          "pkg/mod17.txt": "46e8d3f002206567edb91f1f5e4b477bcf68d3653efd076da84f0593e183f480",
+          "pkg/mod18.txt": "c307d55026de93a2b0bcca16b57b39d4ce3ec4859a13922cb10805def9d036ff",
+          "pkg/mod19.txt": "c9dadb2a7880d3403e45888887ecbfbe12f260167219ade5c45f7106cbeae57a"
+        },
+        "certificate": {
+          "protocol_version": "1.4.0",
+          "transaction_id": "lab-twenty-files",
+          "outcome": "APPLIED",
+          "certificates": [
+            {
+              "protocol_version": "1.4.0",
+              "request_id": "tx-00",
+              "outcome": "APPLIED",
+              "file_path": "pkg/mod00.txt",
+              "provider": "text",
+              "provider_version": "text-byte-v1",
+              "expected_cardinality": {
+                "type": "exactly_one"
+              },
+              "observed_cardinality": 1,
+              "pre_hash": "eb56adc7de824e6c73d9926c9a9c06ee7a9ca2bac5cac9b8b87dc97721e40814",
+              "post_hash": "6e9a90f918cd375a70f8452e8266ac6cb2d91a5907a7918fe2141acad599ccb2",
+              "changed_ranges": [
+                {
+                  "start": 0,
+                  "end": 6
+                }
+              ],
+              "changed_line_ranges": [
+                {
+                  "start": 1,
+                  "end": 1
+                }
+              ],
+              "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 0..6 @@\n-old_00\n+new_00\n",
+              "diff_truncated": false,
+              "structural_validation": "not_applicable",
+              "preservation": {
+                "unrelated_bytes_changed": false,
+                "line_endings_changed": false,
+                "bom_changed": false,
+                "final_newline_changed": false,
+                "comments_preserved": true,
+                "metadata": "content-only verification; replacement metadata not asserted",
+                "original_newline_profile": "lf",
+                "result_newline_profile": "lf"
+              },
+              "commit": {
+                "mode": "committed_atomic_replace",
+                "content_replacement": "atomic replacement after staged flush",
+                "permissions": "platform-dependent; not asserted",
+                "timestamps": "not preserved",
+                "acl_xattr": "unknown"
+              },
+              "refusal_reason": null,
+              "failure_reason": null,
+              "reason_code": null,
+              "diagnostics": [],
+              "budget": {
+                "max_files": 1,
+                "max_matches": 1,
+                "max_changed_regions": null,
+                "max_changed_lines": null,
+                "max_changed_bytes": null,
+                "allowed_path_prefixes": []
+              },
+              "effect": {
+                "files": 1,
+                "matches": 1,
+                "changed_regions": 1,
+                "changed_lines": 1,
+                "changed_bytes": 6,
+                "passed": true
+              },
+              "transaction_guarantee": "transactional_with_rollback",
+              "recovery_state": "not_required",
+              "desired_state": null
+            },
+            {
+              "protocol_version": "1.4.0",
+              "request_id": "tx-01",
+              "outcome": "APPLIED",
+              "file_path": "pkg/mod01.txt",
+              "provider": "text",
+              "provider_version": "text-byte-v1",
+              "expected_cardinality": {
+                "type": "exactly_one"
+              },
+              "observed_cardinality": 1,
+              "pre_hash": "99e10a89d0c482882f4656f4ec2dcddb8e3865fcb9f245e0fa221cf68023c28e",
+              "post_hash": "f1272dc15b607bb9e17a2a90d7630f77ed9a1167a1dfc0150492009f8c13dfd8",
+              "changed_ranges": [
+                {
+                  "start": 0,
+                  "end": 6
+                }
+              ],
+              "changed_line_ranges": [
+                {
+                  "start": 1,
+                  "end": 1
+                }
+              ],
+              "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 0..6 @@\n-old_01\n+new_01\n",
+              "diff_truncated": false,
+              "structural_validation": "not_applicable",
+              "preservation": {
+                "unrelated_bytes_changed": false,
+                "line_endings_changed": false,
+                "bom_changed": false,
+                "final_newline_changed": false,
+                "comments_preserved": true,
+                "metadata": "content-only verification; replacement metadata not asserted",
+                "original_newline_profile": "lf",
+                "result_newline_profile": "lf"
+              },
+              "commit": {
+                "mode": "committed_atomic_replace",
+                "content_replacement": "atomic replacement after staged flush",
+                "permissions": "platform-dependent; not asserted",
+                "timestamps": "not preserved",
+                "acl_xattr": "unknown"
+              },
+              "refusal_reason": null,
+              "failure_reason": null,
+              "reason_code": null,
+              "diagnostics": [],
+              "budget": {
+                "max_files": 1,
+                "max_matches": 1,
+                "max_changed_regions": null,
+                "max_changed_lines": null,
+                "max_changed_bytes": null,
+                "allowed_path_prefixes": []
+              },
+              "effect": {
+                "files": 1,
+                "matches": 1,
+                "changed_regions": 1,
+                "changed_lines": 1,
+                "changed_bytes": 6,
+                "passed": true
+              },
+              "transaction_guarantee": "transactional_with_rollback",
+              "recovery_state": "not_required",
+              "desired_state": null
+            },
+            {
+              "protocol_version": "1.4.0",
+              "request_id": "tx-02",
+              "outcome": "APPLIED",
+              "file_path": "pkg/mod02.txt",
+              "provider": "text",
+              "provider_version": "text-byte-v1",
+              "expected_cardinality": {
+                "type": "exactly_one"
+              },
+              "observed_cardinality": 1,
+              "pre_hash": "2b1ea0c1cd1a7e056a70fdbf3370596314effc2b4d3931edbafeae78b6f9c7e3",
+              "post_hash": "77f5c10dde4c69bc7c3408dc57ec77aeaeda7fe5795684c6430d1867ff064547",
+              "changed_ranges": [
+                {
+                  "start": 0,
+                  "end": 6
+                }
+              ],
+              "changed_line_ranges": [
+                {
+                  "start": 1,
+                  "end": 1
+                }
+              ],
+              "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 0..6 @@\n-old_02\n+new_02\n",
+              "diff_truncated": false,
+              "structural_validation": "not_applicable",
+              "preservation": {
+                "unrelated_bytes_changed": false,
+                "line_endings_changed": false,
+                "bom_changed": false,
+                "final_newline_changed": false,
+                "comments_preserved": true,
+                "metadata": "content-only verification; replacement metadata not asserted",
+                "original_newline_profile": "lf",
+                "result_newline_profile": "lf"
+              },
+              "commit": {
+                "mode": "committed_atomic_replace",
+                "content_replacement": "atomic replacement after staged flush",
+                "permissions": "platform-dependent; not asserted",
+                "timestamps": "not preserved",
+                "acl_xattr": "unknown"
+              },
+              "refusal_reason": null,
+              "failure_reason": null,
+              "reason_code": null,
+              "diagnostics": [],
+              "budget": {
+                "max_files": 1,
+                "max_matches": 1,
+                "max_changed_regions": null,
+                "max_changed_lines": null,
+                "max_changed_bytes": null,
+                "allowed_path_prefixes": []
+              },
+              "effect": {
+                "files": 1,
+                "matches": 1,
+                "changed_regions": 1,
+                "changed_lines": 1,
+                "changed_bytes": 6,
+                "passed": true
+              },
+              "transaction_guarantee": "transactional_with_rollback",
+              "recovery_state": "not_required",
+              "desired_state": null
+            },
+            {
+              "protocol_version": "1.4.0",
+              "request_id": "tx-03",
+              "outcome": "APPLIED",
+              "file_path": "pkg/mod03.txt",
+              "provider": "text",
+              "provider_version": "text-byte-v1",
+              "expected_cardinality": {
+                "type": "exactly_one"
+              },
+              "observed_cardinality": 1,
+              "pre_hash": "98b8feae50887589eeee9ad88c05b87b7af7d82b037f3adabd5b6e3d3aad2cda",
+              "post_hash": "e62540728410ad5b1228fe3ea69bd7d4ecab8a759e556aa5d54832108ca28d8a",
+              "changed_ranges": [
+                {
+                  "start": 0,
+                  "end": 6
+                }
+              ],
+              "changed_line_ranges": [
+                {
+                  "start": 1,
+                  "end": 1
+                }
+              ],
+              "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 0..6 @@\n-old_03\n+new_03\n",
+              "diff_truncated": false,
+              "structural_validation": "not_applicable",
+              "preservation": {
+                "unrelated_bytes_changed": false,
+                "line_endings_changed": false,
+                "bom_changed": false,
+                "final_newline_changed": false,
+                "comments_preserved": true,
+                "metadata": "content-only verification; replacement metadata not asserted",
+                "original_newline_profile": "lf",
+                "result_newline_profile": "lf"
+              },
+              "commit": {
+                "mode": "committed_atomic_replace",
+                "content_replacement": "atomic replacement after staged flush",
+                "permissions": "platform-dependent; not asserted",
+                "timestamps": "not preserved",
+                "acl_xattr": "unknown"
+              },
+              "refusal_reason": null,
+              "failure_reason": null,
+              "reason_code": null,
+              "diagnostics": [],
+              "budget": {
+                "max_files": 1,
+                "max_matches": 1,
+                "max_changed_regions": null,
+                "max_changed_lines": null,
+                "max_changed_bytes": null,
+                "allowed_path_prefixes": []
+              },
+              "effect": {
+                "files": 1,
+                "matches": 1,
+                "changed_regions": 1,
+                "changed_lines": 1,
+                "changed_bytes": 6,
+                "passed": true
+              },
+              "transaction_guarantee": "transactional_with_rollback",
+              "recovery_state": "not_required",
+              "desired_state": null
+            },
+            {
+              "protocol_version": "1.4.0",
+              "request_id": "tx-04",
+              "outcome": "APPLIED",
+              "file_path": "pkg/mod04.txt",
+              "provider": "text",
+              "provider_version": "text-byte-v1",
+              "expected_cardinality": {
+                "type": "exactly_one"
+              },
+              "observed_cardinality": 1,
+              "pre_hash": "6d4ba0234e125f23e078ecfae080fd555d1cf9824a76f278cd756b919a5c437f",
+              "post_hash": "dc7975e43a8a59880b1924cc71c4f263a4d92c05ebadc553ed9abd5d691f0a42",
+              "changed_ranges": [
+                {
+                  "start": 0,
+                  "end": 6
+                }
+              ],
+              "changed_line_ranges": [
+                {
+                  "start": 1,
+                  "end": 1
+                }
+              ],
+              "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 0..6 @@\n-old_04\n+new_04\n",
+              "diff_truncated": false,
+              "structural_validation": "not_applicable",
+              "preservation": {
+                "unrelated_bytes_changed": false,
+                "line_endings_changed": false,
+                "bom_changed": false,
+                "final_newline_changed": false,
+                "comments_preserved": true,
+                "metadata": "content-only verification; replacement metadata not asserted",
+                "original_newline_profile": "lf",
+                "result_newline_profile": "lf"
+              },
+              "commit": {
+                "mode": "committed_atomic_replace",
+                "content_replacement": "atomic replacement after staged flush",
+                "permissions": "platform-dependent; not asserted",
+                "timestamps": "not preserved",
+                "acl_xattr": "unknown"
+              },
+              "refusal_reason": null,
+              "failure_reason": null,
+              "reason_code": null,
+              "diagnostics": [],
+              "budget": {
+                "max_files": 1,
+                "max_matches": 1,
+                "max_changed_regions": null,
+                "max_changed_lines": null,
+                "max_changed_bytes": null,
+                "allowed_path_prefixes": []
+              },
+              "effect": {
+                "files": 1,
+                "matches": 1,
+                "changed_regions": 1,
+                "changed_lines": 1,
+                "changed_bytes": 6,
+                "passed": true
+              },
+              "transaction_guarantee": "transactional_with_rollback",
+              "recovery_state": "not_required",
+              "desired_state": null
+            },
+            {
+              "protocol_version": "1.4.0",
+              "request_id": "tx-05",
+              "outcome": "APPLIED",
+              "file_path": "pkg/mod05.txt",
+              "provider": "text",
+              "provider_version": "text-byte-v1",
+              "expected_cardinality": {
+                "type": "exactly_one"
+              },
+              "observed_cardinality": 1,
+              "pre_hash": "307a37c135bd50f566980318ae929e98e819d8873a35a14fbb3763308eaeb0ad",
+              "post_hash": "8bc89872e6e18f7679f333402bed143465f1b08e95044ce093adae61ee3ccfe6",
+              "changed_ranges": [
+                {
+                  "start": 0,
+                  "end": 6
+                }
+              ],
+              "changed_line_ranges": [
+                {
+                  "start": 1,
+                  "end": 1
+                }
+              ],
+              "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 0..6 @@\n-old_05\n+new_05\n",
+              "diff_truncated": false,
+              "structural_validation": "not_applicable",
+              "preservation": {
+                "unrelated_bytes_changed": false,
+                "line_endings_changed": false,
+                "bom_changed": false,
+                "final_newline_changed": false,
+                "comments_preserved": true,
+                "metadata": "content-only verification; replacement metadata not asserted",
+                "original_newline_profile": "lf",
+                "result_newline_profile": "lf"
+              },
+              "commit": {
+                "mode": "committed_atomic_replace",
+                "content_replacement": "atomic replacement after staged flush",
+                "permissions": "platform-dependent; not asserted",
+                "timestamps": "not preserved",
+                "acl_xattr": "unknown"
+              },
+              "refusal_reason": null,
+              "failure_reason": null,
+              "reason_code": null,
+              "diagnostics": [],
+              "budget": {
+                "max_files": 1,
+                "max_matches": 1,
+                "max_changed_regions": null,
+                "max_changed_lines": null,
+                "max_changed_bytes": null,
+                "allowed_path_prefixes": []
+              },
+              "effect": {
+                "files": 1,
+                "matches": 1,
+                "changed_regions": 1,
+                "changed_lines": 1,
+                "changed_bytes": 6,
+                "passed": true
+              },
+              "transaction_guarantee": "transactional_with_rollback",
+              "recovery_state": "not_required",
+              "desired_state": null
+            },
+            {
+              "protocol_version": "1.4.0",
+              "request_id": "tx-06",
+              "outcome": "APPLIED",
+              "file_path": "pkg/mod06.txt",
+              "provider": "text",
+              "provider_version": "text-byte-v1",
+              "expected_cardinality": {
+                "type": "exactly_one"
+              },
+              "observed_cardinality": 1,
+              "pre_hash": "6ad6d6b317ec626583fdd5c0ec4e0809c2050e79dd3397816b9667504d29b0ff",
+              "post_hash": "768e8d815fbae2f3d1a48b078577b3cf16b625a1c2bd7518f6f62d555873bf34",
+              "changed_ranges": [
+                {
+                  "start": 0,
+                  "end": 6
+                }
+              ],
+              "changed_line_ranges": [
+                {
+                  "start": 1,
+                  "end": 1
+                }
+              ],
+              "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 0..6 @@\n-old_06\n+new_06\n",
+              "diff_truncated": false,
+              "structural_validation": "not_applicable",
+              "preservation": {
+                "unrelated_bytes_changed": false,
+                "line_endings_changed": false,
+                "bom_changed": false,
+                "final_newline_changed": false,
+                "comments_preserved": true,
+                "metadata": "content-only verification; replacement metadata not asserted",
+                "original_newline_profile": "lf",
+                "result_newline_profile": "lf"
+              },
+              "commit": {
+                "mode": "committed_atomic_replace",
+                "content_replacement": "atomic replacement after staged flush",
+                "permissions": "platform-dependent; not asserted",
+                "timestamps": "not preserved",
+                "acl_xattr": "unknown"
+              },
+              "refusal_reason": null,
+              "failure_reason": null,
+              "reason_code": null,
+              "diagnostics": [],
+              "budget": {
+                "max_files": 1,
+                "max_matches": 1,
+                "max_changed_regions": null,
+                "max_changed_lines": null,
+                "max_changed_bytes": null,
+                "allowed_path_prefixes": []
+              },
+              "effect": {
+                "files": 1,
+                "matches": 1,
+                "changed_regions": 1,
+                "changed_lines": 1,
+                "changed_bytes": 6,
+                "passed": true
+              },
+              "transaction_guarantee": "transactional_with_rollback",
+              "recovery_state": "not_required",
+              "desired_state": null
+            },
+            {
+              "protocol_version": "1.4.0",
+              "request_id": "tx-07",
+              "outcome": "APPLIED",
+              "file_path": "pkg/mod07.txt",
+              "provider": "text",
+              "provider_version": "text-byte-v1",
+              "expected_cardinality": {
+                "type": "exactly_one"
+              },
+              "observed_cardinality": 1,
+              "pre_hash": "b47f27a39b02d11b6522a1c7d842cfa7e5a601f0cf3b8056a7054fdab52c8a5b",
+              "post_hash": "8080a82f94ce8c4998deb0e93c57f8a26be15750d8307e5f84f6e5b296a2828b",
+              "changed_ranges": [
+                {
+                  "start": 0,
+                  "end": 6
+                }
+              ],
+              "changed_line_ranges": [
+                {
+                  "start": 1,
+                  "end": 1
+                }
+              ],
+              "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 0..6 @@\n-old_07\n+new_07\n",
+              "diff_truncated": false,
+              "structural_validation": "not_applicable",
+              "preservation": {
+                "unrelated_bytes_changed": false,
+                "line_endings_changed": false,
+                "bom_changed": false,
+                "final_newline_changed": false,
+                "comments_preserved": true,
+                "metadata": "content-only verification; replacement metadata not asserted",
+                "original_newline_profile": "lf",
+                "result_newline_profile": "lf"
+              },
+              "commit": {
+                "mode": "committed_atomic_replace",
+                "content_replacement": "atomic replacement after staged flush",
+                "permissions": "platform-dependent; not asserted",
+                "timestamps": "not preserved",
+                "acl_xattr": "unknown"
+              },
+              "refusal_reason": null,
+              "failure_reason": null,
+              "reason_code": null,
+              "diagnostics": [],
+              "budget": {
+                "max_files": 1,
+                "max_matches": 1,
+                "max_changed_regions": null,
+                "max_changed_lines": null,
+                "max_changed_bytes": null,
+                "allowed_path_prefixes": []
+              },
+              "effect": {
+                "files": 1,
+                "matches": 1,
+                "changed_regions": 1,
+                "changed_lines": 1,
+                "changed_bytes": 6,
+                "passed": true
+              },
+              "transaction_guarantee": "transactional_with_rollback",
+              "recovery_state": "not_required",
+              "desired_state": null
+            },
+            {
+              "protocol_version": "1.4.0",
+              "request_id": "tx-08",
+              "outcome": "APPLIED",
+              "file_path": "pkg/mod08.txt",
+              "provider": "text",
+              "provider_version": "text-byte-v1",
+              "expected_cardinality": {
+                "type": "exactly_one"
+              },
+              "observed_cardinality": 1,
+              "pre_hash": "e589241c1edb4611fda1ced730cc0b743fe710502509481feede8085f8dab7e0",
+              "post_hash": "98a946a00d17c0c3a077e95055e61a28ebfab0aada0507133d78d1496d12af0f",
+              "changed_ranges": [
+                {
+                  "start": 0,
+                  "end": 6
+                }
+              ],
+              "changed_line_ranges": [
+                {
+                  "start": 1,
+                  "end": 1
+                }
+              ],
+              "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 0..6 @@\n-old_08\n+new_08\n",
+              "diff_truncated": false,
+              "structural_validation": "not_applicable",
+              "preservation": {
+                "unrelated_bytes_changed": false,
+                "line_endings_changed": false,
+                "bom_changed": false,
+                "final_newline_changed": false,
+                "comments_preserved": true,
+                "metadata": "content-only verification; replacement metadata not asserted",
+                "original_newline_profile": "lf",
+                "result_newline_profile": "lf"
+              },
+              "commit": {
+                "mode": "committed_atomic_replace",
+                "content_replacement": "atomic replacement after staged flush",
+                "permissions": "platform-dependent; not asserted",
+                "timestamps": "not preserved",
+                "acl_xattr": "unknown"
+              },
+              "refusal_reason": null,
+              "failure_reason": null,
+              "reason_code": null,
+              "diagnostics": [],
+              "budget": {
+                "max_files": 1,
+                "max_matches": 1,
+                "max_changed_regions": null,
+                "max_changed_lines": null,
+                "max_changed_bytes": null,
+                "allowed_path_prefixes": []
+              },
+              "effect": {
+                "files": 1,
+                "matches": 1,
+                "changed_regions": 1,
+                "changed_lines": 1,
+                "changed_bytes": 6,
+                "passed": true
+              },
+              "transaction_guarantee": "transactional_with_rollback",
+              "recovery_state": "not_required",
+              "desired_state": null
+            },
+            {
+              "protocol_version": "1.4.0",
+              "request_id": "tx-09",
+              "outcome": "APPLIED",
+              "file_path": "pkg/mod09.txt",
+              "provider": "text",
+              "provider_version": "text-byte-v1",
+              "expected_cardinality": {
+                "type": "exactly_one"
+              },
+              "observed_cardinality": 1,
+              "pre_hash": "28f10a2d53a218eae250b3a6e72b572fc2cf620e9634d75dcda12879200c9eb1",
+              "post_hash": "5e343c35139aae84617e9ba702b53f522a61398d96bb51faef8035efbb59c6fa",
+              "changed_ranges": [
+                {
+                  "start": 0,
+                  "end": 6
+                }
+              ],
+              "changed_line_ranges": [
+                {
+                  "start": 1,
+                  "end": 1
+                }
+              ],
+              "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 0..6 @@\n-old_09\n+new_09\n",
+              "diff_truncated": false,
+              "structural_validation": "not_applicable",
+              "preservation": {
+                "unrelated_bytes_changed": false,
+                "line_endings_changed": false,
+                "bom_changed": false,
+                "final_newline_changed": false,
+                "comments_preserved": true,
+                "metadata": "content-only verification; replacement metadata not asserted",
+                "original_newline_profile": "lf",
+                "result_newline_profile": "lf"
+              },
+              "commit": {
+                "mode": "committed_atomic_replace",
+                "content_replacement": "atomic replacement after staged flush",
+                "permissions": "platform-dependent; not asserted",
+                "timestamps": "not preserved",
+                "acl_xattr": "unknown"
+              },
+              "refusal_reason": null,
+              "failure_reason": null,
+              "reason_code": null,
+              "diagnostics": [],
+              "budget": {
+                "max_files": 1,
+                "max_matches": 1,
+                "max_changed_regions": null,
+                "max_changed_lines": null,
+                "max_changed_bytes": null,
+                "allowed_path_prefixes": []
+              },
+              "effect": {
+                "files": 1,
+                "matches": 1,
+                "changed_regions": 1,
+                "changed_lines": 1,
+                "changed_bytes": 6,
+                "passed": true
+              },
+              "transaction_guarantee": "transactional_with_rollback",
+              "recovery_state": "not_required",
+              "desired_state": null
+            },
+            {
+              "protocol_version": "1.4.0",
+              "request_id": "tx-10",
+              "outcome": "APPLIED",
+              "file_path": "pkg/mod10.txt",
+              "provider": "text",
+              "provider_version": "text-byte-v1",
+              "expected_cardinality": {
+                "type": "exactly_one"
+              },
+              "observed_cardinality": 1,
+              "pre_hash": "8cd765772b1ed96da812ee8be9fa2200cae6510f3515791e1289c88f942ef51f",
+              "post_hash": "228e7c8461f086cdac81ba9484642218e2c4c5c5f2fb4e81fa02670b140e534d",
+              "changed_ranges": [
+                {
+                  "start": 0,
+                  "end": 6
+                }
+              ],
+              "changed_line_ranges": [
+                {
+                  "start": 1,
+                  "end": 1
+                }
+              ],
+              "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 0..6 @@\n-old_10\n+new_10\n",
+              "diff_truncated": false,
+              "structural_validation": "not_applicable",
+              "preservation": {
+                "unrelated_bytes_changed": false,
+                "line_endings_changed": false,
+                "bom_changed": false,
+                "final_newline_changed": false,
+                "comments_preserved": true,
+                "metadata": "content-only verification; replacement metadata not asserted",
+                "original_newline_profile": "lf",
+                "result_newline_profile": "lf"
+              },
+              "commit": {
+                "mode": "committed_atomic_replace",
+                "content_replacement": "atomic replacement after staged flush",
+                "permissions": "platform-dependent; not asserted",
+                "timestamps": "not preserved",
+                "acl_xattr": "unknown"
+              },
+              "refusal_reason": null,
+              "failure_reason": null,
+              "reason_code": null,
+              "diagnostics": [],
+              "budget": {
+                "max_files": 1,
+                "max_matches": 1,
+                "max_changed_regions": null,
+                "max_changed_lines": null,
+                "max_changed_bytes": null,
+                "allowed_path_prefixes": []
+              },
+              "effect": {
+                "files": 1,
+                "matches": 1,
+                "changed_regions": 1,
+                "changed_lines": 1,
+                "changed_bytes": 6,
+                "passed": true
+              },
+              "transaction_guarantee": "transactional_with_rollback",
+              "recovery_state": "not_required",
+              "desired_state": null
+            },
+            {
+              "protocol_version": "1.4.0",
+              "request_id": "tx-11",
+              "outcome": "APPLIED",
+              "file_path": "pkg/mod11.txt",
+              "provider": "text",
+              "provider_version": "text-byte-v1",
+              "expected_cardinality": {
+                "type": "exactly_one"
+              },
+              "observed_cardinality": 1,
+              "pre_hash": "c90fe69adf74f67ef734ba1435dcc7fc451ad74674b434207f965736fb7a162b",
+              "post_hash": "ef4c3bf7ddc160d5edaae5e9b30c5a7ef4206b459d1fdb34663a33021c9b69d2",
+              "changed_ranges": [
+                {
+                  "start": 0,
+                  "end": 6
+                }
+              ],
+              "changed_line_ranges": [
+                {
+                  "start": 1,
+                  "end": 1
+                }
+              ],
+              "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 0..6 @@\n-old_11\n+new_11\n",
+              "diff_truncated": false,
+              "structural_validation": "not_applicable",
+              "preservation": {
+                "unrelated_bytes_changed": false,
+                "line_endings_changed": false,
+                "bom_changed": false,
+                "final_newline_changed": false,
+                "comments_preserved": true,
+                "metadata": "content-only verification; replacement metadata not asserted",
+                "original_newline_profile": "lf",
+                "result_newline_profile": "lf"
+              },
+              "commit": {
+                "mode": "committed_atomic_replace",
+                "content_replacement": "atomic replacement after staged flush",
+                "permissions": "platform-dependent; not asserted",
+                "timestamps": "not preserved",
+                "acl_xattr": "unknown"
+              },
+              "refusal_reason": null,
+              "failure_reason": null,
+              "reason_code": null,
+              "diagnostics": [],
+              "budget": {
+                "max_files": 1,
+                "max_matches": 1,
+                "max_changed_regions": null,
+                "max_changed_lines": null,
+                "max_changed_bytes": null,
+                "allowed_path_prefixes": []
+              },
+              "effect": {
+                "files": 1,
+                "matches": 1,
+                "changed_regions": 1,
+                "changed_lines": 1,
+                "changed_bytes": 6,
+                "passed": true
+              },
+              "transaction_guarantee": "transactional_with_rollback",
+              "recovery_state": "not_required",
+              "desired_state": null
+            },
+            {
+              "protocol_version": "1.4.0",
+              "request_id": "tx-12",
+              "outcome": "APPLIED",
+              "file_path": "pkg/mod12.txt",
+              "provider": "text",
+              "provider_version": "text-byte-v1",
+              "expected_cardinality": {
+                "type": "exactly_one"
+              },
+              "observed_cardinality": 1,
+              "pre_hash": "49f716a2ce6b3c605261359f6cd9c4e11d34b4dab23dbbea784bc1cc94cbbd3e",
+              "post_hash": "1fff464e3f21c2ea65e3c073b25c3af6d995078aa90168b8d7039e9187ff2ec3",
+              "changed_ranges": [
+                {
+                  "start": 0,
+                  "end": 6
+                }
+              ],
+              "changed_line_ranges": [
+                {
+                  "start": 1,
+                  "end": 1
+                }
+              ],
+              "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 0..6 @@\n-old_12\n+new_12\n",
+              "diff_truncated": false,
+              "structural_validation": "not_applicable",
+              "preservation": {
+                "unrelated_bytes_changed": false,
+                "line_endings_changed": false,
+                "bom_changed": false,
+                "final_newline_changed": false,
+                "comments_preserved": true,
+                "metadata": "content-only verification; replacement metadata not asserted",
+                "original_newline_profile": "lf",
+                "result_newline_profile": "lf"
+              },
+              "commit": {
+                "mode": "committed_atomic_replace",
+                "content_replacement": "atomic replacement after staged flush",
+                "permissions": "platform-dependent; not asserted",
+                "timestamps": "not preserved",
+                "acl_xattr": "unknown"
+              },
+              "refusal_reason": null,
+              "failure_reason": null,
+              "reason_code": null,
+              "diagnostics": [],
+              "budget": {
+                "max_files": 1,
+                "max_matches": 1,
+                "max_changed_regions": null,
+                "max_changed_lines": null,
+                "max_changed_bytes": null,
+                "allowed_path_prefixes": []
+              },
+              "effect": {
+                "files": 1,
+                "matches": 1,
+                "changed_regions": 1,
+                "changed_lines": 1,
+                "changed_bytes": 6,
+                "passed": true
+              },
+              "transaction_guarantee": "transactional_with_rollback",
+              "recovery_state": "not_required",
+              "desired_state": null
+            },
+            {
+              "protocol_version": "1.4.0",
+              "request_id": "tx-13",
+              "outcome": "APPLIED",
+              "file_path": "pkg/mod13.txt",
+              "provider": "text",
+              "provider_version": "text-byte-v1",
+              "expected_cardinality": {
+                "type": "exactly_one"
+              },
+              "observed_cardinality": 1,
+              "pre_hash": "01249140c62aa8bfaba2b90f9c32deacdc283b410d220a3eb596ddde4319afd7",
+              "post_hash": "ba3c02dab35d8797333b211249c238beaa7e22058d90ad86d6a9201b7af78f48",
+              "changed_ranges": [
+                {
+                  "start": 0,
+                  "end": 6
+                }
+              ],
+              "changed_line_ranges": [
+                {
+                  "start": 1,
+                  "end": 1
+                }
+              ],
+              "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 0..6 @@\n-old_13\n+new_13\n",
+              "diff_truncated": false,
+              "structural_validation": "not_applicable",
+              "preservation": {
+                "unrelated_bytes_changed": false,
+                "line_endings_changed": false,
+                "bom_changed": false,
+                "final_newline_changed": false,
+                "comments_preserved": true,
+                "metadata": "content-only verification; replacement metadata not asserted",
+                "original_newline_profile": "lf",
+                "result_newline_profile": "lf"
+              },
+              "commit": {
+                "mode": "committed_atomic_replace",
+                "content_replacement": "atomic replacement after staged flush",
+                "permissions": "platform-dependent; not asserted",
+                "timestamps": "not preserved",
+                "acl_xattr": "unknown"
+              },
+              "refusal_reason": null,
+              "failure_reason": null,
+              "reason_code": null,
+              "diagnostics": [],
+              "budget": {
+                "max_files": 1,
+                "max_matches": 1,
+                "max_changed_regions": null,
+                "max_changed_lines": null,
+                "max_changed_bytes": null,
+                "allowed_path_prefixes": []
+              },
+              "effect": {
+                "files": 1,
+                "matches": 1,
+                "changed_regions": 1,
+                "changed_lines": 1,
+                "changed_bytes": 6,
+                "passed": true
+              },
+              "transaction_guarantee": "transactional_with_rollback",
+              "recovery_state": "not_required",
+              "desired_state": null
+            },
+            {
+              "protocol_version": "1.4.0",
+              "request_id": "tx-14",
+              "outcome": "APPLIED",
+              "file_path": "pkg/mod14.txt",
+              "provider": "text",
+              "provider_version": "text-byte-v1",
+              "expected_cardinality": {
+                "type": "exactly_one"
+              },
+              "observed_cardinality": 1,
+              "pre_hash": "5c8f30385dd8bbf0db6984f49fda2ed7278bfeaf1f42c874d2a658fbf85ea188",
+              "post_hash": "a47992cd9c42bd534f4319c45e8b99ac4a29e723249a0d3ca2548dada3c73812",
+              "changed_ranges": [
+                {
+                  "start": 0,
+                  "end": 6
+                }
+              ],
+              "changed_line_ranges": [
+                {
+                  "start": 1,
+                  "end": 1
+                }
+              ],
+              "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 0..6 @@\n-old_14\n+new_14\n",
+              "diff_truncated": false,
+              "structural_validation": "not_applicable",
+              "preservation": {
+                "unrelated_bytes_changed": false,
+                "line_endings_changed": false,
+                "bom_changed": false,
+                "final_newline_changed": false,
+                "comments_preserved": true,
+                "metadata": "content-only verification; replacement metadata not asserted",
+                "original_newline_profile": "lf",
+                "result_newline_profile": "lf"
+              },
+              "commit": {
+                "mode": "committed_atomic_replace",
+                "content_replacement": "atomic replacement after staged flush",
+                "permissions": "platform-dependent; not asserted",
+                "timestamps": "not preserved",
+                "acl_xattr": "unknown"
+              },
+              "refusal_reason": null,
+              "failure_reason": null,
+              "reason_code": null,
+              "diagnostics": [],
+              "budget": {
+                "max_files": 1,
+                "max_matches": 1,
+                "max_changed_regions": null,
+                "max_changed_lines": null,
+                "max_changed_bytes": null,
+                "allowed_path_prefixes": []
+              },
+              "effect": {
+                "files": 1,
+                "matches": 1,
+                "changed_regions": 1,
+                "changed_lines": 1,
+                "changed_bytes": 6,
+                "passed": true
+              },
+              "transaction_guarantee": "transactional_with_rollback",
+              "recovery_state": "not_required",
+              "desired_state": null
+            },
+            {
+              "protocol_version": "1.4.0",
+              "request_id": "tx-15",
+              "outcome": "APPLIED",
+              "file_path": "pkg/mod15.txt",
+              "provider": "text",
+              "provider_version": "text-byte-v1",
+              "expected_cardinality": {
+                "type": "exactly_one"
+              },
+              "observed_cardinality": 1,
+              "pre_hash": "513d99d83070b6d2e9a91959ce5d389a3f182aae374ad48b063255c22ee933b2",
+              "post_hash": "a4a1baea0cb8b2cea9f8c77db57f68f04d47891e8d591622b11fd486f9a70907",
+              "changed_ranges": [
+                {
+                  "start": 0,
+                  "end": 6
+                }
+              ],
+              "changed_line_ranges": [
+                {
+                  "start": 1,
+                  "end": 1
+                }
+              ],
+              "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 0..6 @@\n-old_15\n+new_15\n",
+              "diff_truncated": false,
+              "structural_validation": "not_applicable",
+              "preservation": {
+                "unrelated_bytes_changed": false,
+                "line_endings_changed": false,
+                "bom_changed": false,
+                "final_newline_changed": false,
+                "comments_preserved": true,
+                "metadata": "content-only verification; replacement metadata not asserted",
+                "original_newline_profile": "lf",
+                "result_newline_profile": "lf"
+              },
+              "commit": {
+                "mode": "committed_atomic_replace",
+                "content_replacement": "atomic replacement after staged flush",
+                "permissions": "platform-dependent; not asserted",
+                "timestamps": "not preserved",
+                "acl_xattr": "unknown"
+              },
+              "refusal_reason": null,
+              "failure_reason": null,
+              "reason_code": null,
+              "diagnostics": [],
+              "budget": {
+                "max_files": 1,
+                "max_matches": 1,
+                "max_changed_regions": null,
+                "max_changed_lines": null,
+                "max_changed_bytes": null,
+                "allowed_path_prefixes": []
+              },
+              "effect": {
+                "files": 1,
+                "matches": 1,
+                "changed_regions": 1,
+                "changed_lines": 1,
+                "changed_bytes": 6,
+                "passed": true
+              },
+              "transaction_guarantee": "transactional_with_rollback",
+              "recovery_state": "not_required",
+              "desired_state": null
+            },
+            {
+              "protocol_version": "1.4.0",
+              "request_id": "tx-16",
+              "outcome": "APPLIED",
+              "file_path": "pkg/mod16.txt",
+              "provider": "text",
+              "provider_version": "text-byte-v1",
+              "expected_cardinality": {
+                "type": "exactly_one"
+              },
+              "observed_cardinality": 1,
+              "pre_hash": "8c6c6bfed1d8367a1a7ae65effe32b3fb275c20396ded90c818f9ea786a861fc",
+              "post_hash": "04a02a3e608a5cfbac65b6092f463d1144dc0836f538ee3aa70c100532ad8c27",
+              "changed_ranges": [
+                {
+                  "start": 0,
+                  "end": 6
+                }
+              ],
+              "changed_line_ranges": [
+                {
+                  "start": 1,
+                  "end": 1
+                }
+              ],
+              "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 0..6 @@\n-old_16\n+new_16\n",
+              "diff_truncated": false,
+              "structural_validation": "not_applicable",
+              "preservation": {
+                "unrelated_bytes_changed": false,
+                "line_endings_changed": false,
+                "bom_changed": false,
+                "final_newline_changed": false,
+                "comments_preserved": true,
+                "metadata": "content-only verification; replacement metadata not asserted",
+                "original_newline_profile": "lf",
+                "result_newline_profile": "lf"
+              },
+              "commit": {
+                "mode": "committed_atomic_replace",
+                "content_replacement": "atomic replacement after staged flush",
+                "permissions": "platform-dependent; not asserted",
+                "timestamps": "not preserved",
+                "acl_xattr": "unknown"
+              },
+              "refusal_reason": null,
+              "failure_reason": null,
+              "reason_code": null,
+              "diagnostics": [],
+              "budget": {
+                "max_files": 1,
+                "max_matches": 1,
+                "max_changed_regions": null,
+                "max_changed_lines": null,
+                "max_changed_bytes": null,
+                "allowed_path_prefixes": []
+              },
+              "effect": {
+                "files": 1,
+                "matches": 1,
+                "changed_regions": 1,
+                "changed_lines": 1,
+                "changed_bytes": 6,
+                "passed": true
+              },
+              "transaction_guarantee": "transactional_with_rollback",
+              "recovery_state": "not_required",
+              "desired_state": null
+            },
+            {
+              "protocol_version": "1.4.0",
+              "request_id": "tx-17",
+              "outcome": "APPLIED",
+              "file_path": "pkg/mod17.txt",
+              "provider": "text",
+              "provider_version": "text-byte-v1",
+              "expected_cardinality": {
+                "type": "exactly_one"
+              },
+              "observed_cardinality": 1,
+              "pre_hash": "d9000ff87d7576743307d4cc790159895d3f3f2152ae7527071c8f2deb4a8a29",
+              "post_hash": "46e8d3f002206567edb91f1f5e4b477bcf68d3653efd076da84f0593e183f480",
+              "changed_ranges": [
+                {
+                  "start": 0,
+                  "end": 6
+                }
+              ],
+              "changed_line_ranges": [
+                {
+                  "start": 1,
+                  "end": 1
+                }
+              ],
+              "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 0..6 @@\n-old_17\n+new_17\n",
+              "diff_truncated": false,
+              "structural_validation": "not_applicable",
+              "preservation": {
+                "unrelated_bytes_changed": false,
+                "line_endings_changed": false,
+                "bom_changed": false,
+                "final_newline_changed": false,
+                "comments_preserved": true,
+                "metadata": "content-only verification; replacement metadata not asserted",
+                "original_newline_profile": "lf",
+                "result_newline_profile": "lf"
+              },
+              "commit": {
+                "mode": "committed_atomic_replace",
+                "content_replacement": "atomic replacement after staged flush",
+                "permissions": "platform-dependent; not asserted",
+                "timestamps": "not preserved",
+                "acl_xattr": "unknown"
+              },
+              "refusal_reason": null,
+              "failure_reason": null,
+              "reason_code": null,
+              "diagnostics": [],
+              "budget": {
+                "max_files": 1,
+                "max_matches": 1,
+                "max_changed_regions": null,
+                "max_changed_lines": null,
+                "max_changed_bytes": null,
+                "allowed_path_prefixes": []
+              },
+              "effect": {
+                "files": 1,
+                "matches": 1,
+                "changed_regions": 1,
+                "changed_lines": 1,
+                "changed_bytes": 6,
+                "passed": true
+              },
+              "transaction_guarantee": "transactional_with_rollback",
+              "recovery_state": "not_required",
+              "desired_state": null
+            },
+            {
+              "protocol_version": "1.4.0",
+              "request_id": "tx-18",
+              "outcome": "APPLIED",
+              "file_path": "pkg/mod18.txt",
+              "provider": "text",
+              "provider_version": "text-byte-v1",
+              "expected_cardinality": {
+                "type": "exactly_one"
+              },
+              "observed_cardinality": 1,
+              "pre_hash": "a1392bd3b6a1a486551b00599a065f10ffb02f1fd7639d7c5f1f9aae0e64d096",
+              "post_hash": "c307d55026de93a2b0bcca16b57b39d4ce3ec4859a13922cb10805def9d036ff",
+              "changed_ranges": [
+                {
+                  "start": 0,
+                  "end": 6
+                }
+              ],
+              "changed_line_ranges": [
+                {
+                  "start": 1,
+                  "end": 1
+                }
+              ],
+              "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 0..6 @@\n-old_18\n+new_18\n",
+              "diff_truncated": false,
+              "structural_validation": "not_applicable",
+              "preservation": {
+                "unrelated_bytes_changed": false,
+                "line_endings_changed": false,
+                "bom_changed": false,
+                "final_newline_changed": false,
+                "comments_preserved": true,
+                "metadata": "content-only verification; replacement metadata not asserted",
+                "original_newline_profile": "lf",
+                "result_newline_profile": "lf"
+              },
+              "commit": {
+                "mode": "committed_atomic_replace",
+                "content_replacement": "atomic replacement after staged flush",
+                "permissions": "platform-dependent; not asserted",
+                "timestamps": "not preserved",
+                "acl_xattr": "unknown"
+              },
+              "refusal_reason": null,
+              "failure_reason": null,
+              "reason_code": null,
+              "diagnostics": [],
+              "budget": {
+                "max_files": 1,
+                "max_matches": 1,
+                "max_changed_regions": null,
+                "max_changed_lines": null,
+                "max_changed_bytes": null,
+                "allowed_path_prefixes": []
+              },
+              "effect": {
+                "files": 1,
+                "matches": 1,
+                "changed_regions": 1,
+                "changed_lines": 1,
+                "changed_bytes": 6,
+                "passed": true
+              },
+              "transaction_guarantee": "transactional_with_rollback",
+              "recovery_state": "not_required",
+              "desired_state": null
+            },
+            {
+              "protocol_version": "1.4.0",
+              "request_id": "tx-19",
+              "outcome": "APPLIED",
+              "file_path": "pkg/mod19.txt",
+              "provider": "text",
+              "provider_version": "text-byte-v1",
+              "expected_cardinality": {
+                "type": "exactly_one"
+              },
+              "observed_cardinality": 1,
+              "pre_hash": "6f7c12921ed37a4115ec3482e1978b4209ebebb7ec993eee1c048b73b9fc5304",
+              "post_hash": "c9dadb2a7880d3403e45888887ecbfbe12f260167219ade5c45f7106cbeae57a",
+              "changed_ranges": [
+                {
+                  "start": 0,
+                  "end": 6
+                }
+              ],
+              "changed_line_ranges": [
+                {
+                  "start": 1,
+                  "end": 1
+                }
+              ],
+              "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 0..6 @@\n-old_19\n+new_19\n",
+              "diff_truncated": false,
+              "structural_validation": "not_applicable",
+              "preservation": {
+                "unrelated_bytes_changed": false,
+                "line_endings_changed": false,
+                "bom_changed": false,
+                "final_newline_changed": false,
+                "comments_preserved": true,
+                "metadata": "content-only verification; replacement metadata not asserted",
+                "original_newline_profile": "lf",
+                "result_newline_profile": "lf"
+              },
+              "commit": {
+                "mode": "committed_atomic_replace",
+                "content_replacement": "atomic replacement after staged flush",
+                "permissions": "platform-dependent; not asserted",
+                "timestamps": "not preserved",
+                "acl_xattr": "unknown"
+              },
+              "refusal_reason": null,
+              "failure_reason": null,
+              "reason_code": null,
+              "diagnostics": [],
+              "budget": {
+                "max_files": 1,
+                "max_matches": 1,
+                "max_changed_regions": null,
+                "max_changed_lines": null,
+                "max_changed_bytes": null,
+                "allowed_path_prefixes": []
+              },
+              "effect": {
+                "files": 1,
+                "matches": 1,
+                "changed_regions": 1,
+                "changed_lines": 1,
+                "changed_bytes": 6,
+                "passed": true
+              },
+              "transaction_guarantee": "transactional_with_rollback",
+              "recovery_state": "not_required",
+              "desired_state": null
+            }
+          ],
+          "rollback_state": "not_required",
+          "transaction_guarantee": "transactional_with_rollback",
+          "refusal_reason": null,
+          "failure_reason": null,
+          "reason_code": null
+        },
+        "stderr": ""
+      },
+      {
+        "id": "precise-one",
+        "state": "PASS",
+        "expected_outcome": "APPLIED",
+        "observed_outcome": "APPLIED",
+        "exit_code": 0,
+        "elapsed_ms": 66.995,
+        "invocations": 1,
+        "independent_bytes_match": true,
+        "original_sha256": {
+          "a.txt": "1092eb3dc6ba07eb186411661db0e53fb5c887a4f3cf857728252a81d895c5a9"
+        },
+        "expected_sha256": {
+          "a.txt": "2ba33ea41cb4a535463c58f40b10685d0fa8420f7d981a5794aa049f3fee96c1"
+        },
+        "final_sha256": {
+          "a.txt": "2ba33ea41cb4a535463c58f40b10685d0fa8420f7d981a5794aa049f3fee96c1"
+        },
+        "certificate": {
+          "protocol_version": "1.4.0",
+          "request_id": "precise",
+          "outcome": "APPLIED",
+          "file_path": "a.txt",
+          "provider": "text",
+          "provider_version": "text-byte-v1",
+          "expected_cardinality": {
+            "type": "exactly_one"
+          },
+          "observed_cardinality": 1,
+          "pre_hash": "1092eb3dc6ba07eb186411661db0e53fb5c887a4f3cf857728252a81d895c5a9",
+          "post_hash": "2ba33ea41cb4a535463c58f40b10685d0fa8420f7d981a5794aa049f3fee96c1",
+          "changed_ranges": [
+            {
+              "start": 7,
+              "end": 10
+            }
+          ],
+          "changed_line_ranges": [
+            {
+              "start": 2,
+              "end": 2
+            }
+          ],
+          "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 7..10 @@\n-old\n+new\n",
+          "diff_truncated": false,
+          "structural_validation": "not_applicable",
+          "preservation": {
+            "unrelated_bytes_changed": false,
+            "line_endings_changed": false,
+            "bom_changed": false,
+            "final_newline_changed": false,
+            "comments_preserved": true,
+            "metadata": "content-only verification; replacement metadata not asserted",
+            "original_newline_profile": "lf",
+            "result_newline_profile": "lf"
+          },
+          "commit": {
+            "mode": "committed_atomic_replace",
+            "content_replacement": "atomic replacement after staged flush",
+            "permissions": "platform-dependent; not asserted",
+            "timestamps": "not preserved",
+            "acl_xattr": "unknown"
+          },
+          "refusal_reason": null,
+          "failure_reason": null,
+          "reason_code": null,
+          "diagnostics": [],
+          "budget": {
+            "max_files": 1,
+            "max_matches": 1,
+            "max_changed_regions": null,
+            "max_changed_lines": null,
+            "max_changed_bytes": null,
+            "allowed_path_prefixes": []
+          },
+          "effect": {
+            "files": 1,
+            "matches": 1,
+            "changed_regions": 1,
+            "changed_lines": 1,
+            "changed_bytes": 3,
+            "passed": true
+          },
+          "transaction_guarantee": "committed_atomic_replace",
+          "recovery_state": "not_required",
+          "desired_state": null
+        },
+        "stderr": ""
+      },
+      {
+        "id": "duplicate-refusal",
+        "state": "PASS",
+        "expected_outcome": "REFUSED",
+        "observed_outcome": "REFUSED",
+        "exit_code": 2,
+        "elapsed_ms": 41.236,
+        "invocations": 1,
+        "independent_bytes_match": true,
+        "original_sha256": {
+          "a.txt": "c34f66e0c47e11aeb3cfdad681eb0cfd4a5b8f5d2203916545067e9b5c09df79"
+        },
+        "expected_sha256": {
+          "a.txt": "c34f66e0c47e11aeb3cfdad681eb0cfd4a5b8f5d2203916545067e9b5c09df79"
+        },
+        "final_sha256": {
+          "a.txt": "c34f66e0c47e11aeb3cfdad681eb0cfd4a5b8f5d2203916545067e9b5c09df79"
+        },
+        "certificate": {
+          "protocol_version": "1.4.0",
+          "request_id": "ambiguous",
+          "outcome": "REFUSED",
+          "file_path": "a.txt",
+          "provider": "text",
+          "provider_version": "text-byte-v1",
+          "expected_cardinality": {
+            "type": "exactly_one"
+          },
+          "observed_cardinality": 1,
+          "pre_hash": "c34f66e0c47e11aeb3cfdad681eb0cfd4a5b8f5d2203916545067e9b5c09df79",
+          "post_hash": null,
+          "changed_ranges": [],
+          "changed_line_ranges": [],
+          "diff_summary": "DuplicateTarget { target: \"same\", count: 2, candidates: [Candidate { offset: 0, start: 0, end: 4, target: \"same\", line: 1, context: \"same\\nkeep\\nsame\\n\", anchor_sha256: \"0967115f2813a3541eaef77de9d9d5773f1c0c04314b0bbfe4ff3b3b1c55b5d5\", selection_id: \"234f6f9abb1a4bcdc32423aa31748d82e0bce9b64742b9777b7c2d862da19417\", node_kind: None }, Candidate { offset: 10, start: 10, end: 14, target: \"same\", line: 3, context: \"same\\nkeep\\nsame\\n\", anchor_sha256: \"0967115f2813a3541eaef77de9d9d5773f1c0c04314b0bbfe4ff3b3b1c55b5d5\", selection_id: \"54aed6c360ed2ba0c3fa9ccbc7ad2b6c5efcc235dbcddcb2495d500a5cec91cb\", node_kind: None }], candidates_returned: 2, truncated: false }",
+          "diff_truncated": false,
+          "structural_validation": "not_applicable",
+          "preservation": {
+            "unrelated_bytes_changed": false,
+            "line_endings_changed": false,
+            "bom_changed": false,
+            "final_newline_changed": false,
+            "comments_preserved": null,
+            "metadata": "not_verified",
+            "original_newline_profile": "unknown",
+            "result_newline_profile": "unknown"
+          },
+          "commit": {
+            "mode": "not_committed",
+            "content_replacement": "not_applicable",
+            "permissions": "not_verified",
+            "timestamps": "not_preserved_by_replacement",
+            "acl_xattr": "unknown"
+          },
+          "refusal_reason": {
+            "duplicate_target": {
+              "target": "same",
+              "count": 2,
+              "candidates": [
+                {
+                  "offset": 0,
+                  "start": 0,
+                  "end": 4,
+                  "target": "same",
+                  "line": 1,
+                  "context": "same\nkeep\nsame\n",
+                  "anchor_sha256": "0967115f2813a3541eaef77de9d9d5773f1c0c04314b0bbfe4ff3b3b1c55b5d5",
+                  "selection_id": "234f6f9abb1a4bcdc32423aa31748d82e0bce9b64742b9777b7c2d862da19417"
+                },
+                {
+                  "offset": 10,
+                  "start": 10,
+                  "end": 14,
+                  "target": "same",
+                  "line": 3,
+                  "context": "same\nkeep\nsame\n",
+                  "anchor_sha256": "0967115f2813a3541eaef77de9d9d5773f1c0c04314b0bbfe4ff3b3b1c55b5d5",
+                  "selection_id": "54aed6c360ed2ba0c3fa9ccbc7ad2b6c5efcc235dbcddcb2495d500a5cec91cb"
+                }
+              ],
+              "candidates_returned": 2,
+              "truncated": false
+            }
+          },
+          "failure_reason": null,
+          "reason_code": "TARGET_AMBIGUOUS",
+          "recovery": {
+            "requires_choice": true,
+            "remedies": [
+              {
+                "kind": "candidate_selection",
+                "description": "candidate at line 1",
+                "request_patch": {
+                  "allow_generated": false,
+                  "budget": {
+                    "allowed_path_prefixes": [],
+                    "max_changed_bytes": null,
+                    "max_changed_lines": null,
+                    "max_changed_regions": null,
+                    "max_files": 1,
+                    "max_matches": 1
+                  },
+                  "candidate_guard": {
+                    "offset": 0,
+                    "selection_id": "234f6f9abb1a4bcdc32423aa31748d82e0bce9b64742b9777b7c2d862da19417"
+                  },
+                  "cardinality": {
+                    "type": "exactly_one"
+                  },
+                  "expected_pre_hash": "c34f66e0c47e11aeb3cfdad681eb0cfd4a5b8f5d2203916545067e9b5c09df79",
+                  "file_path": "a.txt",
+                  "namespace": {
+                    "type": "native"
+                  },
+                  "operation": {
+                    "operation": {
+                      "replacement": "changed",
+                      "target": "same",
+                      "type": "replace"
+                    },
+                    "provider": "text"
+                  },
+                  "region_guard": null,
+                  "request_id": "ambiguous",
+                  "version": "1.4.0"
+                }
+              },
+              {
+                "kind": "candidate_selection",
+                "description": "candidate at line 3",
+                "request_patch": {
+                  "allow_generated": false,
+                  "budget": {
+                    "allowed_path_prefixes": [],
+                    "max_changed_bytes": null,
+                    "max_changed_lines": null,
+                    "max_changed_regions": null,
+                    "max_files": 1,
+                    "max_matches": 1
+                  },
+                  "candidate_guard": {
+                    "offset": 10,
+                    "selection_id": "54aed6c360ed2ba0c3fa9ccbc7ad2b6c5efcc235dbcddcb2495d500a5cec91cb"
+                  },
+                  "cardinality": {
+                    "type": "exactly_one"
+                  },
+                  "expected_pre_hash": "c34f66e0c47e11aeb3cfdad681eb0cfd4a5b8f5d2203916545067e9b5c09df79",
+                  "file_path": "a.txt",
+                  "namespace": {
+                    "type": "native"
+                  },
+                  "operation": {
+                    "operation": {
+                      "replacement": "changed",
+                      "target": "same",
+                      "type": "replace"
+                    },
+                    "provider": "text"
+                  },
+                  "region_guard": null,
+                  "request_id": "ambiguous",
+                  "version": "1.4.0"
+                }
+              }
+            ]
+          },
+          "diagnostics": [],
+          "budget": {
+            "max_files": 1,
+            "max_matches": 1,
+            "max_changed_regions": null,
+            "max_changed_lines": null,
+            "max_changed_bytes": null,
+            "allowed_path_prefixes": []
+          },
+          "effect": {
+            "files": 0,
+            "matches": 0,
+            "changed_regions": 0,
+            "changed_lines": 0,
+            "changed_bytes": 0,
+            "passed": true
+          },
+          "transaction_guarantee": "not_committed",
+          "recovery_state": "not_required",
+          "desired_state": null
+        },
+        "stderr": ""
+      },
+      {
+        "id": "crlf-preservation",
+        "state": "PASS",
+        "expected_outcome": "APPLIED",
+        "observed_outcome": "APPLIED",
+        "exit_code": 0,
+        "elapsed_ms": 40.527,
+        "invocations": 1,
+        "independent_bytes_match": true,
+        "original_sha256": {
+          "a.txt": "90a4f984ee2b6660e14589aa18bd67846afa82ff6f6cd46a3b7ef487d8499112"
+        },
+        "expected_sha256": {
+          "a.txt": "a9d7676923194546872e4b41bd7bef7ff986d65d6f6ef9944b279f2d8ee80394"
+        },
+        "final_sha256": {
+          "a.txt": "a9d7676923194546872e4b41bd7bef7ff986d65d6f6ef9944b279f2d8ee80394"
+        },
+        "certificate": {
+          "protocol_version": "1.4.0",
+          "request_id": "crlf",
+          "outcome": "APPLIED",
+          "file_path": "a.txt",
+          "provider": "text",
+          "provider_version": "text-byte-v1",
+          "expected_cardinality": {
+            "type": "exactly_one"
+          },
+          "observed_cardinality": 1,
+          "pre_hash": "90a4f984ee2b6660e14589aa18bd67846afa82ff6f6cd46a3b7ef487d8499112",
+          "post_hash": "a9d7676923194546872e4b41bd7bef7ff986d65d6f6ef9944b279f2d8ee80394",
+          "changed_ranges": [
+            {
+              "start": 7,
+              "end": 10
+            }
+          ],
+          "changed_line_ranges": [
+            {
+              "start": 2,
+              "end": 2
+            }
+          ],
+          "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 7..10 @@\n-old\n+new\n",
+          "diff_truncated": false,
+          "structural_validation": "not_applicable",
+          "preservation": {
+            "unrelated_bytes_changed": false,
+            "line_endings_changed": false,
+            "bom_changed": false,
+            "final_newline_changed": false,
+            "comments_preserved": true,
+            "metadata": "content-only verification; replacement metadata not asserted",
+            "original_newline_profile": "crlf",
+            "result_newline_profile": "crlf"
+          },
+          "commit": {
+            "mode": "committed_atomic_replace",
+            "content_replacement": "atomic replacement after staged flush",
+            "permissions": "platform-dependent; not asserted",
+            "timestamps": "not preserved",
+            "acl_xattr": "unknown"
+          },
+          "refusal_reason": null,
+          "failure_reason": null,
+          "reason_code": null,
+          "diagnostics": [],
+          "budget": {
+            "max_files": 1,
+            "max_matches": 1,
+            "max_changed_regions": null,
+            "max_changed_lines": null,
+            "max_changed_bytes": null,
+            "allowed_path_prefixes": []
+          },
+          "effect": {
+            "files": 1,
+            "matches": 1,
+            "changed_regions": 1,
+            "changed_lines": 1,
+            "changed_bytes": 3,
+            "passed": true
+          },
+          "transaction_guarantee": "committed_atomic_replace",
+          "recovery_state": "not_required",
+          "desired_state": null
+        },
+        "stderr": ""
+      },
+      {
+        "id": "large-distant-edit",
+        "state": "PASS",
+        "expected_outcome": "APPLIED",
+        "observed_outcome": "APPLIED",
+        "exit_code": 0,
+        "elapsed_ms": 94.319,
+        "invocations": 1,
+        "independent_bytes_match": true,
+        "original_sha256": {
+          "large.txt": "aed872296e579f3e8c8cdf152391d9c68791d757646218ca6d078adf70fd8473"
+        },
+        "expected_sha256": {
+          "large.txt": "472dffde7bd66c0cb914882467ff2022b3b3a4d299f66415709e781fa2c5206d"
+        },
+        "final_sha256": {
+          "large.txt": "472dffde7bd66c0cb914882467ff2022b3b3a4d299f66415709e781fa2c5206d"
+        },
+        "certificate": {
+          "protocol_version": "1.4.0",
+          "request_id": "large",
+          "outcome": "APPLIED",
+          "file_path": "large.txt",
+          "provider": "text",
+          "provider_version": "text-byte-v1",
+          "expected_cardinality": {
+            "type": "exactly_one"
+          },
+          "observed_cardinality": 1,
+          "pre_hash": "aed872296e579f3e8c8cdf152391d9c68791d757646218ca6d078adf70fd8473",
+          "post_hash": "472dffde7bd66c0cb914882467ff2022b3b3a4d299f66415709e781fa2c5206d",
+          "changed_ranges": [
+            {
+              "start": 70000,
+              "end": 70006
+            }
+          ],
+          "changed_line_ranges": [
+            {
+              "start": 5001,
+              "end": 5001
+            }
+          ],
+          "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 70000..70006 @@\n-needle\n+updated\n",
+          "diff_truncated": false,
+          "structural_validation": "not_applicable",
+          "preservation": {
+            "unrelated_bytes_changed": false,
+            "line_endings_changed": false,
+            "bom_changed": false,
+            "final_newline_changed": false,
+            "comments_preserved": true,
+            "metadata": "content-only verification; replacement metadata not asserted",
+            "original_newline_profile": "lf",
+            "result_newline_profile": "lf"
+          },
+          "commit": {
+            "mode": "committed_atomic_replace",
+            "content_replacement": "atomic replacement after staged flush",
+            "permissions": "platform-dependent; not asserted",
+            "timestamps": "not preserved",
+            "acl_xattr": "unknown"
+          },
+          "refusal_reason": null,
+          "failure_reason": null,
+          "reason_code": null,
+          "diagnostics": [],
+          "budget": {
+            "max_files": 1,
+            "max_matches": 1,
+            "max_changed_regions": null,
+            "max_changed_lines": null,
+            "max_changed_bytes": null,
+            "allowed_path_prefixes": []
+          },
+          "effect": {
+            "files": 1,
+            "matches": 1,
+            "changed_regions": 1,
+            "changed_lines": 1,
+            "changed_bytes": 7,
+            "passed": true
+          },
+          "transaction_guarantee": "committed_atomic_replace",
+          "recovery_state": "not_required",
+          "desired_state": null
+        },
+        "stderr": ""
+      },
+      {
+        "id": "json-structural-set",
+        "state": "PASS",
+        "expected_outcome": "APPLIED",
+        "observed_outcome": "APPLIED",
+        "exit_code": 0,
+        "elapsed_ms": 37.776,
+        "invocations": 1,
+        "independent_bytes_match": true,
+        "original_sha256": {
+          "config.json": "d17629194aa7c71085c3bd93806405893815d872bae07d2801853f9c50f4134e"
+        },
+        "expected_sha256": {
+          "config.json": "5a38d99235782deeb0201b4d3686e534396eb8fa41d205ff4ef3f953e30c891f"
+        },
+        "final_sha256": {
+          "config.json": "5a38d99235782deeb0201b4d3686e534396eb8fa41d205ff4ef3f953e30c891f"
+        },
+        "certificate": {
+          "protocol_version": "1.4.0",
+          "request_id": "json",
+          "outcome": "APPLIED",
+          "file_path": "config.json",
+          "provider": "json",
+          "provider_version": "json-source-v1",
+          "expected_cardinality": {
+            "type": "exactly_one"
+          },
+          "observed_cardinality": 1,
+          "pre_hash": "d17629194aa7c71085c3bd93806405893815d872bae07d2801853f9c50f4134e",
+          "post_hash": "5a38d99235782deeb0201b4d3686e534396eb8fa41d205ff4ef3f953e30c891f",
+          "changed_ranges": [
+            {
+              "start": 12,
+              "end": 17
+            }
+          ],
+          "changed_line_ranges": [
+            {
+              "start": 2,
+              "end": 2
+            }
+          ],
+          "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 12..17 @@\n-\"old\"\n+\"new\"\n",
+          "diff_truncated": false,
+          "structural_validation": {
+            "valid": {
+              "format": "strict_json"
+            }
+          },
+          "preservation": {
+            "unrelated_bytes_changed": false,
+            "line_endings_changed": false,
+            "bom_changed": false,
+            "final_newline_changed": false,
+            "comments_preserved": true,
+            "metadata": "content-only verification; replacement metadata not asserted",
+            "original_newline_profile": "lf",
+            "result_newline_profile": "lf"
+          },
+          "commit": {
+            "mode": "committed_atomic_replace",
+            "content_replacement": "atomic replacement after staged flush",
+            "permissions": "platform-dependent; not asserted",
+            "timestamps": "not preserved",
+            "acl_xattr": "unknown"
+          },
+          "refusal_reason": null,
+          "failure_reason": null,
+          "reason_code": null,
+          "diagnostics": [],
+          "budget": {
+            "max_files": 1,
+            "max_matches": 1,
+            "max_changed_regions": null,
+            "max_changed_lines": null,
+            "max_changed_bytes": null,
+            "allowed_path_prefixes": []
+          },
+          "effect": {
+            "files": 1,
+            "matches": 1,
+            "changed_regions": 1,
+            "changed_lines": 1,
+            "changed_bytes": 5,
+            "passed": true
+          },
+          "transaction_guarantee": "committed_atomic_replace",
+          "recovery_state": "not_required",
+          "desired_state": null
+        },
+        "stderr": ""
+      },
+      {
+        "id": "syntax-node-replace",
+        "state": "PASS",
+        "expected_outcome": "APPLIED",
+        "observed_outcome": "APPLIED",
+        "exit_code": 0,
+        "elapsed_ms": 39.768,
+        "invocations": 1,
+        "independent_bytes_match": true,
+        "original_sha256": {
+          "lib.rs": "22ddd75146a26e9d38e17df1c0991fa41ba74b5f64ccfa33cbede46f64887247"
+        },
+        "expected_sha256": {
+          "lib.rs": "da2e351b2eca4a484e85070f63eb36ac62fe393935dcfaf96d0db1397ed0d44c"
+        },
+        "final_sha256": {
+          "lib.rs": "da2e351b2eca4a484e85070f63eb36ac62fe393935dcfaf96d0db1397ed0d44c"
+        },
+        "certificate": {
+          "protocol_version": "1.4.0",
+          "request_id": "syntax",
+          "outcome": "APPLIED",
+          "file_path": "lib.rs",
+          "provider": "code",
+          "provider_version": "tree-sitter-node-v1",
+          "expected_cardinality": {
+            "type": "exactly_one"
+          },
+          "observed_cardinality": 1,
+          "pre_hash": "22ddd75146a26e9d38e17df1c0991fa41ba74b5f64ccfa33cbede46f64887247",
+          "post_hash": "da2e351b2eca4a484e85070f63eb36ac62fe393935dcfaf96d0db1397ed0d44c",
+          "changed_ranges": [
+            {
+              "start": 0,
+              "end": 55
+            }
+          ],
+          "changed_line_ranges": [
+            {
+              "start": 1,
+              "end": 4
+            }
+          ],
+          "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 0..55 @@\n-fn target() {\n    // keep this comment\n    let x = 1;\n}\n+fn target() {\n    // keep this comment\n    let x = 2;\n}\n",
+          "diff_truncated": false,
+          "structural_validation": {
+            "valid": {
+              "format": "tree_sitter:rust"
+            }
+          },
+          "preservation": {
+            "unrelated_bytes_changed": false,
+            "line_endings_changed": false,
+            "bom_changed": false,
+            "final_newline_changed": false,
+            "comments_preserved": true,
+            "metadata": "content-only verification; replacement metadata not asserted",
+            "original_newline_profile": "lf",
+            "result_newline_profile": "lf"
+          },
+          "commit": {
+            "mode": "committed_atomic_replace",
+            "content_replacement": "atomic replacement after staged flush",
+            "permissions": "platform-dependent; not asserted",
+            "timestamps": "not preserved",
+            "acl_xattr": "unknown"
+          },
+          "refusal_reason": null,
+          "failure_reason": null,
+          "reason_code": null,
+          "diagnostics": [],
+          "budget": {
+            "max_files": 1,
+            "max_matches": 1,
+            "max_changed_regions": null,
+            "max_changed_lines": null,
+            "max_changed_bytes": null,
+            "allowed_path_prefixes": []
+          },
+          "effect": {
+            "files": 1,
+            "matches": 1,
+            "changed_regions": 1,
+            "changed_lines": 1,
+            "changed_bytes": 55,
+            "passed": true
+          },
+          "transaction_guarantee": "committed_atomic_replace",
+          "recovery_state": "not_required",
+          "desired_state": null
+        },
+        "stderr": ""
+      },
+      {
+        "id": "multi-file-transaction",
+        "state": "PASS",
+        "expected_outcome": "APPLIED",
+        "observed_outcome": "APPLIED",
+        "exit_code": 0,
+        "elapsed_ms": 47.481,
+        "invocations": 1,
+        "independent_bytes_match": true,
+        "original_sha256": {
+          "a.txt": "96cdfb91ba2c74be3baa1902d9b100039a4d67decdef72a3ee1e67c886cbb875",
+          "b.txt": "28434c80688e88d8f2955a9d77b92594343aa1cd8b168b9001fe5096c97c8022"
+        },
+        "expected_sha256": {
+          "a.txt": "54578a36036ade573160b2eb3ba5d8557897aa8c6b4ce4742e556d37eb81c680",
+          "b.txt": "550d594f5d87bd540b72a207fd32c27894f378088bd355d4f0b2bb7d43e58df9"
+        },
+        "final_sha256": {
+          "a.txt": "54578a36036ade573160b2eb3ba5d8557897aa8c6b4ce4742e556d37eb81c680",
+          "b.txt": "550d594f5d87bd540b72a207fd32c27894f378088bd355d4f0b2bb7d43e58df9"
+        },
+        "certificate": {
+          "protocol_version": "1.4.0",
+          "transaction_id": "lab-multi-file",
+          "outcome": "APPLIED",
+          "certificates": [
+            {
+              "protocol_version": "1.4.0",
+              "request_id": "tx-a",
+              "outcome": "APPLIED",
+              "file_path": "a.txt",
+              "provider": "text",
+              "provider_version": "text-byte-v1",
+              "expected_cardinality": {
+                "type": "exactly_one"
+              },
+              "observed_cardinality": 1,
+              "pre_hash": "96cdfb91ba2c74be3baa1902d9b100039a4d67decdef72a3ee1e67c886cbb875",
+              "post_hash": "54578a36036ade573160b2eb3ba5d8557897aa8c6b4ce4742e556d37eb81c680",
+              "changed_ranges": [
+                {
+                  "start": 0,
+                  "end": 5
+                }
+              ],
+              "changed_line_ranges": [
+                {
+                  "start": 1,
+                  "end": 1
+                }
+              ],
+              "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 0..5 @@\n-old-a\n+new-a\n",
+              "diff_truncated": false,
+              "structural_validation": "not_applicable",
+              "preservation": {
+                "unrelated_bytes_changed": false,
+                "line_endings_changed": false,
+                "bom_changed": false,
+                "final_newline_changed": false,
+                "comments_preserved": true,
+                "metadata": "content-only verification; replacement metadata not asserted",
+                "original_newline_profile": "lf",
+                "result_newline_profile": "lf"
+              },
+              "commit": {
+                "mode": "committed_atomic_replace",
+                "content_replacement": "atomic replacement after staged flush",
+                "permissions": "platform-dependent; not asserted",
+                "timestamps": "not preserved",
+                "acl_xattr": "unknown"
+              },
+              "refusal_reason": null,
+              "failure_reason": null,
+              "reason_code": null,
+              "diagnostics": [],
+              "budget": {
+                "max_files": 1,
+                "max_matches": 1,
+                "max_changed_regions": null,
+                "max_changed_lines": null,
+                "max_changed_bytes": null,
+                "allowed_path_prefixes": []
+              },
+              "effect": {
+                "files": 1,
+                "matches": 1,
+                "changed_regions": 1,
+                "changed_lines": 1,
+                "changed_bytes": 5,
+                "passed": true
+              },
+              "transaction_guarantee": "transactional_with_rollback",
+              "recovery_state": "not_required",
+              "desired_state": null
+            },
+            {
+              "protocol_version": "1.4.0",
+              "request_id": "tx-b",
+              "outcome": "APPLIED",
+              "file_path": "b.txt",
+              "provider": "text",
+              "provider_version": "text-byte-v1",
+              "expected_cardinality": {
+                "type": "exactly_one"
+              },
+              "observed_cardinality": 1,
+              "pre_hash": "28434c80688e88d8f2955a9d77b92594343aa1cd8b168b9001fe5096c97c8022",
+              "post_hash": "550d594f5d87bd540b72a207fd32c27894f378088bd355d4f0b2bb7d43e58df9",
+              "changed_ranges": [
+                {
+                  "start": 0,
+                  "end": 5
+                }
+              ],
+              "changed_line_ranges": [
+                {
+                  "start": 1,
+                  "end": 1
+                }
+              ],
+              "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 0..5 @@\n-old-b\n+new-b\n",
+              "diff_truncated": false,
+              "structural_validation": "not_applicable",
+              "preservation": {
+                "unrelated_bytes_changed": false,
+                "line_endings_changed": false,
+                "bom_changed": false,
+                "final_newline_changed": false,
+                "comments_preserved": true,
+                "metadata": "content-only verification; replacement metadata not asserted",
+                "original_newline_profile": "lf",
+                "result_newline_profile": "lf"
+              },
+              "commit": {
+                "mode": "committed_atomic_replace",
+                "content_replacement": "atomic replacement after staged flush",
+                "permissions": "platform-dependent; not asserted",
+                "timestamps": "not preserved",
+                "acl_xattr": "unknown"
+              },
+              "refusal_reason": null,
+              "failure_reason": null,
+              "reason_code": null,
+              "diagnostics": [],
+              "budget": {
+                "max_files": 1,
+                "max_matches": 1,
+                "max_changed_regions": null,
+                "max_changed_lines": null,
+                "max_changed_bytes": null,
+                "allowed_path_prefixes": []
+              },
+              "effect": {
+                "files": 1,
+                "matches": 1,
+                "changed_regions": 1,
+                "changed_lines": 1,
+                "changed_bytes": 5,
+                "passed": true
+              },
+              "transaction_guarantee": "transactional_with_rollback",
+              "recovery_state": "not_required",
+              "desired_state": null
+            }
+          ],
+          "rollback_state": "not_required",
+          "transaction_guarantee": "transactional_with_rollback",
+          "refusal_reason": null,
+          "failure_reason": null,
+          "reason_code": null
+        },
+        "stderr": ""
+      },
+      {
+        "id": "stale-prehash-refusal",
+        "state": "PASS",
+        "expected_outcome": "REFUSED",
+        "observed_outcome": "REFUSED",
+        "exit_code": 2,
+        "elapsed_ms": 34.297,
+        "invocations": 1,
+        "independent_bytes_match": true,
+        "original_sha256": {
+          "a.txt": "48aa6cae8c70abdb28631d22b316e6d9f9d0768ec2911de7090e248b2afe6ca1"
+        },
+        "expected_sha256": {
+          "a.txt": "48aa6cae8c70abdb28631d22b316e6d9f9d0768ec2911de7090e248b2afe6ca1"
+        },
+        "final_sha256": {
+          "a.txt": "48aa6cae8c70abdb28631d22b316e6d9f9d0768ec2911de7090e248b2afe6ca1"
+        },
+        "certificate": {
+          "protocol_version": "1.4.0",
+          "request_id": "stale",
+          "outcome": "REFUSED",
+          "file_path": "a.txt",
+          "provider": "text",
+          "provider_version": "text-byte-v1",
+          "expected_cardinality": {
+            "type": "exactly_one"
+          },
+          "observed_cardinality": 1,
+          "pre_hash": "48aa6cae8c70abdb28631d22b316e6d9f9d0768ec2911de7090e248b2afe6ca1",
+          "post_hash": null,
+          "changed_ranges": [],
+          "changed_line_ranges": [],
+          "diff_summary": "StaleIdentity { expected_hash: \"0000000000000000000000000000000000000000000000000000000000000000\", actual_hash: \"48aa6cae8c70abdb28631d22b316e6d9f9d0768ec2911de7090e248b2afe6ca1\" }",
+          "diff_truncated": false,
+          "structural_validation": "not_applicable",
+          "preservation": {
+            "unrelated_bytes_changed": false,
+            "line_endings_changed": false,
+            "bom_changed": false,
+            "final_newline_changed": false,
+            "comments_preserved": null,
+            "metadata": "not_verified",
+            "original_newline_profile": "unknown",
+            "result_newline_profile": "unknown"
+          },
+          "commit": {
+            "mode": "not_committed",
+            "content_replacement": "not_applicable",
+            "permissions": "not_verified",
+            "timestamps": "not_preserved_by_replacement",
+            "acl_xattr": "unknown"
+          },
+          "refusal_reason": {
+            "stale_identity": {
+              "expected_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+              "actual_hash": "48aa6cae8c70abdb28631d22b316e6d9f9d0768ec2911de7090e248b2afe6ca1"
+            }
+          },
+          "failure_reason": null,
+          "reason_code": "STALE_IDENTITY",
+          "recovery": {
+            "requires_choice": false,
+            "remedies": [
+              {
+                "kind": "refresh_pre_hash",
+                "description": "refresh the observed file hash, then preview again",
+                "request_patch": {
+                  "allow_generated": false,
+                  "budget": {
+                    "allowed_path_prefixes": [],
+                    "max_changed_bytes": null,
+                    "max_changed_lines": null,
+                    "max_changed_regions": null,
+                    "max_files": 1,
+                    "max_matches": 1
+                  },
+                  "candidate_guard": null,
+                  "cardinality": {
+                    "type": "exactly_one"
+                  },
+                  "expected_pre_hash": "48aa6cae8c70abdb28631d22b316e6d9f9d0768ec2911de7090e248b2afe6ca1",
+                  "file_path": "a.txt",
+                  "namespace": {
+                    "type": "native"
+                  },
+                  "operation": {
+                    "operation": {
+                      "replacement": "changed",
+                      "target": "current",
+                      "type": "replace"
+                    },
+                    "provider": "text"
+                  },
+                  "region_guard": null,
+                  "request_id": "stale",
+                  "version": "1.4.0"
+                }
+              }
+            ]
+          },
+          "diagnostics": [],
+          "budget": {
+            "max_files": 1,
+            "max_matches": 1,
+            "max_changed_regions": null,
+            "max_changed_lines": null,
+            "max_changed_bytes": null,
+            "allowed_path_prefixes": []
+          },
+          "effect": {
+            "files": 0,
+            "matches": 0,
+            "changed_regions": 0,
+            "changed_lines": 0,
+            "changed_bytes": 0,
+            "passed": true
+          },
+          "transaction_guarantee": "not_committed",
+          "recovery_state": "not_required",
+          "desired_state": null
+        },
+        "stderr": ""
+      },
+      {
+        "id": "binary-refusal",
+        "state": "PASS",
+        "expected_outcome": "REFUSED",
+        "observed_outcome": "REFUSED",
+        "exit_code": 2,
+        "elapsed_ms": 34.839,
+        "invocations": 1,
+        "independent_bytes_match": true,
+        "original_sha256": {
+          "binary.bin": "08bb5e5d6eaac1049ede0893d30ed022b1a4d9b5b48db414871f51c9cb35283d"
+        },
+        "expected_sha256": {
+          "binary.bin": "08bb5e5d6eaac1049ede0893d30ed022b1a4d9b5b48db414871f51c9cb35283d"
+        },
+        "final_sha256": {
+          "binary.bin": "08bb5e5d6eaac1049ede0893d30ed022b1a4d9b5b48db414871f51c9cb35283d"
+        },
+        "certificate": {
+          "protocol_version": "1.4.0",
+          "request_id": "binary",
+          "outcome": "REFUSED",
+          "file_path": "binary.bin",
+          "provider": "text",
+          "provider_version": "text-byte-v1",
+          "expected_cardinality": {
+            "type": "exactly_one"
+          },
+          "observed_cardinality": 1,
+          "pre_hash": "08bb5e5d6eaac1049ede0893d30ed022b1a4d9b5b48db414871f51c9cb35283d",
+          "post_hash": null,
+          "changed_ranges": [],
+          "changed_line_ranges": [],
+          "diff_summary": "BinaryInput",
+          "diff_truncated": false,
+          "structural_validation": "not_applicable",
+          "preservation": {
+            "unrelated_bytes_changed": false,
+            "line_endings_changed": false,
+            "bom_changed": false,
+            "final_newline_changed": false,
+            "comments_preserved": null,
+            "metadata": "not_verified",
+            "original_newline_profile": "unknown",
+            "result_newline_profile": "unknown"
+          },
+          "commit": {
+            "mode": "not_committed",
+            "content_replacement": "not_applicable",
+            "permissions": "not_verified",
+            "timestamps": "not_preserved_by_replacement",
+            "acl_xattr": "unknown"
+          },
+          "refusal_reason": "binary_input",
+          "failure_reason": null,
+          "reason_code": "BINARY_INPUT",
+          "diagnostics": [],
+          "budget": {
+            "max_files": 1,
+            "max_matches": 1,
+            "max_changed_regions": null,
+            "max_changed_lines": null,
+            "max_changed_bytes": null,
+            "allowed_path_prefixes": []
+          },
+          "effect": {
+            "files": 0,
+            "matches": 0,
+            "changed_regions": 0,
+            "changed_lines": 0,
+            "changed_bytes": 0,
+            "passed": true
+          },
+          "transaction_guarantee": "not_committed",
+          "recovery_state": "not_required",
+          "desired_state": null
+        },
+        "stderr": ""
+      },
+      {
+        "id": "preview-does-not-write",
+        "state": "PASS",
+        "expected_outcome": "APPLIED",
+        "observed_outcome": "APPLIED",
+        "exit_code": 0,
+        "elapsed_ms": 35.331,
+        "invocations": 1,
+        "independent_bytes_match": true,
+        "original_sha256": {
+          "a.txt": "564ea5a68af339fda75d9b40fd252b1398c8e4624da7a3d21c57ba874d765aae"
+        },
+        "expected_sha256": {
+          "a.txt": "564ea5a68af339fda75d9b40fd252b1398c8e4624da7a3d21c57ba874d765aae"
+        },
+        "final_sha256": {
+          "a.txt": "564ea5a68af339fda75d9b40fd252b1398c8e4624da7a3d21c57ba874d765aae"
+        },
+        "certificate": {
+          "protocol_version": "1.4.0",
+          "request_id": "preview",
+          "outcome": "APPLIED",
+          "file_path": "a.txt",
+          "provider": "text",
+          "provider_version": "text-byte-v1",
+          "expected_cardinality": {
+            "type": "exactly_one"
+          },
+          "observed_cardinality": 1,
+          "pre_hash": "564ea5a68af339fda75d9b40fd252b1398c8e4624da7a3d21c57ba874d765aae",
+          "post_hash": "f75a98f15608b3c95ecb4286dfbf189060d2b791c540e34e2891318640108cfb",
+          "changed_ranges": [
+            {
+              "start": 7,
+              "end": 10
+            }
+          ],
+          "changed_line_ranges": [
+            {
+              "start": 1,
+              "end": 1
+            }
+          ],
+          "diff_summary": "byte-range diff (unchanged bytes omitted):\n@@ 7..10 @@\n-old\n+new\n",
+          "diff_truncated": false,
+          "structural_validation": "not_applicable",
+          "preservation": {
+            "unrelated_bytes_changed": false,
+            "line_endings_changed": false,
+            "bom_changed": false,
+            "final_newline_changed": false,
+            "comments_preserved": true,
+            "metadata": "content-only verification; replacement metadata not asserted",
+            "original_newline_profile": "lf",
+            "result_newline_profile": "lf"
+          },
+          "commit": {
+            "mode": "dry_run",
+            "content_replacement": "not_applicable",
+            "permissions": "not_verified",
+            "timestamps": "not_preserved_by_replacement",
+            "acl_xattr": "unknown"
+          },
+          "refusal_reason": null,
+          "failure_reason": null,
+          "reason_code": null,
+          "diagnostics": [],
+          "budget": {
+            "max_files": 1,
+            "max_matches": 1,
+            "max_changed_regions": null,
+            "max_changed_lines": null,
+            "max_changed_bytes": null,
+            "allowed_path_prefixes": []
+          },
+          "effect": {
+            "files": 1,
+            "matches": 1,
+            "changed_regions": 1,
+            "changed_lines": 1,
+            "changed_bytes": 3,
+            "passed": true
+          },
+          "transaction_guarantee": "dry_run",
+          "recovery_state": "not_required",
+          "desired_state": null
+        },
+        "stderr": ""
+      }
+    ]
+  }
+}
