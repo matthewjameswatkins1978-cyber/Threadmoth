@@ -141,16 +141,35 @@ impl TomlProvider {
         }
 
         let serialized_modified = doc.to_string();
+        let is_crlf = content.windows(2).any(|w| w == b"\r\n")
+            && !content.windows(2).any(|w| w[0] != b'\r' && w[1] == b'\n');
         let has_trailing_newline = content.ends_with(b"\n");
-        let mut final_bytes = serialized_modified.into_bytes();
-        if has_trailing_newline && !final_bytes.ends_with(b"\n") {
-            final_bytes.push(b'\n');
-        } else if !has_trailing_newline && final_bytes.ends_with(b"\n") && !content.ends_with(b"\n")
-        {
-            // preserve trailing newline state of original content
-            // if original didn't have trailing newline, trim trailing newlines from final_bytes if appropriate,
-            // or keep toml_edit's standard formatting. But wait, FR-05 says "preserve existing trailing newline state".
-            while final_bytes.ends_with(b"\n") && !content.ends_with(b"\n") {
+        let has_bom = content.starts_with(&[0xef, 0xbb, 0xbf]);
+
+        let normalized_string = if is_crlf {
+            serialized_modified
+                .replace("\r\n", "\n")
+                .replace('\n', "\r\n")
+        } else {
+            serialized_modified
+        };
+
+        let mut final_bytes = Vec::new();
+        if has_bom {
+            final_bytes.extend_from_slice(&[0xef, 0xbb, 0xbf]);
+        }
+        final_bytes.extend_from_slice(normalized_string.as_bytes());
+
+        if has_trailing_newline {
+            let nl: &[u8] = if is_crlf { b"\r\n" } else { b"\n" };
+            if !final_bytes.ends_with(nl) {
+                while final_bytes.ends_with(b"\n") || final_bytes.ends_with(b"\r") {
+                    final_bytes.pop();
+                }
+                final_bytes.extend_from_slice(nl);
+            }
+        } else {
+            while final_bytes.ends_with(b"\n") || final_bytes.ends_with(b"\r") {
                 final_bytes.pop();
             }
         }
@@ -302,12 +321,21 @@ fn set_toml_path(
     match head {
         TomlPathSegment::Key(key) => {
             if tail.is_empty() {
-                if !table.contains_key(key) {
-                    return Err(TomlProviderError::Refused(RefusalReason::MissingTarget {
+                let item = table.get_mut(key).ok_or_else(|| {
+                    TomlProviderError::Refused(RefusalReason::MissingTarget {
                         target: format!("Key '{}' not found for setting", key),
-                    }));
+                    })
+                })?;
+                match item {
+                    Item::Value(old_val) => {
+                        let mut new_val = value.to_toml_value();
+                        *new_val.decor_mut() = old_val.decor().clone();
+                        *old_val = new_val;
+                    }
+                    _ => {
+                        *item = value.to_toml_item();
+                    }
                 }
-                table.insert(key.as_str(), value.to_toml_item());
             } else {
                 let item = table.get_mut(key).ok_or_else(|| {
                     TomlProviderError::Refused(RefusalReason::MissingTarget {
@@ -440,12 +468,14 @@ fn set_toml_inline_path(
     match head {
         TomlPathSegment::Key(key) => {
             if tail.is_empty() {
-                if !inline_table.contains_key(key) {
-                    return Err(TomlProviderError::Refused(RefusalReason::MissingTarget {
+                let old_val = inline_table.get_mut(key).ok_or_else(|| {
+                    TomlProviderError::Refused(RefusalReason::MissingTarget {
                         target: format!("Key '{}' not found in inline table for setting", key),
-                    }));
-                }
-                inline_table.insert(key.as_str(), value.to_toml_value());
+                    })
+                })?;
+                let mut new_val = value.to_toml_value();
+                *new_val.decor_mut() = old_val.decor().clone();
+                *old_val = new_val;
             } else {
                 let val = inline_table.get_mut(key).ok_or_else(|| {
                     TomlProviderError::Refused(RefusalReason::MissingTarget {
@@ -477,6 +507,13 @@ fn insert_toml_path(
     value: &TomlValueWrapper,
 ) -> Result<(), TomlProviderError> {
     if segments.is_empty() {
+        if table.contains_key(key) {
+            return Err(TomlProviderError::Refused(
+                RefusalReason::DestinationExists {
+                    path: key.to_string(),
+                },
+            ));
+        }
         table.insert(key, value.to_toml_item());
         return Ok(());
     }
@@ -492,6 +529,13 @@ fn insert_toml_path(
             match item {
                 Item::Table(sub_table) => {
                     if tail.is_empty() {
+                        if sub_table.contains_key(key) {
+                            return Err(TomlProviderError::Refused(
+                                RefusalReason::DestinationExists {
+                                    path: format!("{k}.{key}"),
+                                },
+                            ));
+                        }
                         sub_table.insert(key, value.to_toml_item());
                     } else {
                         insert_toml_path(sub_table, tail, key, value)?;
@@ -583,6 +627,16 @@ fn rename_toml_path(
     match head {
         TomlPathSegment::Key(key) => {
             if tail.is_empty() {
+                if key == new_key {
+                    return Ok(());
+                }
+                if table.contains_key(new_key) {
+                    return Err(TomlProviderError::Refused(
+                        RefusalReason::DestinationExists {
+                            path: new_key.to_string(),
+                        },
+                    ));
+                }
                 let item = table.remove(key).ok_or_else(|| {
                     TomlProviderError::Refused(RefusalReason::MissingTarget {
                         target: format!("Key '{}' not found for renaming", key),

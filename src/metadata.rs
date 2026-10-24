@@ -652,6 +652,16 @@ pub fn orientation(workspace: &str) -> Value {
             "sequences": "repeat --edit OLD NEW; each target must remain exact and unambiguous"
         },
         "providers": provider_metadata().into_iter().map(|provider| provider.name).collect::<Vec<_>>(),
+        "toolbelt": {
+            "structural": {
+                "intent": "Structural AST pattern search and rewrite",
+                "cli": "threadmoth structural --pattern <PATTERN> --rewrite <REWRITE> [PATHS]...",
+                "plan_cli": "threadmoth structural --pattern <PATTERN> --rewrite <REWRITE> --plan <PLAN> [PATHS]...",
+                "preview_cli": "threadmoth structural --pattern <PATTERN> --rewrite <REWRITE> --preview [PATHS]...",
+                "engine": "ast-grep",
+                "available": crate::toolbelt::structural::detect_ast_grep().is_some()
+            }
+        },
         "discovery": {
             "capabilities": "threadmoth capabilities",
             "suggest": "threadmoth suggest PATH",
@@ -1219,10 +1229,29 @@ pub fn capabilities() -> CapabilityManifest {
 }
 
 pub fn capability_view(selector: Option<&str>) -> Value {
-    let manifest = serde_json::to_value(capabilities()).expect("capabilities serialize");
+    let mut manifest = serde_json::to_value(capabilities()).expect("capabilities serialize");
+    let version = crate::toolbelt::structural::detect_ast_grep();
+    manifest["toolbelt"] = json!({
+        "attachments": [
+            {
+                "name": "structural",
+                "engine": "ast-grep",
+                "version": version,
+                "available": version.is_some(),
+                "description": "Structural AST pattern search and rewrite for AI coding agents",
+                "supported_languages": crate::toolbelt::structural::SUPPORTED_LANGUAGES,
+                "cli": "threadmoth structural --pattern <PATTERN> --rewrite <REWRITE> [PATHS]...",
+                "plan_cli": "threadmoth structural --pattern <PATTERN> --rewrite <REWRITE> --plan <PLAN> [PATHS]...",
+                "preview_cli": "threadmoth structural --pattern <PATTERN> --rewrite <REWRITE> --preview [PATHS]..."
+            }
+        ]
+    });
     let Some(selector) = selector else {
         return manifest;
     };
+    if selector == "toolbelt" || selector == "structural" {
+        return manifest["toolbelt"].clone();
+    }
     let mut view = manifest;
     if let Some((provider, operation)) = selector.split_once('.') {
         let provider_entries: Vec<Value> = view["providers"]

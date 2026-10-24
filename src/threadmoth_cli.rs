@@ -25,7 +25,7 @@ use cli::{
     ApplyPlanArgs, BenchmarkArgs, BenchmarkProfile, CapabilitiesArgs, Cli, Command,
     CompletionShell, CreateFileArgs, DoctorArgs, EditArgs, ExplainFormat, HelpArgs, InspectArgs,
     PlanArgs, PrepareEditsArgs, PrepareTextArgs, RecoverArgs, ReplaceExactArgs, SchemaArgs,
-    SetStringArgs, SetValueArgs, SuggestArgs, UpdateArgs, THREADMOTH_VERSION,
+    SetStringArgs, SetValueArgs, StructuralArgs, SuggestArgs, UpdateArgs, THREADMOTH_VERSION,
 };
 
 fn main() {
@@ -45,6 +45,7 @@ fn main() {
         Command::ApplyPlan(args) => run_apply_plan(args),
         Command::PrepareText(args) => run_prepare_text(args),
         Command::PrepareEdits(args) => run_prepare_edits(args),
+        Command::Structural(args) => run_structural(args),
         Command::TransactionPreview(args) => {
             run_transaction(args.request.as_deref(), true, args.summary)
         }
@@ -687,6 +688,93 @@ fn run_prepare_edits(args: PrepareEditsArgs) {
     }
 }
 
+fn run_structural(args: StructuralArgs) {
+    let root = env::current_dir().unwrap_or_else(|_| ".".into());
+    let workspace = match Workspace::new(root) {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("workspace error: {e}");
+            std::process::exit(3);
+        }
+    };
+    let req = threadmoth::toolbelt::structural::StructuralRequest {
+        pattern: args.pattern,
+        rewrite: args.rewrite,
+        lang: args.lang,
+        paths: args.paths,
+        max_files: args.max_files,
+    };
+    match threadmoth::toolbelt::structural::execute_structural(
+        &workspace,
+        &req,
+        args.plan.as_deref(),
+        args.preview,
+    ) {
+        Ok(threadmoth::toolbelt::structural::StructuralOutcome::NoChange { message }) => {
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "outcome": "no_change",
+                        "message": message,
+                    }))
+                    .unwrap()
+                );
+            } else {
+                println!("{message}");
+            }
+            std::process::exit(0);
+        }
+        Ok(threadmoth::toolbelt::structural::StructuralOutcome::PlanPrepared {
+            plan_path,
+            transaction_id,
+            files_affected,
+        }) => {
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "outcome": "plan_prepared",
+                        "plan_path": plan_path,
+                        "transaction_id": transaction_id,
+                        "files_affected": files_affected,
+                    }))
+                    .unwrap()
+                );
+            } else {
+                println!("THREADMOTH STRUCTURAL PLAN PREPARED");
+                println!("Plan file:      {plan_path}");
+                println!("Transaction ID: {transaction_id}");
+                println!("Files affected: {files_affected}");
+                println!();
+                println!("Review diff: threadmoth explain --plan '{plan_path}' --format diff");
+                println!("Apply plan:  threadmoth apply-plan --plan '{plan_path}' --summary");
+            }
+            std::process::exit(0);
+        }
+        Ok(threadmoth::toolbelt::structural::StructuralOutcome::Preview { certificate }) => {
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&certificate).unwrap());
+            } else {
+                print_transaction_summary(&certificate, true);
+            }
+            exit_for_outcome(certificate.outcome);
+        }
+        Ok(threadmoth::toolbelt::structural::StructuralOutcome::Applied { certificate }) => {
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&certificate).unwrap());
+            } else {
+                print_transaction_summary(&certificate, false);
+            }
+            exit_for_outcome(certificate.outcome);
+        }
+        Err(e) => {
+            eprintln!("structural transformation error: {e}");
+            std::process::exit(3);
+        }
+    }
+}
+
 fn run_edit(args: EditArgs) {
     let workspace = Workspace::new(env::current_dir().unwrap_or_else(|_| ".".into()))
         .unwrap_or_else(|error| {
@@ -1151,15 +1239,25 @@ fn print_edit_refusal(
         if let Some(details) = &certificate.failure_reason {
             println!("Details      {details:?}");
         }
-        println!("Next step    Inspect capabilities with `threadmoth capabilities --for {file_path}` or get guidance with `threadmoth explain {code}`.");
+        let ext = Path::new(file_path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        if matches!(ext, "json" | "jsonc" | "toml" | "yaml" | "yml" | "env") {
+            println!("Next step    Inspect targets with `threadmoth suggest {file_path}` or inspect capabilities with `threadmoth capabilities --for {file_path}`.");
+        } else {
+            println!("Next step    Inspect capabilities with `threadmoth capabilities --for {file_path}` or get guidance with `threadmoth explain {code}`.");
+        }
     }
 
     let ext = Path::new(file_path)
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("");
-    if matches!(ext, "json" | "jsonc" | "toml" | "yaml" | "yml" | "env") {
-        println!("Hint         This is a structured format ({ext}). You can also inspect targets with `threadmoth suggest {file_path}` or `threadmoth capabilities --for {file_path}`.");
+    if matches!(ext, "json" | "jsonc" | "toml" | "yaml" | "yml" | "env")
+        && (code == "TARGET_AMBIGUOUS" || code == "TARGET_NOT_FOUND")
+    {
+        println!("Hint         This is a structured format ({ext}). You can inspect targets with `threadmoth suggest {file_path}`.");
     }
 
     println!("Source       unchanged");

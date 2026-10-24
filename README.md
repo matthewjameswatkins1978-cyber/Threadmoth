@@ -259,7 +259,7 @@ threadmoth doctor --json
 threadmoth capabilities
 ~~~
 
-**The application version and wire protocol are separate.** Threadmoth uses application version `1.20.0` and protocol `1.4.0`. Repository code can be newer than the latest *published* release; the release page is the authority for downloads.
+**The application version and wire protocol are separate.** Threadmoth uses application version `1.20.1` and protocol `1.4.0`. Repository code can be newer than the latest *published* release; the release page is the authority for downloads.
 
 Build from source with Rust:
 
