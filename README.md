@@ -100,6 +100,21 @@ threadmoth set-string .env.local API_HOST 127.0.0.1
 
 `set-value` treats its value as JSON; `set-string` takes a literal string. No silent type guessing.
 
+For cross-file AST pattern transformations, the Toolbelt structural attachment connects `ast-grep` as a non-mutating proposal engine while keeping mutation and rollback authority strictly within Threadmoth:
+
+~~~bash
+# Preview proposed AST transformations across files without touching disk:
+threadmoth structural --pattern 'old_fn($A)' --rewrite 'new_fn($A)' src/ --preview
+
+# Prepare a reviewable plan artifact:
+threadmoth structural --pattern 'old_fn($A)' --rewrite 'new_fn($A)' src/ --plan plan.json
+threadmoth explain --plan plan.json --format diff
+threadmoth apply-plan --plan plan.json --summary
+
+# Or apply directly with atomic verification and rollback protection:
+threadmoth structural --pattern 'old_fn($A)' --rewrite 'new_fn($A)' src/
+~~~
+
 ## Why Threadmoth exists
 
 Most software-editing commands answer: **“Can I perform this replacement?”**
@@ -195,6 +210,7 @@ Threadmoth's Target Registry classifies files by the level of understanding and 
 | **Web/markup syntax** | HTML, CSS, XML |
 | **Bounded document regions** | Markdown headings, lists and fenced regions |
 | **Exact** | Explicit text replacements, strict patches, bounded patterns and desired-state operations for suitable UTF-8 files |
+| **Structural (Toolbelt)** | AST pattern matching and rewriting across code trees via non-mutating specialist attachments (`ast-grep`) |
 | **Opaque/refused** | Unsupported encodings, binary-like content or operations whose preservation guarantees cannot be established |
 
 Support for a language means **syntax-aware locating and validation**, not full compiler understanding or semantic refactoring. HCL coverage is syntax-aware, not Terraform state or provider semantics. YAML and other formats deliberately refuse some constructs.
@@ -259,7 +275,7 @@ threadmoth doctor --json
 threadmoth capabilities
 ~~~
 
-**The application version and wire protocol are separate.** Threadmoth uses application version `1.20.1` and protocol `1.4.0`. Repository code can be newer than the latest *published* release; the release page is the authority for downloads.
+**The application version and wire protocol are separate.** Threadmoth uses application version `1.21.0` and protocol `1.4.0`. Repository code can be newer than the latest *published* release; the release page is the authority for downloads.
 
 Build from source with Rust:
 

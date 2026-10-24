@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.21.0 - Toolbelt Structural Editing and Reliability Consolidation
+
+### Added
+
+- **Toolbelt Attachment Architecture**: Extensible, non-mutating specialist instrument integration while retaining exclusive mutation, verification, and rollback authority within Threadmoth ("Different instruments, one dependable editing contract").
+- **Structural AST Pattern Editing (`ast-grep`)**: Added `threadmoth structural --pattern <P> --rewrite <R>` CLI command and `threadmoth_structural` MCP tool.
+  - Executes `ast-grep` in proposal streaming mode (`--json=stream`) without granting external tools direct disk-write authority.
+  - Translates AST match ranges directly into Threadmoth's guarded transactional pipeline with pre-scan snapshot hash validation, monotonic non-overlapping span verification, and strict workspace containment.
+  - Supports `--preview` for non-mutating in-memory inspection and `--plan <FILE>` for decoupled inspection via `threadmoth explain` and application via `threadmoth apply-plan`.
+- **Independent Evaluation Lab (`lab/`)**: Standalone black-box test harness using standard Python with 14 acceptance test fixtures, baseline evidence records, and semantic LSP feasibility documentation.
+- **Structured Rollback Reporting**: `RollbackReport` provides explicit accounting (`total`, `restored`, `failed`) and evidence preservation across all transaction members on partial or failed rollback.
+
+### Fixed
+
+- **Crash Recovery & Commit Marker**: Introduced explicit two-phase `JournalPhase` (`Prepared` -> `Committed`) synced via `mark_journal_committed` before journal removal. Acknowledged successful transactions are never reversed by later recovery, and uncommitted or failed postcondition states never become commits.
+- **TOML Precision & Safety**:
+  - `Set` operations preserve existing AST decor (inline comments and whitespace around `=`).
+  - `Insert` and `RenameKey` operations refuse with `DestinationExists` if the target key is already occupied.
+  - Preserves CRLF line endings on modified TOML files without triggering newline mismatch refusals.
+- **CLI Refusal Diagnostics**: Deduplicated structured format recovery hints, removing redundant repeated `capabilities --for <path>`.
+
+### Compatibility
+
+- Wire protocol remains `1.4.0`. All existing exact text, syntax, and structured providers remain fully backward-compatible.
+
 ## 1.20.0 - Reliability, Simplicity and Agent-First Editing
 
 ### Added
