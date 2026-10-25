@@ -1454,6 +1454,7 @@ fn test_certificate_metadata_truthfulness_and_coordinates() {
     let repair_req_json = serde_json::json!({
         "version": "1.4.0",
         "file_path": "mixed_test.txt",
+        "allow_newline_conversion": true,
         "operation": {
             "provider": "text",
             "operation": {

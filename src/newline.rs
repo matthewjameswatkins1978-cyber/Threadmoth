@@ -170,24 +170,24 @@ pub fn infer_local_convention(bytes: &[u8], start: usize, end: usize) -> LocalCo
 }
 
 /// Adapt replacement bytes to match the target newline profile.
+/// Preserves any bare CR bytes as-is without stripping or synthesizing newlines.
 /// Returns the adapted bytes and a boolean indicating whether adaptation occurred.
 pub fn adapt_bytes_to_convention(bytes: &[u8], target: NewlineProfile) -> (Vec<u8>, bool) {
     match target {
         NewlineProfile::Lf => {
-            if memchr::memmem::find(bytes, b"\r\n").is_some()
-                || memchr::memchr(b'\r', bytes).is_some()
-            {
+            if memchr::memmem::find(bytes, b"\r\n").is_some() {
                 let mut out = Vec::with_capacity(bytes.len());
                 let mut i = 0;
                 let mut changed = false;
                 while i < bytes.len() {
                     if bytes[i] == b'\r' {
-                        changed = true;
                         if i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
                             out.push(b'\n');
                             i += 2;
+                            changed = true;
                         } else {
-                            // Strip bare CR
+                            // Retain bare CR byte; never silently strip
+                            out.push(b'\r');
                             i += 1;
                         }
                     } else {
@@ -201,11 +201,11 @@ pub fn adapt_bytes_to_convention(bytes: &[u8], target: NewlineProfile) -> (Vec<u
             }
         }
         NewlineProfile::Crlf => {
-            // First check if adaptation is needed: any lone LF or bare CR
             let counts = count_newlines(bytes);
-            if counts.lf > 0 || counts.bare_cr > 0 {
+            if counts.lf > 0 {
                 let mut out = Vec::with_capacity(bytes.len() + counts.lf);
                 let mut i = 0;
+                let mut changed = false;
                 while i < bytes.len() {
                     if bytes[i] == b'\r' {
                         if i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
@@ -213,21 +213,21 @@ pub fn adapt_bytes_to_convention(bytes: &[u8], target: NewlineProfile) -> (Vec<u
                             out.push(b'\n');
                             i += 2;
                         } else {
-                            // Bare CR -> normalize to CRLF
+                            // Retain bare CR byte; never normalize to CRLF
                             out.push(b'\r');
-                            out.push(b'\n');
                             i += 1;
                         }
                     } else if bytes[i] == b'\n' {
                         out.push(b'\r');
                         out.push(b'\n');
                         i += 1;
+                        changed = true;
                     } else {
                         out.push(bytes[i]);
                         i += 1;
                     }
                 }
-                (out, true)
+                (out, changed)
             } else {
                 (bytes.to_vec(), false)
             }
@@ -253,6 +253,10 @@ pub enum NewlineViolation {
     MixedNewlinesIntroduced {
         details: String,
     },
+    SplitCrlfBoundary {
+        offset: usize,
+        details: String,
+    },
 }
 
 impl NewlineViolation {
@@ -262,6 +266,7 @@ impl NewlineViolation {
             Self::BareCarriageReturn { details } => details.clone(),
             Self::AmbiguousLocalConvention { details, .. } => details.clone(),
             Self::MixedNewlinesIntroduced { details } => details.clone(),
+            Self::SplitCrlfBoundary { details, .. } => details.clone(),
         }
     }
 }
@@ -273,6 +278,36 @@ pub fn adapt_edits_for_preservation(
     edits: &[ByteEdit],
     allow_conversion: bool,
 ) -> Result<(Vec<ByteEdit>, bool), NewlineViolation> {
+    // 1. Guard against edits that begin or end inside a CRLF sequence in the original
+    for edit in edits {
+        if edit.start > 0
+            && edit.start < original.len()
+            && original[edit.start - 1] == b'\r'
+            && original[edit.start] == b'\n'
+        {
+            return Err(NewlineViolation::SplitCrlfBoundary {
+                offset: edit.start,
+                details: format!(
+                    "Edit at byte {} begins inside a CRLF sequence (between \\r and \\n)",
+                    edit.start
+                ),
+            });
+        }
+        if edit.end > 0
+            && edit.end < original.len()
+            && original[edit.end - 1] == b'\r'
+            && original[edit.end] == b'\n'
+        {
+            return Err(NewlineViolation::SplitCrlfBoundary {
+                offset: edit.end,
+                details: format!(
+                    "Edit at byte {} ends inside a CRLF sequence (between \\r and \\n)",
+                    edit.end
+                ),
+            });
+        }
+    }
+
     if allow_conversion {
         return Ok((edits.to_vec(), false));
     }
@@ -282,6 +317,16 @@ pub fn adapt_edits_for_preservation(
     let mut any_adapted = false;
 
     for edit in edits {
+        let rep_counts = count_newlines(&edit.replacement);
+        if rep_counts.bare_cr > 0 {
+            return Err(NewlineViolation::BareCarriageReturn {
+                details: format!(
+                    "Replacement text for edit at byte {} contains {} bare carriage return(s); bare CR is refused by the newline firewall",
+                    edit.start, rep_counts.bare_cr
+                ),
+            });
+        }
+
         let (new_replacement, was_adapted) = match orig_profile {
             NewlineProfile::Lf => adapt_bytes_to_convention(&edit.replacement, NewlineProfile::Lf),
             NewlineProfile::Crlf => {
@@ -297,12 +342,11 @@ pub fn adapt_edits_for_preservation(
                         adapt_bytes_to_convention(&edit.replacement, NewlineProfile::Crlf)
                     }
                     LocalConvention::Ambiguous { details } => {
-                        let rep_counts = count_newlines(&edit.replacement);
-                        if rep_counts.lf > 0 || rep_counts.crlf > 0 || rep_counts.bare_cr > 0 {
+                        if rep_counts.lf > 0 || rep_counts.crlf > 0 {
                             return Err(NewlineViolation::AmbiguousLocalConvention {
                                 offset: edit.start,
                                 details: format!(
-                                    "Refused edit at byte {}: {details}. Set allow_newline_conversion to override or supply exact local line endings.",
+                                    "Refused edit at byte {}: {details}. Supply exact local line endings matching the intended line, or convert the entire file to a uniform convention with convert-newlines.",
                                     edit.start
                                 ),
                             });
@@ -313,8 +357,6 @@ pub fn adapt_edits_for_preservation(
                 }
             }
             NewlineProfile::None => {
-                // For files with no newlines, preserve uniform LF as deterministic default if replacement introduces lines
-                let rep_counts = count_newlines(&edit.replacement);
                 if rep_counts.crlf > 0 && rep_counts.lf > 0 {
                     adapt_bytes_to_convention(&edit.replacement, NewlineProfile::Lf)
                 } else {
@@ -351,6 +393,35 @@ pub fn validate_candidate_preservation(
     edits: &[ByteEdit],
     conversion_authorized: bool,
 ) -> Result<PreservationCheck, NewlineViolation> {
+    for edit in edits {
+        if edit.start > 0
+            && edit.start < original.len()
+            && original[edit.start - 1] == b'\r'
+            && original[edit.start] == b'\n'
+        {
+            return Err(NewlineViolation::SplitCrlfBoundary {
+                offset: edit.start,
+                details: format!(
+                    "Edit at byte {} begins inside a CRLF sequence (between \\r and \\n)",
+                    edit.start
+                ),
+            });
+        }
+        if edit.end > 0
+            && edit.end < original.len()
+            && original[edit.end - 1] == b'\r'
+            && original[edit.end] == b'\n'
+        {
+            return Err(NewlineViolation::SplitCrlfBoundary {
+                offset: edit.end,
+                details: format!(
+                    "Edit at byte {} ends inside a CRLF sequence (between \\r and \\n)",
+                    edit.end
+                ),
+            });
+        }
+    }
+
     let orig_counts = count_newlines(original);
     let cand_counts = count_newlines(candidate);
     let orig_profile = orig_counts.profile();
@@ -369,7 +440,7 @@ pub fn validate_candidate_preservation(
     if conversion_authorized {
         if cand_profile == NewlineProfile::Mixed {
             return Err(NewlineViolation::MixedNewlinesIntroduced {
-                details: "Intentional newline conversion resulted in a mixed newline profile; conversion must produce uniform LF or CRLF".into(),
+                details: "Intentional newline conversion resulted in a mixed newline profile; conversion must produce uniform LF or CRLF. Ensure all lines are converted, or use threadmoth convert-newlines <PATH> --to <lf|crlf>.".into(),
             });
         }
         return Ok(PreservationCheck {
@@ -416,50 +487,82 @@ pub fn validate_candidate_preservation(
         });
     }
 
-    // Invariant: In mixed files, edits in locally uniform regions must not introduce conflicting endings
-    if orig_profile == NewlineProfile::Mixed && cand_profile == NewlineProfile::Mixed {
+    // Invariant: In mixed files, enforce preservation at the level of retained source content and edits
+    if orig_profile == NewlineProfile::Mixed {
         for edit in edits {
-            let local = infer_local_convention(original, edit.start, edit.end);
-            match local {
-                LocalConvention::Lf => {
-                    let rep_counts = count_newlines(&edit.replacement);
-                    if rep_counts.crlf > 0 {
-                        return Err(NewlineViolation::UnauthorisedConversion {
-                            original: "mixed (local region LF)",
-                            result: "mixed (introduced CRLF)",
-                            details: format!(
-                                "Edit at byte {} is in a locally uniform LF region, but replacement contains CRLF endings.",
-                                edit.start
-                            ),
-                        });
+            let old_slice = if edit.start <= edit.end && edit.end <= original.len() {
+                &original[edit.start..edit.end]
+            } else {
+                b""
+            };
+            let old_counts = count_newlines(old_slice);
+            let rep_counts = count_newlines(&edit.replacement);
+
+            // Unauthorized alteration of CRLF to LF
+            if old_counts.crlf > 0 && rep_counts.lf > 0 {
+                return Err(NewlineViolation::UnauthorisedConversion {
+                    original: "mixed (contains CRLF)",
+                    result: "converted to LF",
+                    details: format!(
+                        "Edit at byte {} replaces CRLF line ending(s) with lone LF ending(s) without explicit conversion authority. Pass allow_newline_conversion to authorize line ending conversion, or use convert-newlines.",
+                        edit.start
+                    ),
+                });
+            }
+
+            // Unauthorized alteration of LF to CRLF
+            if old_counts.lf > 0 && rep_counts.crlf > 0 {
+                return Err(NewlineViolation::UnauthorisedConversion {
+                    original: "mixed (contains LF)",
+                    result: "converted to CRLF",
+                    details: format!(
+                        "Edit at byte {} replaces lone LF line ending(s) with CRLF ending(s) without explicit conversion authority. Pass allow_newline_conversion to authorize line ending conversion, or use convert-newlines.",
+                        edit.start
+                    ),
+                });
+            }
+
+            // Edits within a line (old_counts has no newlines)
+            if old_counts.lf == 0 && old_counts.crlf == 0 {
+                let local = infer_local_convention(original, edit.start, edit.end);
+                match local {
+                    LocalConvention::Lf => {
+                        if rep_counts.crlf > 0 {
+                            return Err(NewlineViolation::UnauthorisedConversion {
+                                original: "mixed (local region LF)",
+                                result: "mixed (introduced CRLF)",
+                                details: format!(
+                                    "Edit at byte {} is in a locally uniform LF region, but replacement contains CRLF endings.",
+                                    edit.start
+                                ),
+                            });
+                        }
                     }
-                }
-                LocalConvention::Crlf => {
-                    let rep_counts = count_newlines(&edit.replacement);
-                    if rep_counts.lf > 0 {
-                        return Err(NewlineViolation::UnauthorisedConversion {
-                            original: "mixed (local region CRLF)",
-                            result: "mixed (introduced LF)",
-                            details: format!(
-                                "Edit at byte {} is in a locally uniform CRLF region, but replacement contains lone LF endings.",
-                                edit.start
-                            ),
-                        });
+                    LocalConvention::Crlf => {
+                        if rep_counts.lf > 0 {
+                            return Err(NewlineViolation::UnauthorisedConversion {
+                                original: "mixed (local region CRLF)",
+                                result: "mixed (introduced LF)",
+                                details: format!(
+                                    "Edit at byte {} is in a locally uniform CRLF region, but replacement contains lone LF endings.",
+                                    edit.start
+                                ),
+                            });
+                        }
                     }
-                }
-                LocalConvention::Ambiguous { details } => {
-                    let rep_counts = count_newlines(&edit.replacement);
-                    if rep_counts.lf > 0 || rep_counts.crlf > 0 {
-                        return Err(NewlineViolation::AmbiguousLocalConvention {
-                            offset: edit.start,
-                            details: format!(
-                                "Edit at byte {} falls in an ambiguous mixed region: {}",
-                                edit.start, details
-                            ),
-                        });
+                    LocalConvention::Ambiguous { details } => {
+                        if rep_counts.lf > 0 || rep_counts.crlf > 0 {
+                            return Err(NewlineViolation::AmbiguousLocalConvention {
+                                offset: edit.start,
+                                details: format!(
+                                    "Edit at byte {} falls in an ambiguous mixed region: {}. Supply exact local line endings matching the intended line, or convert the entire file to a uniform convention with convert-newlines.",
+                                    edit.start, details
+                                ),
+                            });
+                        }
                     }
+                    LocalConvention::None => {}
                 }
-                LocalConvention::None => {}
             }
         }
     }
@@ -471,38 +574,156 @@ pub fn validate_candidate_preservation(
     })
 }
 
-/// Discover project newline policy from .editorconfig or .gitattributes if available in workspace.
+/// Discover project newline policy for a specific file path from .editorconfig or .gitattributes.
+/// Falls back deterministically to LF. No operating-system-dependent newline behaviour.
+pub fn discover_file_newline_policy(workspace_path: &Path, file_path: &str) -> NewlineProfile {
+    let normalized = file_path.replace('\\', "/");
+    let clean_path = normalized.strip_prefix("./").unwrap_or(&normalized);
+    let file_name = clean_path.rsplit('/').next().unwrap_or(clean_path);
+
+    // 1. Check .editorconfig
+    if let Some(profile) = query_editorconfig_policy(workspace_path, clean_path, file_name) {
+        return profile;
+    }
+
+    // 2. Check .gitattributes
+    if let Some(profile) = query_gitattributes_policy(workspace_path, clean_path, file_name) {
+        return profile;
+    }
+
+    // 3. Deterministic default: LF
+    NewlineProfile::Lf
+}
+
 pub fn discover_project_newline_policy(workspace_path: &Path) -> Option<NewlineProfile> {
-    let editorconfig = workspace_path.join(".editorconfig");
-    if let Ok(content) = std::fs::read_to_string(&editorconfig) {
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with("end_of_line") {
-                if let Some((_, val)) = trimmed.split_once('=') {
-                    let v = val.trim().to_lowercase();
+    Some(discover_file_newline_policy(workspace_path, "*"))
+}
+
+fn query_editorconfig_policy(
+    workspace_path: &Path,
+    rel_path: &str,
+    file_name: &str,
+) -> Option<NewlineProfile> {
+    let path = workspace_path.join(".editorconfig");
+    let content = std::fs::read_to_string(&path).ok()?;
+
+    let mut current_matches = false;
+    let mut selected_policy = None;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') {
+            continue;
+        }
+
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            let pattern = &trimmed[1..trimmed.len() - 1];
+            current_matches = match_glob_pattern(pattern, rel_path, file_name);
+            continue;
+        }
+
+        if current_matches {
+            if let Some((key, val)) = trimmed.split_once('=') {
+                if key.trim().eq_ignore_ascii_case("end_of_line") {
+                    let v = val.trim().to_ascii_lowercase();
                     if v == "lf" {
-                        return Some(NewlineProfile::Lf);
+                        selected_policy = Some(NewlineProfile::Lf);
                     } else if v == "crlf" {
-                        return Some(NewlineProfile::Crlf);
+                        selected_policy = Some(NewlineProfile::Crlf);
                     }
                 }
             }
         }
     }
 
-    let gitattributes = workspace_path.join(".gitattributes");
-    if let Ok(content) = std::fs::read_to_string(&gitattributes) {
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if trimmed.contains("eol=lf") {
-                return Some(NewlineProfile::Lf);
-            } else if trimmed.contains("eol=crlf") {
-                return Some(NewlineProfile::Crlf);
+    selected_policy
+}
+
+fn query_gitattributes_policy(
+    workspace_path: &Path,
+    rel_path: &str,
+    file_name: &str,
+) -> Option<NewlineProfile> {
+    let path = workspace_path.join(".gitattributes");
+    let content = std::fs::read_to_string(&path).ok()?;
+
+    let mut selected_policy = None;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        let mut parts = trimmed.split_whitespace();
+        let Some(pattern) = parts.next() else {
+            continue;
+        };
+
+        if match_glob_pattern(pattern, rel_path, file_name) {
+            for attr in parts {
+                if attr.eq_ignore_ascii_case("eol=crlf") {
+                    selected_policy = Some(NewlineProfile::Crlf);
+                } else if attr.eq_ignore_ascii_case("eol=lf") {
+                    selected_policy = Some(NewlineProfile::Lf);
+                }
             }
         }
     }
 
-    None
+    selected_policy
+}
+
+fn match_glob_pattern(pattern: &str, rel_path: &str, file_name: &str) -> bool {
+    if pattern == "*" || pattern == "**" {
+        return true;
+    }
+    if pattern == rel_path || pattern == file_name {
+        return true;
+    }
+    let Ok(re) = glob_to_regex(pattern) else {
+        return false;
+    };
+    re.is_match(rel_path) || re.is_match(file_name)
+}
+
+fn glob_to_regex(glob: &str) -> Result<regex::Regex, regex::Error> {
+    let mut regex_str = String::from("^");
+    let mut chars = glob.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '*' => {
+                if chars.peek() == Some(&'*') {
+                    chars.next();
+                    if chars.peek() == Some(&'/') {
+                        chars.next();
+                        regex_str.push_str("(?:.*/)?");
+                    } else {
+                        regex_str.push_str(".*");
+                    }
+                } else {
+                    regex_str.push_str("[^/]*");
+                }
+            }
+            '?' => regex_str.push_str("[^/]"),
+            '.' | '+' | '(' | ')' | '^' | '$' | '|' | '[' | ']' | '\\' => {
+                regex_str.push('\\');
+                regex_str.push(c);
+            }
+            '{' => {
+                regex_str.push_str("(?:");
+            }
+            '}' => {
+                regex_str.push(')');
+            }
+            ',' => {
+                regex_str.push('|');
+            }
+            other => regex_str.push(other),
+        }
+    }
+    regex_str.push('$');
+    regex::Regex::new(&regex_str)
 }
 
 #[cfg(test)]

@@ -168,11 +168,18 @@ fn refine_region(
 ) -> Result<(), DiffPlannerError> {
     let old = &observed[old_start..old_end];
     let new = &desired[new_start..new_end];
-    let common_prefix = old
+    let mut common_prefix = old
         .iter()
         .zip(new.iter())
         .take_while(|(old_byte, new_byte)| old_byte == new_byte)
         .count();
+    if common_prefix > 0
+        && common_prefix < old.len()
+        && old[common_prefix - 1] == b'\r'
+        && old[common_prefix] == b'\n'
+    {
+        common_prefix -= 1;
+    }
     let old_after_prefix = &old[common_prefix..];
     let new_after_prefix = &new[common_prefix..];
     let mut common_suffix = old_after_prefix
@@ -252,8 +259,15 @@ fn refine_region(
         })
         .collect();
 
+    let splits_or_bare_cr = edits[region_edits_start..].iter().any(|e| {
+        let rel_s = e.start - old_start;
+        let rel_e = e.end - old_start;
+        (rel_s > 0 && rel_s < old.len() && old[rel_s - 1] == b'\r' && old[rel_s] == b'\n')
+            || (rel_e > 0 && rel_e < old.len() && old[rel_e - 1] == b'\r' && old[rel_e] == b'\n')
+            || (crate::newline::count_newlines(&e.replacement).bare_cr > 0)
+    });
     let local_applied = apply_byte_edits(old, &local_slice_edits);
-    if local_applied.as_deref() != Ok(new) {
+    if splits_or_bare_cr || local_applied.as_deref() != Ok(new) {
         edits.truncate(region_edits_start);
         edits.push(ByteEdit {
             start: old_start + common_prefix,

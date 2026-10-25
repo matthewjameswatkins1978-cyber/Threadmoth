@@ -932,7 +932,7 @@ fn assertion_is_too_large(assertion: &Assertion) -> bool {
     }
 }
 
-fn plan_identity(plan: &PreparedPlan) -> String {
+pub fn plan_identity(plan: &PreparedPlan) -> String {
     let mut semantic = plan.clone();
     semantic.plan_id.clear();
     let bytes = serde_json::to_vec(&semantic).expect("prepared plan is serialisable");
@@ -1097,6 +1097,21 @@ pub fn apply_prepared_plan(workspace: &Workspace, plan: &PreparedPlan) -> PlanAp
                 )
             }
         };
+        let is_conversion = is_conversion_request(&operation.request);
+        if let Err(violation) = crate::newline::validate_candidate_preservation(
+            &original,
+            &candidate,
+            &stored_edits,
+            is_conversion,
+        ) {
+            return plan_failure_result(
+                workspace,
+                plan,
+                RefusalReason::PreservationUnavailable {
+                    details: violation.message(),
+                },
+            );
+        }
         let effect = effect_usage(
             &original,
             &candidate,
@@ -2583,8 +2598,9 @@ fn plan_edits(
             guarded_plan(original, request, candidate)?
         }
     };
-    let skip_adaptation =
-        is_conversion_request(request) || request_has_exact_newline_policy(request);
+    let skip_adaptation = is_conversion_request(request)
+        || request_has_exact_newline_policy(request)
+        || matches!(request.operation, OperationPayload::DesiredState(_));
     let (adapted_edits, mut was_adapted) =
         crate::newline::adapt_edits_for_preservation(original, &raw_edits, skip_adaptation)
             .map_err(|violation| {
@@ -2957,6 +2973,7 @@ fn execute_file_operation(
     }
     let source = workspace.resolve_path(file_path);
     let mut expected_rename_content = None;
+    let mut adapted_create_content: Option<Vec<u8>> = None;
     let (pre_hash, post_hash, effect) = match operation {
         FileOperation::CreateFile {
             expected_absent,
@@ -2985,7 +3002,9 @@ fn execute_file_operation(
                     String::new(),
                 );
             }
-            if content.len() > MAX_FILE_BYTES {
+            let policy = crate::newline::discover_file_newline_policy(workspace.root(), file_path);
+            let (adapted, _) = crate::newline::adapt_bytes_to_convention(content, policy);
+            if adapted.len() > MAX_FILE_BYTES {
                 return refusal(
                     request,
                     file_path,
@@ -2993,7 +3012,7 @@ fn execute_file_operation(
                     RefusalReason::ResourceLimitExceeded {
                         dimension: "max_file_bytes".into(),
                         limit: MAX_FILE_BYTES,
-                        actual: content.len(),
+                        actual: adapted.len(),
                     },
                     String::new(),
                 );
@@ -3028,11 +3047,13 @@ fn execute_file_operation(
                 files: 1,
                 matches: 1,
                 changed_regions: 1,
-                changed_lines: content.split(|b| *b == b'\n').count(),
-                changed_bytes: content.len(),
+                changed_lines: adapted.split(|b| *b == b'\n').count(),
+                changed_bytes: adapted.len(),
                 passed: true,
             };
-            (String::new(), Some(compute_sha256(content)), effect)
+            let post_hash = compute_sha256(&adapted);
+            adapted_create_content = Some(adapted);
+            (String::new(), Some(post_hash), effect)
         }
         FileOperation::DeleteFile { expected_hash } => {
             let original = match workspace.read_file(file_path) {
@@ -3198,7 +3219,10 @@ fn execute_file_operation(
     if !dry_run {
         let result = match operation {
             FileOperation::CreateFile { content, .. } => {
-                workspace.create_file_new(file_path, content)
+                let write_bytes = adapted_create_content
+                    .as_deref()
+                    .unwrap_or(content.as_slice());
+                workspace.create_file_new(file_path, write_bytes)
             }
             FileOperation::DeleteFile { expected_hash } => {
                 workspace.delete_file_checked(file_path, &normalize_hash(expected_hash))
@@ -3278,11 +3302,16 @@ fn execute_file_operation(
     }
     if !dry_run {
         let verification = match operation {
-            FileOperation::CreateFile { content, .. } => match workspace.read_file(file_path) {
-                Ok(landed) if landed == *content => Ok(()),
-                Ok(landed) => Err(compute_sha256(&landed)),
-                Err(error) => Err(format!("read failed: {error}")),
-            },
+            FileOperation::CreateFile { content, .. } => {
+                let expected_bytes = adapted_create_content
+                    .as_deref()
+                    .unwrap_or(content.as_slice());
+                match workspace.read_file(file_path) {
+                    Ok(landed) if landed == expected_bytes => Ok(()),
+                    Ok(landed) => Err(compute_sha256(&landed)),
+                    Err(error) => Err(format!("read failed: {error}")),
+                }
+            }
             FileOperation::DeleteFile { .. } => match workspace.read_file(file_path) {
                 Err(WorkspaceError::NotFound(_)) => Ok(()),
                 Ok(landed) => Err(compute_sha256(&landed)),
@@ -3340,6 +3369,16 @@ fn execute_file_operation(
             ..CommitGuarantee::default()
         }
     };
+    let preservation = if let Some(ref b) = adapted_create_content {
+        let profile = crate::engine::newline_profile(b);
+        PreservationFacts {
+            original_newline_profile: profile.to_string(),
+            result_newline_profile: profile.to_string(),
+            ..PreservationFacts::default()
+        }
+    } else {
+        PreservationFacts::default()
+    };
     completed(
         request,
         file_path,
@@ -3349,7 +3388,7 @@ fn execute_file_operation(
         Outcome::Applied,
         Vec::new(),
         StructuralValidation::NotApplicable,
-        PreservationFacts::default(),
+        preservation,
         commit,
         String::new(),
         false,

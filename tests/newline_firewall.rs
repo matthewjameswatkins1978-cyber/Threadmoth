@@ -541,3 +541,373 @@ fn scenario_14_intentional_conversion_with_authority_succeeds_and_certifies() {
     assert_eq!(counts2.lf, 0);
     assert_eq!(counts2.crlf, 3);
 }
+
+// 15. Mixed -> uniform unauthorized whole-file conversion is refused
+#[test]
+fn scenario_15_mixed_to_uniform_unauthorized_conversion_refused() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+    let file_path = temp.path().join("mixed.txt");
+    fs::write(&file_path, b"a\nb\r\n").unwrap();
+
+    let request = make_request(
+        "mixed.txt",
+        OperationPayload::DesiredState(DesiredStateOperation::Replace {
+            desired_bytes: b"a\nb\n".to_vec(),
+        }),
+    );
+    let cert = execute_request(&workspace, &request, false);
+    assert_eq!(cert.outcome, Outcome::Refused);
+    assert_eq!(
+        cert.reason_code.as_deref(),
+        Some("PRESERVATION_UNAVAILABLE")
+    );
+    assert_eq!(fs::read(&file_path).unwrap(), b"a\nb\r\n");
+}
+
+// 16. Mixed -> uniform by legitimate deletion of CRLF lines succeeds
+#[test]
+fn scenario_16_mixed_to_uniform_by_legitimate_deletion_succeeds() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+    let file_path = temp.path().join("mixed_del.txt");
+    fs::write(&file_path, b"a\nb\r\n").unwrap();
+
+    let request = make_request(
+        "mixed_del.txt",
+        OperationPayload::Text(TextOperation::Replace {
+            target: "b\r\n".into(),
+            replacement: "".into(),
+        }),
+    );
+    let cert = execute_request(&workspace, &request, false);
+    assert_eq!(cert.outcome, Outcome::Applied);
+    assert_eq!(fs::read(&file_path).unwrap(), b"a\n");
+    assert_eq!(cert.preservation.original_newline_profile, "mixed");
+    assert_eq!(cert.preservation.result_newline_profile, "lf");
+}
+
+// 17. Prepared plan attempting line ending conversion fails at apply-plan
+#[test]
+fn scenario_17_prepared_plan_attempting_line_ending_conversion_fails_at_apply() {
+    use threadmoth::engine::compute_sha256;
+    use threadmoth::pipeline::{apply_prepared_plan, plan_identity};
+    use threadmoth::protocol::{ByteEdit, PlanApplyResult, PreparedPlan, PreparedPlanOperation};
+
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+    let file_path = temp.path().join("source.txt");
+    fs::write(&file_path, b"line1\r\nline2\r\n").unwrap();
+    let pre_hash = compute_sha256(b"line1\r\nline2\r\n");
+
+    let op_req = make_request(
+        "source.txt",
+        OperationPayload::Text(TextOperation::ReplaceSequence {
+            newline_policy: NewlinePolicy::Exact,
+            edits: vec![TextReplacementIntent {
+                old: "line1\r\n".into(),
+                new: "line1\n".into(),
+            }],
+        }),
+    );
+    let mut plan = PreparedPlan {
+        schema_version: "1.0".into(),
+        protocol_version: PROTOCOL_VERSION.into(),
+        plan_id: String::new(),
+        request_id: "test-req".into(),
+        transaction_id: None,
+        operations: vec![PreparedPlanOperation {
+            file_path: "source.txt".into(),
+            provider: "text".into(),
+            request: op_req,
+            pre_hash: pre_hash.clone(),
+            edits: vec![ByteEdit {
+                offset: 5,
+                delete_len: 2,
+                replacement: b"\n".to_vec(),
+            }],
+            prospective_hash: compute_sha256(b"line1\nline2\r\n"),
+        }],
+        assertions: Vec::new(),
+        budget: EffectBudget::default(),
+    };
+    plan.plan_id = plan_identity(&plan);
+
+    let result = apply_prepared_plan(&workspace, &plan);
+    match result {
+        PlanApplyResult::Certificate(cert) => {
+            assert_eq!(cert.outcome, Outcome::Refused);
+            assert_eq!(
+                cert.reason_code.as_deref(),
+                Some("PRESERVATION_UNAVAILABLE")
+            );
+        }
+        _ => panic!("expected refused certificate from forged conversion plan"),
+    }
+    assert_eq!(fs::read(&file_path).unwrap(), b"line1\r\nline2\r\n");
+}
+
+// 18. Stale or tampered plan fails safely
+#[test]
+fn scenario_18_stale_or_tampered_plan_fails_safely() {
+    use threadmoth::engine::compute_sha256;
+    use threadmoth::pipeline::{apply_prepared_plan, plan_identity};
+    use threadmoth::protocol::{ByteEdit, PlanApplyResult, PreparedPlan, PreparedPlanOperation};
+
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+    let file_path = temp.path().join("stale.txt");
+    fs::write(&file_path, b"original content\n").unwrap();
+
+    let op_req = make_request(
+        "stale.txt",
+        OperationPayload::Text(TextOperation::Replace {
+            target: "original".into(),
+            replacement: "updated".into(),
+        }),
+    );
+    let mut plan = PreparedPlan {
+        schema_version: "1.0".into(),
+        protocol_version: PROTOCOL_VERSION.into(),
+        plan_id: String::new(),
+        request_id: "test-stale".into(),
+        transaction_id: None,
+        operations: vec![PreparedPlanOperation {
+            file_path: "stale.txt".into(),
+            provider: "text".into(),
+            request: op_req,
+            pre_hash: compute_sha256(b"different content\n"),
+            edits: vec![ByteEdit {
+                offset: 0,
+                delete_len: 8,
+                replacement: b"updated".to_vec(),
+            }],
+            prospective_hash: compute_sha256(b"updated content\n"),
+        }],
+        assertions: Vec::new(),
+        budget: EffectBudget::default(),
+    };
+    plan.plan_id = plan_identity(&plan);
+
+    let result = apply_prepared_plan(&workspace, &plan);
+    match result {
+        PlanApplyResult::Certificate(cert) => {
+            assert_eq!(cert.outcome, Outcome::Refused);
+            assert_eq!(cert.reason_code.as_deref(), Some("PLAN_STALE"));
+        }
+        _ => panic!("expected refused certificate for stale plan"),
+    }
+}
+
+// 19. LF and CRLF file creation under .editorconfig and deterministic LF default
+#[test]
+fn scenario_19_file_creation_respects_editorconfig_scoped_policies_and_default_lf() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    let editorconfig = "[*]\nend_of_line = lf\n[*.bat]\nend_of_line = crlf\n";
+    fs::write(temp.path().join(".editorconfig"), editorconfig).unwrap();
+
+    let req_sh = make_request(
+        "script.sh",
+        OperationPayload::File(FileOperation::CreateFile {
+            expected_absent: true,
+            content: b"echo hello\r\necho world\r\n".to_vec(),
+        }),
+    );
+    let cert_sh = execute_request(&workspace, &req_sh, false);
+    assert_eq!(cert_sh.outcome, Outcome::Applied);
+    assert_eq!(
+        fs::read(temp.path().join("script.sh")).unwrap(),
+        b"echo hello\necho world\n"
+    );
+    assert_eq!(cert_sh.preservation.result_newline_profile, "lf");
+
+    let req_bat = make_request(
+        "build.bat",
+        OperationPayload::File(FileOperation::CreateFile {
+            expected_absent: true,
+            content: b"@echo off\npause\n".to_vec(),
+        }),
+    );
+    let cert_bat = execute_request(&workspace, &req_bat, false);
+    assert_eq!(cert_bat.outcome, Outcome::Applied);
+    assert_eq!(
+        fs::read(temp.path().join("build.bat")).unwrap(),
+        b"@echo off\r\npause\r\n"
+    );
+    assert_eq!(cert_bat.preservation.result_newline_profile, "crlf");
+
+    let temp2 = TempDir::new().unwrap();
+    let ws2 = Workspace::new(temp2.path()).unwrap();
+    let req_default = make_request(
+        "default.txt",
+        OperationPayload::File(FileOperation::CreateFile {
+            expected_absent: true,
+            content: b"line1\r\nline2\r\n".to_vec(),
+        }),
+    );
+    let cert_def = execute_request(&ws2, &req_default, false);
+    assert_eq!(cert_def.outcome, Outcome::Applied);
+    assert_eq!(
+        fs::read(temp2.path().join("default.txt")).unwrap(),
+        b"line1\nline2\n"
+    );
+    assert_eq!(cert_def.preservation.result_newline_profile, "lf");
+}
+
+// 20. Edits that split CRLF boundary are refused
+#[test]
+fn scenario_20_edits_splitting_crlf_boundary_are_refused() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+    let file_path = temp.path().join("boundary.txt");
+    fs::write(&file_path, b"abc\r\ndef\r\n").unwrap();
+
+    let req = make_request(
+        "boundary.txt",
+        OperationPayload::Text(TextOperation::Replace {
+            target: "\ndef".into(),
+            replacement: "XYZ".into(),
+        }),
+    );
+    let cert = execute_request(&workspace, &req, false);
+    assert_eq!(cert.outcome, Outcome::Refused);
+    assert_eq!(
+        cert.reason_code.as_deref(),
+        Some("PRESERVATION_UNAVAILABLE")
+    );
+    assert!(format!("{:?}", cert.refusal_reason).contains("begins inside a CRLF sequence"));
+}
+
+// 21. Unicode and bare CR injection edge cases
+#[test]
+fn scenario_21_unicode_and_bare_cr_refusal_edge_cases() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+    let file_path = temp.path().join("unicode.txt");
+    fs::write(&file_path, "hello \u{1F30D} world\n".as_bytes()).unwrap();
+
+    let req_bare = make_request(
+        "unicode.txt",
+        OperationPayload::Text(TextOperation::Replace {
+            target: "world".into(),
+            replacement: "world\rtest".into(),
+        }),
+    );
+    let cert_bare = execute_request(&workspace, &req_bare, false);
+    assert_eq!(cert_bare.outcome, Outcome::Refused);
+    assert_eq!(
+        cert_bare.reason_code.as_deref(),
+        Some("PRESERVATION_UNAVAILABLE")
+    );
+
+    let req_utf8 = make_request(
+        "unicode.txt",
+        OperationPayload::Text(TextOperation::Replace {
+            target: "\u{1F30D}".into(),
+            replacement: "\u{1F680}\u{2728}".into(),
+        }),
+    );
+    let cert_utf8 = execute_request(&workspace, &req_utf8, false);
+    assert_eq!(cert_utf8.outcome, Outcome::Applied);
+    assert_eq!(
+        fs::read(&file_path).unwrap(),
+        "hello \u{1F680}\u{2728} world\n".as_bytes()
+    );
+}
+
+// 22. Exact matching without conversion authorization cannot alter endings
+#[test]
+fn scenario_22_exact_matching_without_conversion_authority_cannot_alter_endings() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+    let file_path = temp.path().join("exact_guard.txt");
+    fs::write(&file_path, b"line1\nline2\n").unwrap();
+
+    let req = make_request(
+        "exact_guard.txt",
+        OperationPayload::Text(TextOperation::ReplaceSequence {
+            newline_policy: NewlinePolicy::Exact,
+            edits: vec![TextReplacementIntent {
+                old: "line1\n".into(),
+                new: "line1\r\n".into(),
+            }],
+        }),
+    );
+    let cert = execute_request(&workspace, &req, false);
+    assert_eq!(cert.outcome, Outcome::Refused);
+    assert_eq!(
+        cert.reason_code.as_deref(),
+        Some("PRESERVATION_UNAVAILABLE")
+    );
+    assert!(format!("{:?}", cert.refusal_reason).contains("without explicit conversion authority"));
+}
+
+// 23. Cross-provider candidate preservation
+#[test]
+fn scenario_23_cross_provider_candidate_preservation_enforced_consistently() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+    let file_path = temp.path().join("providers.txt");
+    fs::write(&file_path, b"hello world\n").unwrap();
+
+    let req_ds = make_request(
+        "providers.txt",
+        OperationPayload::DesiredState(DesiredStateOperation::Replace {
+            desired_bytes: b"hello world\r\n".to_vec(),
+        }),
+    );
+    let cert_ds = execute_request(&workspace, &req_ds, false);
+    assert_eq!(cert_ds.outcome, Outcome::Refused);
+    assert_eq!(
+        cert_ds.reason_code.as_deref(),
+        Some("PRESERVATION_UNAVAILABLE")
+    );
+
+    let req_txt = make_request(
+        "providers.txt",
+        OperationPayload::Text(TextOperation::Replace {
+            target: "world\n".into(),
+            replacement: "world\r\n".into(),
+        }),
+    );
+    let cert_txt = execute_request(&workspace, &req_txt, false);
+    assert_eq!(cert_txt.outcome, Outcome::NoChange);
+    assert_eq!(fs::read(&file_path).unwrap(), b"hello world\n");
+}
+
+// 24. Truthful certificate preservation metadata
+#[test]
+fn scenario_24_truthful_certificate_preservation_metadata() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+    let file_path = temp.path().join("cert_truth.txt");
+    fs::write(&file_path, b"header\r\nbody\r\nfooter\r\n").unwrap();
+
+    let req = make_request(
+        "cert_truth.txt",
+        OperationPayload::Text(TextOperation::Replace {
+            target: "body\r\n".into(),
+            replacement: "new_body\n".into(),
+        }),
+    );
+    let cert = execute_request(&workspace, &req, false);
+    assert_eq!(cert.outcome, Outcome::Applied);
+    assert_eq!(cert.preservation.original_newline_profile, "crlf");
+    assert_eq!(cert.preservation.result_newline_profile, "crlf");
+    assert!(!cert.preservation.line_endings_changed);
+    assert!(!cert.preservation.conversion_authorized);
+
+    let mut req_conv = make_request(
+        "cert_truth.txt",
+        OperationPayload::Text(TextOperation::ConvertNewlines { to: "lf".into() }),
+    );
+    req_conv.allow_newline_conversion = true;
+    let cert_conv = execute_request(&workspace, &req_conv, false);
+    assert_eq!(cert_conv.outcome, Outcome::Applied);
+    assert_eq!(cert_conv.preservation.original_newline_profile, "crlf");
+    assert_eq!(cert_conv.preservation.result_newline_profile, "lf");
+    assert!(cert_conv.preservation.line_endings_changed);
+    assert!(cert_conv.preservation.conversion_authorized);
+}
