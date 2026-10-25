@@ -236,6 +236,42 @@ pub fn adapt_bytes_to_convention(bytes: &[u8], target: NewlineProfile) -> (Vec<u
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum LineEnding {
+    Lf,
+    Crlf,
+}
+
+pub fn extract_line_endings(bytes: &[u8]) -> Vec<LineEnding> {
+    let mut endings = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\n' {
+            if i > 0 && bytes[i - 1] == b'\r' {
+                endings.push(LineEnding::Crlf);
+            } else {
+                endings.push(LineEnding::Lf);
+            }
+        }
+        i += 1;
+    }
+    endings
+}
+
+fn is_subsequence<T: PartialEq>(needle: &[T], haystack: &[T]) -> bool {
+    let mut h_idx = 0;
+    for item in needle {
+        while h_idx < haystack.len() && haystack[h_idx] != *item {
+            h_idx += 1;
+        }
+        if h_idx >= haystack.len() {
+            return false;
+        }
+        h_idx += 1;
+    }
+    true
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NewlineViolation {
     UnauthorisedConversion {
@@ -333,27 +369,42 @@ pub fn adapt_edits_for_preservation(
                 adapt_bytes_to_convention(&edit.replacement, NewlineProfile::Crlf)
             }
             NewlineProfile::Mixed => {
-                let local = infer_local_convention(original, edit.start, edit.end);
-                match local {
-                    LocalConvention::Lf => {
-                        adapt_bytes_to_convention(&edit.replacement, NewlineProfile::Lf)
-                    }
-                    LocalConvention::Crlf => {
-                        adapt_bytes_to_convention(&edit.replacement, NewlineProfile::Crlf)
-                    }
-                    LocalConvention::Ambiguous { details } => {
-                        if rep_counts.lf > 0 || rep_counts.crlf > 0 {
-                            return Err(NewlineViolation::AmbiguousLocalConvention {
-                                offset: edit.start,
-                                details: format!(
-                                    "Refused edit at byte {}: {details}. Supply exact local line endings matching the intended line, or convert the entire file to a uniform convention with convert-newlines.",
-                                    edit.start
-                                ),
-                            });
+                let old_slice = if edit.start <= edit.end && edit.end <= original.len() {
+                    &original[edit.start..edit.end]
+                } else {
+                    b""
+                };
+                let old_endings = extract_line_endings(old_slice);
+                let rep_endings = extract_line_endings(&edit.replacement);
+
+                if !old_endings.is_empty()
+                    && (old_endings == rep_endings || is_subsequence(&rep_endings, &old_endings))
+                {
+                    // Replacement preserves or legitimately reduces existing endings; no adaptation needed
+                    (edit.replacement.clone(), false)
+                } else {
+                    let local = infer_local_convention(original, edit.start, edit.end);
+                    match local {
+                        LocalConvention::Lf => {
+                            adapt_bytes_to_convention(&edit.replacement, NewlineProfile::Lf)
                         }
-                        (edit.replacement.clone(), false)
+                        LocalConvention::Crlf => {
+                            adapt_bytes_to_convention(&edit.replacement, NewlineProfile::Crlf)
+                        }
+                        LocalConvention::Ambiguous { details } => {
+                            if rep_counts.lf > 0 || rep_counts.crlf > 0 {
+                                return Err(NewlineViolation::AmbiguousLocalConvention {
+                                    offset: edit.start,
+                                    details: format!(
+                                        "Refused edit at byte {}: {details}. Supply exact local line endings matching the intended line, or convert the entire file to a uniform convention with convert-newlines.",
+                                        edit.start
+                                    ),
+                                });
+                            }
+                            (edit.replacement.clone(), false)
+                        }
+                        LocalConvention::None => (edit.replacement.clone(), false),
                     }
-                    LocalConvention::None => (edit.replacement.clone(), false),
                 }
             }
             NewlineProfile::None => {
@@ -495,39 +546,24 @@ pub fn validate_candidate_preservation(
             } else {
                 b""
             };
-            let old_counts = count_newlines(old_slice);
-            let rep_counts = count_newlines(&edit.replacement);
+            let old_endings = extract_line_endings(old_slice);
+            let rep_endings = extract_line_endings(&edit.replacement);
 
-            // Unauthorized alteration of CRLF to LF
-            if old_counts.crlf > 0 && rep_counts.lf > 0 {
-                return Err(NewlineViolation::UnauthorisedConversion {
-                    original: "mixed (contains CRLF)",
-                    result: "converted to LF",
-                    details: format!(
-                        "Edit at byte {} replaces CRLF line ending(s) with lone LF ending(s) without explicit conversion authority. Pass allow_newline_conversion to authorize line ending conversion, or use convert-newlines.",
-                        edit.start
-                    ),
-                });
+            // 1. Identical line ending sequences: exact preservation
+            if old_endings == rep_endings {
+                continue;
             }
 
-            // Unauthorized alteration of LF to CRLF
-            if old_counts.lf > 0 && rep_counts.crlf > 0 {
-                return Err(NewlineViolation::UnauthorisedConversion {
-                    original: "mixed (contains LF)",
-                    result: "converted to CRLF",
-                    details: format!(
-                        "Edit at byte {} replaces lone LF line ending(s) with CRLF ending(s) without explicit conversion authority. Pass allow_newline_conversion to authorize line ending conversion, or use convert-newlines.",
-                        edit.start
-                    ),
-                });
-            }
-
-            // Edits within a line (old_counts has no newlines)
-            if old_counts.lf == 0 && old_counts.crlf == 0 {
+            // 2. Intra-line edit (no line endings in old_slice)
+            if old_endings.is_empty() {
+                if rep_endings.is_empty() {
+                    continue;
+                }
+                // Inserting newlines within a line: must match local convention
                 let local = infer_local_convention(original, edit.start, edit.end);
                 match local {
                     LocalConvention::Lf => {
-                        if rep_counts.crlf > 0 {
+                        if rep_endings.contains(&LineEnding::Crlf) {
                             return Err(NewlineViolation::UnauthorisedConversion {
                                 original: "mixed (local region LF)",
                                 result: "mixed (introduced CRLF)",
@@ -539,7 +575,7 @@ pub fn validate_candidate_preservation(
                         }
                     }
                     LocalConvention::Crlf => {
-                        if rep_counts.lf > 0 {
+                        if rep_endings.contains(&LineEnding::Lf) {
                             return Err(NewlineViolation::UnauthorisedConversion {
                                 original: "mixed (local region CRLF)",
                                 result: "mixed (introduced LF)",
@@ -551,19 +587,71 @@ pub fn validate_candidate_preservation(
                         }
                     }
                     LocalConvention::Ambiguous { details } => {
-                        if rep_counts.lf > 0 || rep_counts.crlf > 0 {
-                            return Err(NewlineViolation::AmbiguousLocalConvention {
-                                offset: edit.start,
-                                details: format!(
-                                    "Edit at byte {} falls in an ambiguous mixed region: {}. Supply exact local line endings matching the intended line, or convert the entire file to a uniform convention with convert-newlines.",
-                                    edit.start, details
-                                ),
-                            });
-                        }
+                        return Err(NewlineViolation::AmbiguousLocalConvention {
+                            offset: edit.start,
+                            details: format!(
+                                "Edit at byte {} falls in an ambiguous mixed region: {}. Supply exact local line endings matching the intended line, or convert the entire file to a uniform convention with convert-newlines.",
+                                edit.start, details
+                            ),
+                        });
                     }
                     LocalConvention::None => {}
                 }
+                continue;
             }
+
+            // 3. Deleting lines without introducing any new line endings
+            if rep_endings.is_empty() {
+                continue;
+            }
+
+            // 4. Old region was uniformly CRLF
+            if old_endings.iter().all(|&e| e == LineEnding::Crlf) {
+                if rep_endings.contains(&LineEnding::Lf) {
+                    return Err(NewlineViolation::UnauthorisedConversion {
+                        original: "mixed (contains CRLF)",
+                        result: "converted to LF",
+                        details: format!(
+                            "Edit at byte {} replaces CRLF line ending(s) with lone LF ending(s) without explicit conversion authority. Pass allow_newline_conversion to authorize line ending conversion, or use convert-newlines.",
+                            edit.start
+                        ),
+                    });
+                }
+                continue;
+            }
+
+            // 5. Old region was uniformly LF
+            if old_endings.iter().all(|&e| e == LineEnding::Lf) {
+                if rep_endings.contains(&LineEnding::Crlf) {
+                    return Err(NewlineViolation::UnauthorisedConversion {
+                        original: "mixed (contains LF)",
+                        result: "converted to CRLF",
+                        details: format!(
+                            "Edit at byte {} replaces lone LF line ending(s) with CRLF ending(s) without explicit conversion authority. Pass allow_newline_conversion to authorize line ending conversion, or use convert-newlines.",
+                            edit.start
+                        ),
+                    });
+                }
+                continue;
+            }
+
+            // 6. Old region itself contained both LF and CRLF, but rep_endings != old_endings:
+            // If rep_endings is a strict subsequence of old_endings, it represents the legitimate
+            // deletion of one or more lines while preserving surviving line endings in order.
+            if is_subsequence(&rep_endings, &old_endings) {
+                continue;
+            }
+
+            // Otherwise, the mapping between differing line endings across the boundary is ambiguous
+            // or represents an unauthorized conversion of a retained ending.
+            return Err(NewlineViolation::UnauthorisedConversion {
+                original: "mixed (conflicting line endings)",
+                result: "converted line endings",
+                details: format!(
+                    "Edit at byte {} modifies line endings across differing conventions without explicit conversion authority. Preserved endings must match the original lines exactly.",
+                    edit.start
+                ),
+            });
         }
     }
 

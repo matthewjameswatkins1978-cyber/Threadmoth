@@ -200,7 +200,7 @@ fn traversal_and_absolute_paths_refuse_without_touching_outside_files() {
     fs::write(temp.path().join("outside.txt"), b"before\n").unwrap();
     let workspace = Workspace::new(temp.path()).unwrap();
     for path in [
-        "outside.txt",
+        "../outside.txt",
         "allowed/../outside.txt",
         "allowed/nested/../../outside.txt",
         "allowed\\..\\outside.txt",

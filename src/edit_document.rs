@@ -359,34 +359,41 @@ pub fn prepare(
         let authority_root = workspace_scope(&path);
         let source = workspace.read_file(&path).ok();
         let expected_pre_hash = source.as_deref().map(compute_sha256);
-        let changed_bytes = source
-            .as_deref()
-            .and_then(|source| {
-                TextProvider::plan(
-                    source,
-                    &TextOperation::ReplaceSequence {
-                        edits: file.edits.clone(),
-                        newline_policy: NewlinePolicy::Source,
-                    },
-                    &Cardinality::ExactlyOne,
-                )
-                .ok()
-            })
-            .map(|edits| crate::pipeline::changed_byte_effect(&edits))
-            .unwrap_or_default();
-        let changed_lines = file
-            .edits
-            .iter()
-            .map(|edit| {
-                edit.old.bytes().filter(|byte| *byte == b'\n').count()
-                    + edit.new.bytes().filter(|byte| *byte == b'\n').count()
-                    + 2
-            })
-            .sum::<usize>();
+        let planned_edits = source.as_deref().and_then(|source| {
+            TextProvider::plan(
+                source,
+                &TextOperation::ReplaceSequence {
+                    edits: file.edits.clone(),
+                    newline_policy: NewlinePolicy::Source,
+                },
+                &Cardinality::ExactlyOne,
+            )
+            .ok()
+        });
+        let (changed_bytes, changed_regions, changed_lines) =
+            if let (Some(source), Some(edits)) = (source.as_deref(), planned_edits.as_ref()) {
+                let bytes = crate::pipeline::changed_byte_effect(edits);
+                let regions = edits.len();
+                let candidate = crate::engine::apply_byte_edits(source, edits)
+                    .unwrap_or_else(|_| source.to_vec());
+                let lines = crate::pipeline::changed_line_count(source, &candidate);
+                (bytes, regions, lines)
+            } else {
+                let changed_lines = file
+                    .edits
+                    .iter()
+                    .map(|edit| {
+                        edit.old.bytes().filter(|byte| *byte == b'\n').count()
+                            + edit.new.bytes().filter(|byte| *byte == b'\n').count()
+                            + 2
+                    })
+                    .sum::<usize>();
+                (0, changed_lines.max(file.edits.len()), changed_lines)
+            };
         let per_file_budget = EffectBudget {
             max_files: Some(1),
-            max_matches: Some(changed_lines.max(file.edits.len())),
-            max_changed_regions: Some(changed_lines.max(file.edits.len())),
+            max_matches: Some(changed_regions.max(file.edits.len())),
+            max_changed_regions: Some(changed_regions.max(file.edits.len())),
             max_changed_lines: Some(changed_lines),
             max_changed_bytes: Some(changed_bytes),
             allowed_path_prefixes: vec![path.clone()],
@@ -426,14 +433,22 @@ pub fn prepare(
         .iter()
         .map(|request| request.budget.max_changed_lines.unwrap_or_default())
         .sum::<usize>();
+    let changed_regions = requests
+        .iter()
+        .map(|request| request.budget.max_changed_regions.unwrap_or_default())
+        .sum::<usize>();
+    let changed_matches = requests
+        .iter()
+        .map(|request| request.budget.max_matches.unwrap_or_default())
+        .sum::<usize>();
     let transaction = TransactionRequest {
         version: PROTOCOL_VERSION.into(),
         transaction_id: transaction_id.clone(),
         requests,
         budget: EffectBudget {
             max_files: Some(files.len()),
-            max_matches: Some(changed_lines.max(edit_count)),
-            max_changed_regions: Some(changed_lines.max(edit_count)),
+            max_matches: Some(changed_matches.max(edit_count)),
+            max_changed_regions: Some(changed_regions.max(edit_count)),
             max_changed_lines: Some(changed_lines),
             max_changed_bytes: Some(changed_bytes),
             allowed_path_prefixes: allowed_paths,

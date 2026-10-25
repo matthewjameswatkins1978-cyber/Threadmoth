@@ -911,3 +911,173 @@ fn scenario_24_truthful_certificate_preservation_metadata() {
     assert!(cert_conv.preservation.line_endings_changed);
     assert!(cert_conv.preservation.conversion_authorized);
 }
+
+// 25. Mixed LF/CRLF replacement preserving the exact original newline sequence (Lucy's case)
+#[test]
+fn scenario_25_mixed_replacement_preserving_exact_newline_sequence_succeeds() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+    let file_path = temp.path().join("lucy_repro.txt");
+    fs::write(&file_path, b"a\nb\r\n").unwrap();
+
+    let request = make_request(
+        "lucy_repro.txt",
+        OperationPayload::Text(TextOperation::Replace {
+            target: "a\nb\r\n".into(),
+            replacement: "A\nb\r\n".into(),
+        }),
+    );
+    let cert = execute_request(&workspace, &request, false);
+    assert_eq!(cert.outcome, Outcome::Applied);
+    assert_eq!(fs::read(&file_path).unwrap(), b"A\nb\r\n");
+    let counts = threadmoth::newline::count_newlines(&fs::read(&file_path).unwrap());
+    assert_eq!(counts.lf, 1);
+    assert_eq!(counts.crlf, 1);
+}
+
+// 26. Multiple sub-line edits in a changes.tm edit document
+#[test]
+fn scenario_26_multiple_subline_edits_in_changes_tm_document() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+    let file_path = temp.path().join("subline.rs");
+    fs::write(&file_path, b"let a = 1; let b = 2;\n").unwrap();
+
+    let doc = "*** File: subline.rs\n<<<<<<< SEARCH\nlet a = 1;\n=======\nlet a = 10;\n>>>>>>> REPLACE\n<<<<<<< SEARCH\nlet b = 2;\n=======\nlet b = 20;\n>>>>>>> REPLACE\n";
+    let prep = threadmoth::edit_document::prepare(&workspace, doc).expect("preparation succeeds");
+    let apply = threadmoth::pipeline::apply_prepared_plan(&workspace, &prep.plan);
+    let outcome = match apply {
+        threadmoth::protocol::PlanApplyResult::Transaction(cert) => cert.outcome,
+        threadmoth::protocol::PlanApplyResult::Certificate(cert) => cert.outcome,
+    };
+    assert_eq!(outcome, Outcome::Applied);
+    assert_eq!(fs::read(&file_path).unwrap(), b"let a = 10; let b = 20;\n");
+}
+
+// 27. Identical changes through direct CLI, MCP and edit document produce byte-identical results
+#[test]
+fn scenario_27_identical_changes_cli_mcp_edit_doc() {
+    let temp = TempDir::new().unwrap();
+    let ws = Workspace::new(temp.path()).unwrap();
+
+    let p_cli = temp.path().join("cli.txt");
+    let p_doc = temp.path().join("doc.txt");
+    fs::write(&p_cli, b"alpha = 1\nbeta = 2\n").unwrap();
+    fs::write(&p_doc, b"alpha = 1\nbeta = 2\n").unwrap();
+
+    // Direct request / CLI
+    let req = make_request(
+        "cli.txt",
+        OperationPayload::Text(TextOperation::Replace {
+            target: "beta = 2\n".into(),
+            replacement: "beta = 42\r\n".into(),
+        }),
+    );
+    let cert = execute_request(&ws, &req, false);
+    assert_eq!(cert.outcome, Outcome::Applied);
+
+    // Edit document
+    let doc =
+        "*** File: doc.txt\n<<<<<<< SEARCH\nbeta = 2\n=======\nbeta = 42\r\n>>>>>>> REPLACE\n";
+    let prep = threadmoth::edit_document::prepare(&ws, doc).unwrap();
+    let _ = threadmoth::pipeline::apply_prepared_plan(&ws, &prep.plan);
+
+    let bytes_cli = fs::read(&p_cli).unwrap();
+    let bytes_doc = fs::read(&p_doc).unwrap();
+    assert_eq!(
+        bytes_cli, bytes_doc,
+        "CLI and edit-doc must produce identical bytes"
+    );
+    assert_eq!(bytes_cli, b"alpha = 1\nbeta = 42\n");
+}
+
+// 28. Prepared plan preview versus actual application effects agree
+#[test]
+fn scenario_28_prepared_plan_preview_vs_apply_effects_agree() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+    let file_path = temp.path().join("preview_apply.txt");
+    fs::write(&file_path, b"key1=value1\r\nkey2=value2\r\n").unwrap();
+
+    let req = make_request(
+        "preview_apply.txt",
+        OperationPayload::Text(TextOperation::Replace {
+            target: "key2=value2\r\n".into(),
+            replacement: "key2=updated\r\nkey3=new\r\n".into(),
+        }),
+    );
+    let plan = threadmoth::pipeline::prepare_request_plan(&workspace, &req, Vec::new()).unwrap();
+    assert_eq!(plan.operations.len(), 1);
+    let op = &plan.operations[0];
+    let planned_regions = op.edits.len();
+
+    let cert = match threadmoth::pipeline::apply_prepared_plan(&workspace, &plan) {
+        threadmoth::protocol::PlanApplyResult::Certificate(cert) => cert,
+        other => panic!("expected certificate, got {other:?}"),
+    };
+    assert_eq!(cert.outcome, Outcome::Applied);
+    assert_eq!(cert.effect.changed_regions, planned_regions);
+    assert!(cert.effect.changed_bytes > 0);
+    assert!(cert.effect.changed_lines > 0);
+}
+
+// 29. Effect budgets pass exactly at the limit and refuse one unit above it
+#[test]
+fn scenario_29_effect_budgets_pass_at_limit_refuse_one_below() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+    let file_path = temp.path().join("budget_test.txt");
+    fs::write(&file_path, b"a=1\nb=2\nc=3\n").unwrap();
+
+    // 1 edit replacing 1 region
+    let mut req_pass = make_request(
+        "budget_test.txt",
+        OperationPayload::Text(TextOperation::Replace {
+            target: "b=2\n".into(),
+            replacement: "b=20\n".into(),
+        }),
+    );
+    req_pass.budget.max_changed_regions = Some(1);
+    let cert_pass = execute_request(&workspace, &req_pass, false);
+    assert_eq!(cert_pass.outcome, Outcome::Applied);
+
+    // Refuse one below (limit 0, actual 1)
+    let mut req_refuse = make_request(
+        "budget_test.txt",
+        OperationPayload::Text(TextOperation::Replace {
+            target: "c=3\n".into(),
+            replacement: "c=30\n".into(),
+        }),
+    );
+    req_refuse.budget.max_changed_regions = Some(0);
+    let cert_refuse = execute_request(&workspace, &req_refuse, false);
+    assert_eq!(cert_refuse.outcome, Outcome::Refused);
+    assert_eq!(
+        cert_refuse.reason_code.as_deref(),
+        Some("EFFECT_BUDGET_EXCEEDED")
+    );
+}
+
+// 30. Boundary insertion between differing newline conventions is refused
+#[test]
+fn scenario_30_boundary_insertion_between_differing_conventions_refused() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+    let file_path = temp.path().join("boundary.txt");
+    fs::write(&file_path, b"alpha\r\nBOUNDARY\nbeta\n").unwrap();
+
+    // Inserting newlines at the boundary between preceding CRLF and succeeding LF without explicit conversion
+    let req = make_request(
+        "boundary.txt",
+        OperationPayload::Text(TextOperation::Replace {
+            target: "BOUNDARY".into(),
+            replacement: "part1\npart2".into(),
+        }),
+    );
+    let cert = execute_request(&workspace, &req, false);
+    assert_eq!(cert.outcome, Outcome::Refused);
+    assert_eq!(
+        cert.reason_code.as_deref(),
+        Some("PRESERVATION_UNAVAILABLE")
+    );
+}

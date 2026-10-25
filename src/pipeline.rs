@@ -4226,7 +4226,7 @@ fn budget_violation(effect: &EffectUsage, budget: &EffectBudget) -> Option<(Stri
     })
 }
 
-fn changed_line_count(original: &[u8], candidate: &[u8]) -> usize {
+pub(crate) fn changed_line_count(original: &[u8], candidate: &[u8]) -> usize {
     // Keep the general-purpose diff here deliberately. Its old/new line
     // contribution is part of the effect-budget contract, and an edit-derived
     // approximation is not generally equivalent when similar aligns equal
