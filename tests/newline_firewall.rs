@@ -1081,3 +1081,128 @@ fn scenario_30_boundary_insertion_between_differing_conventions_refused() {
         Some("PRESERVATION_UNAVAILABLE")
     );
 }
+
+// 31. Mixed-newline line identity: Suspected bypass a\nb\r\nc\n -> a\r\nc\n MUST NOT silently apply
+#[test]
+fn scenario_31_suspected_bypass_mixed_identity_gap_refused() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+    let file_path = temp.path().join("identity_gap.txt");
+    fs::write(&file_path, b"a\nb\r\nc\n").unwrap();
+
+    let request = make_request(
+        "identity_gap.txt",
+        OperationPayload::Text(TextOperation::Replace {
+            target: "a\nb\r\nc\n".into(),
+            replacement: "a\r\nc\n".into(),
+        }),
+    );
+    let cert = execute_request(&workspace, &request, false);
+    assert_eq!(cert.outcome, Outcome::Refused);
+    assert_eq!(
+        cert.reason_code.as_deref(),
+        Some("PRESERVATION_UNAVAILABLE")
+    );
+    assert_eq!(
+        fs::read(&file_path).unwrap(),
+        b"a\nb\r\nc\n",
+        "Source file must be physically untouched"
+    );
+}
+
+// 32. Mixed-newline line identity: Safe deletion a\nb\r\nc\n -> a\nc\n applies cleanly
+#[test]
+fn scenario_32_mixed_safe_deletion_applies() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+    let file_path = temp.path().join("safe_delete.txt");
+    fs::write(&file_path, b"a\nb\r\nc\n").unwrap();
+
+    let request = make_request(
+        "safe_delete.txt",
+        OperationPayload::Text(TextOperation::Replace {
+            target: "a\nb\r\nc\n".into(),
+            replacement: "a\nc\n".into(),
+        }),
+    );
+    let cert = execute_request(&workspace, &request, false);
+    assert_eq!(cert.outcome, Outcome::Applied);
+    assert_eq!(
+        fs::read(&file_path).unwrap(),
+        b"a\nc\n",
+        "Line b deleted, lines a and c keep LF"
+    );
+}
+
+// 33. Mixed-newline line identity: Safe text edits A\nb\r\nc\n and a\nb\r\nC\n apply cleanly
+#[test]
+fn scenario_33_mixed_safe_text_edits_apply() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    // Edit 1: a -> A
+    let f1 = temp.path().join("edit1.txt");
+    fs::write(&f1, b"a\nb\r\nc\n").unwrap();
+    let req1 = make_request(
+        "edit1.txt",
+        OperationPayload::Text(TextOperation::Replace {
+            target: "a\nb\r\nc\n".into(),
+            replacement: "A\nb\r\nc\n".into(),
+        }),
+    );
+    let cert1 = execute_request(&workspace, &req1, false);
+    assert_eq!(cert1.outcome, Outcome::Applied);
+    assert_eq!(fs::read(&f1).unwrap(), b"A\nb\r\nc\n");
+
+    // Edit 2: c -> C
+    let f2 = temp.path().join("edit2.txt");
+    fs::write(&f2, b"a\nb\r\nc\n").unwrap();
+    let req2 = make_request(
+        "edit2.txt",
+        OperationPayload::Text(TextOperation::Replace {
+            target: "a\nb\r\nc\n".into(),
+            replacement: "a\nb\r\nC\n".into(),
+        }),
+    );
+    let cert2 = execute_request(&workspace, &req2, false);
+    assert_eq!(cert2.outcome, Outcome::Applied);
+    assert_eq!(fs::read(&f2).unwrap(), b"a\nb\r\nC\n");
+}
+
+// 34. Mixed-newline line identity across edit document interface
+#[test]
+fn scenario_34_mixed_identity_across_cli_mcp_edit_doc() {
+    let temp = TempDir::new().unwrap();
+    let ws = Workspace::new(temp.path()).unwrap();
+
+    // Edit document with suspected bypass must refuse
+    let doc_bad =
+        "*** File: bad.txt\n<<<<<<< SEARCH\na\nb\r\nc\n=======\na\r\nc\n>>>>>>> REPLACE\n";
+    let p_bad = temp.path().join("bad.txt");
+    fs::write(&p_bad, b"a\nb\r\nc\n").unwrap();
+    let prep_bad = threadmoth::edit_document::prepare(&ws, doc_bad);
+    let outcome = match prep_bad {
+        Err(threadmoth::edit_document::EditDocumentFailure::Refused(cert)) => cert.outcome,
+        Ok(prep) => match threadmoth::pipeline::apply_prepared_plan(&ws, &prep.plan) {
+            threadmoth::protocol::PlanApplyResult::Certificate(cert) => cert.outcome,
+            threadmoth::protocol::PlanApplyResult::Transaction(cert) => cert.outcome,
+        },
+        Err(e) => panic!("unexpected failure: {e:?}"),
+    };
+    assert_eq!(outcome, Outcome::Refused);
+    assert_eq!(fs::read(&p_bad).unwrap(), b"a\nb\r\nc\n");
+
+    // Direct request with safe deletion must apply
+    let p_good = temp.path().join("good.txt");
+    fs::write(&p_good, b"a\nb\r\nc\n").unwrap();
+    let req_good = make_request(
+        "good.txt",
+        OperationPayload::Text(TextOperation::Replace {
+            target: "a\nb\r\nc\n".into(),
+            replacement: "a\nc\n".into(),
+        }),
+    );
+    let cert_good = execute_request(&ws, &req_good, false);
+    assert_eq!(cert_good.outcome, Outcome::Applied);
+    assert_eq!(fs::read(&p_good).unwrap(), b"a\nc\n");
+}

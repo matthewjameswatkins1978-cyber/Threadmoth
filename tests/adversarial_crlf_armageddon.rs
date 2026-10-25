@@ -806,8 +806,8 @@ fn run_fuzzing_oracle(iterations: usize, seed: u64) {
         let file_path = temp.path().join(&file_name);
 
         // Deterministically construct file structure
-        let line_count = rng.range(3, 40);
-        let profile_mode = rng.range(0, 4); // 0: Pure LF, 1: Pure CRLF, 2: Mixed, 3: No newlines, 4: Lone rogue
+        let line_count = rng.range(4, 40);
+        let profile_mode = rng.range(0, 6); // 0: Pure LF, 1: Pure CRLF, 2: Mixed, 3: No newlines, 4: Lone rogue, 5: Repeated, 6: Blocked
 
         let mut source_lines = Vec::with_capacity(line_count);
         let mut source_bytes = Vec::new();
@@ -821,9 +821,19 @@ fn run_fuzzing_oracle(iterations: usize, seed: u64) {
         };
 
         for line_idx in 0..line_count {
-            let token = *rng.choice(&tokens);
-            let term = if profile_mode == 2 {
+            let token = if profile_mode == 5 {
+                "REPEATED_LINE"
+            } else {
+                *rng.choice(&tokens)
+            };
+            let term = if profile_mode == 2 || profile_mode == 5 {
                 *rng.choice(&line_terminators)
+            } else if profile_mode == 6 {
+                if line_idx < line_count / 2 {
+                    "\n"
+                } else {
+                    "\r\n"
+                }
             } else if profile_mode == 4 && line_idx == line_count / 2 {
                 "\n" // lone rogue in CRLF
             } else {
@@ -832,6 +842,8 @@ fn run_fuzzing_oracle(iterations: usize, seed: u64) {
 
             let line_str = if profile_mode == 3 && line_idx == line_count - 1 {
                 format!("{token}_{line_idx}") // no newline on single-line or final line
+            } else if profile_mode == 5 {
+                format!("{token}{term}")
             } else {
                 format!("{token}_{line_idx}{term}")
             };
@@ -843,19 +855,56 @@ fn run_fuzzing_oracle(iterations: usize, seed: u64) {
         let pre_counts = threadmoth::newline::count_newlines(&source_bytes);
         let pre_profile = pre_counts.profile();
 
-        // Pick a target line to edit
-        let target_line_idx = rng.range(0, line_count - 1);
-        let target_line = &source_lines[target_line_idx];
+        // Generate diverse edit types (multiline replacements, deletions, disguised conversions)
+        let edit_type = rng.range(0, 4);
+        let target_line_idx = rng.range(0, line_count - 2);
+        let span = rng.range(1, 3.min(line_count - target_line_idx));
 
-        // Pick a replacement convention randomly (LF, CRLF, or bare)
+        let target_text: String = source_lines[target_line_idx..target_line_idx + span].concat();
         let rep_term = *rng.choice(&line_terminators);
-        let replacement = format!("MUTATED_{target_line_idx}{rep_term}");
+
+        let replacement = match edit_type {
+            0 => {
+                let mut rep = String::new();
+                for (i, line) in source_lines[target_line_idx..target_line_idx + span]
+                    .iter()
+                    .enumerate()
+                {
+                    let term = if line.ends_with("\r\n") {
+                        "\r\n"
+                    } else if line.ends_with('\n') {
+                        "\n"
+                    } else {
+                        ""
+                    };
+                    rep.push_str(&format!("MUTATED_{target_line_idx}_{i}{term}"));
+                }
+                rep
+            }
+            1 => String::new(), // pure deletion
+            2 => {
+                // Safe deletion of partial lines
+                source_lines[target_line_idx].clone()
+            }
+            3 => {
+                // Disguised conversion attack
+                let first = &source_lines[target_line_idx];
+                if first.ends_with("\r\n") {
+                    format!("{}\n", first.trim_end_matches("\r\n"))
+                } else if first.ends_with('\n') {
+                    format!("{}\r\n", first.trim_end_matches('\n'))
+                } else {
+                    format!("{first}{rep_term}")
+                }
+            }
+            _ => format!("MUTATED_{target_line_idx}{rep_term}"),
+        };
 
         let req = make_req(
             &file_name,
             OperationPayload::Text(TextOperation::Replace {
-                target: target_line.clone(),
-                replacement: replacement.clone(),
+                target: target_text,
+                replacement,
             }),
         );
 
@@ -914,8 +963,46 @@ fn run_fuzzing_oracle(iterations: usize, seed: u64) {
                 !cert.preservation.conversion_authorized,
                 "Unauthorized edit falsely claimed conversion authority at iteration {iteration}!"
             );
+            // Invariant 5: Verify the ending of each demonstrably retained line
+            let pre_lines = threadmoth::newline::split_lines(&source_bytes);
+            let post_lines = threadmoth::newline::split_lines(&post_bytes);
+
+            let mut pre_map = std::collections::HashMap::new();
+            for l in &pre_lines {
+                let entry = pre_map.entry(l.content).or_insert((0usize, 0usize));
+                match l.ending {
+                    Some(threadmoth::newline::LineEnding::Lf) => entry.0 += 1,
+                    Some(threadmoth::newline::LineEnding::Crlf) => entry.1 += 1,
+                    None => {}
+                }
+            }
+
+            let mut post_map = std::collections::HashMap::new();
+            for l in &post_lines {
+                let entry = post_map.entry(l.content).or_insert((0usize, 0usize));
+                match l.ending {
+                    Some(threadmoth::newline::LineEnding::Lf) => entry.0 += 1,
+                    Some(threadmoth::newline::LineEnding::Crlf) => entry.1 += 1,
+                    None => {}
+                }
+            }
+
+            for (content, &(post_lf, post_crlf)) in &post_map {
+                if let Some(&(pre_lf, pre_crlf)) = pre_map.get(content) {
+                    assert!(
+                        !(post_crlf > pre_crlf && post_lf < pre_lf),
+                        "Retained line {:?} had ending converted from LF to CRLF at iteration {iteration}!",
+                        String::from_utf8_lossy(content)
+                    );
+                    assert!(
+                        !(post_lf > pre_lf && post_crlf < pre_crlf),
+                        "Retained line {:?} had ending converted from CRLF to LF at iteration {iteration}!",
+                        String::from_utf8_lossy(content)
+                    );
+                }
+            }
         } else if cert.outcome == Outcome::Refused {
-            // Invariant 5: Refusal must guarantee ZERO disk mutation
+            // Invariant 6: Refusal must guarantee ZERO disk mutation
             assert_eq!(
                 post_bytes, source_bytes,
                 "Refused request altered physical bytes at iteration {iteration}!"

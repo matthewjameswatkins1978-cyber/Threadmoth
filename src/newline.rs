@@ -258,17 +258,151 @@ pub fn extract_line_endings(bytes: &[u8]) -> Vec<LineEnding> {
     endings
 }
 
-fn is_subsequence<T: PartialEq>(needle: &[T], haystack: &[T]) -> bool {
-    let mut h_idx = 0;
-    for item in needle {
-        while h_idx < haystack.len() && haystack[h_idx] != *item {
-            h_idx += 1;
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Line<'a> {
+    pub content: &'a [u8],
+    pub ending: Option<LineEnding>,
+}
+
+pub fn split_lines(bytes: &[u8]) -> Vec<Line<'_>> {
+    let mut lines = Vec::new();
+    let mut line_start = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\n' {
+            if i > line_start && bytes[i - 1] == b'\r' {
+                lines.push(Line {
+                    content: &bytes[line_start..i - 1],
+                    ending: Some(LineEnding::Crlf),
+                });
+            } else {
+                lines.push(Line {
+                    content: &bytes[line_start..i],
+                    ending: Some(LineEnding::Lf),
+                });
+            }
+            line_start = i + 1;
         }
-        if h_idx >= haystack.len() {
-            return false;
-        }
-        h_idx += 1;
+        i += 1;
     }
+    if line_start < bytes.len() {
+        lines.push(Line {
+            content: &bytes[line_start..],
+            ending: None,
+        });
+    }
+    lines
+}
+
+fn verify_retained_line_identity(
+    orig_lines: &[Line<'_>],
+    cand_lines: &[Line<'_>],
+) -> Result<(), NewlineViolation> {
+    use std::collections::HashMap;
+
+    let mut orig_counts: HashMap<&[u8], (usize, usize)> = HashMap::new();
+    for line in orig_lines {
+        let entry = orig_counts.entry(line.content).or_insert((0, 0));
+        match line.ending {
+            Some(LineEnding::Lf) => entry.0 += 1,
+            Some(LineEnding::Crlf) => entry.1 += 1,
+            None => {}
+        }
+    }
+
+    let mut cand_counts: HashMap<&[u8], (usize, usize)> = HashMap::new();
+    for line in cand_lines {
+        let entry = cand_counts.entry(line.content).or_insert((0, 0));
+        match line.ending {
+            Some(LineEnding::Lf) => entry.0 += 1,
+            Some(LineEnding::Crlf) => entry.1 += 1,
+            None => {}
+        }
+    }
+
+    for (content, &(cand_lf, cand_crlf)) in &cand_counts {
+        if let Some(&(orig_lf, orig_crlf)) = orig_counts.get(content) {
+            if cand_crlf > orig_crlf && cand_lf < orig_lf {
+                return Err(NewlineViolation::UnauthorisedConversion {
+                    original: "mixed (line ending LF)",
+                    result: "converted to CRLF",
+                    details: format!(
+                        "Unchanged retained line {:?} ending was converted from LF to CRLF without explicit conversion authority.",
+                        String::from_utf8_lossy(content)
+                    ),
+                });
+            }
+            if cand_lf > orig_lf && cand_crlf < orig_crlf {
+                return Err(NewlineViolation::UnauthorisedConversion {
+                    original: "mixed (line ending CRLF)",
+                    result: "converted to LF",
+                    details: format!(
+                        "Unchanged retained line {:?} ending was converted from CRLF to LF without explicit conversion authority.",
+                        String::from_utf8_lossy(content)
+                    ),
+                });
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub fn replacement_matches_or_reduces_old_lines(
+    old_lines: &[Line<'_>],
+    rep_lines: &[Line<'_>],
+) -> bool {
+    if old_lines.is_empty() || rep_lines.is_empty() {
+        return false;
+    }
+
+    for rep in rep_lines {
+        for old in old_lines {
+            if old.content == rep.content && old.ending != rep.ending {
+                return false;
+            }
+        }
+    }
+
+    let old_contents: Vec<&[u8]> = old_lines.iter().map(|l| l.content).collect();
+    let rep_contents: Vec<&[u8]> = rep_lines.iter().map(|l| l.content).collect();
+
+    let diff =
+        similar::capture_diff_slices(similar::Algorithm::Myers, &old_contents, &rep_contents);
+    for op in diff {
+        match op {
+            similar::DiffOp::Equal {
+                old_index,
+                new_index,
+                len,
+            } => {
+                for k in 0..len {
+                    if old_lines[old_index + k].ending != rep_lines[new_index + k].ending {
+                        return false;
+                    }
+                }
+            }
+            similar::DiffOp::Delete { .. } => {}
+            similar::DiffOp::Insert { .. } => return false,
+            similar::DiffOp::Replace {
+                old_index,
+                old_len,
+                new_index,
+                new_len,
+            } => {
+                if old_len == new_len {
+                    for k in 0..old_len {
+                        if old_lines[old_index + k].ending != rep_lines[new_index + k].ending {
+                            return false;
+                        }
+                    }
+                } else {
+                    return false;
+                }
+            }
+        }
+    }
+
     true
 }
 
@@ -377,8 +511,12 @@ pub fn adapt_edits_for_preservation(
                 let old_endings = extract_line_endings(old_slice);
                 let rep_endings = extract_line_endings(&edit.replacement);
 
+                let old_lines = split_lines(old_slice);
+                let rep_lines = split_lines(&edit.replacement);
+
                 if !old_endings.is_empty()
-                    && (old_endings == rep_endings || is_subsequence(&rep_endings, &old_endings))
+                    && (old_endings == rep_endings
+                        || replacement_matches_or_reduces_old_lines(&old_lines, &rep_lines))
                 {
                     // Replacement preserves or legitimately reduces existing endings; no adaptation needed
                     (edit.replacement.clone(), false)
@@ -540,6 +678,16 @@ pub fn validate_candidate_preservation(
 
     // Invariant: In mixed files, enforce preservation at the level of retained source content and edits
     if orig_profile == NewlineProfile::Mixed {
+        let orig_lines = split_lines(original);
+        let cand_lines = split_lines(candidate);
+
+        let orig_endings: Vec<LineEnding> = orig_lines.iter().filter_map(|l| l.ending).collect();
+        let cand_endings: Vec<LineEnding> = cand_lines.iter().filter_map(|l| l.ending).collect();
+
+        if orig_endings != cand_endings {
+            verify_retained_line_identity(&orig_lines, &cand_lines)?;
+        }
+
         for edit in edits {
             let old_slice = if edit.start <= edit.end && edit.end <= original.len() {
                 &original[edit.start..edit.end]
@@ -636,9 +784,9 @@ pub fn validate_candidate_preservation(
             }
 
             // 6. Old region itself contained both LF and CRLF, but rep_endings != old_endings:
-            // If rep_endings is a strict subsequence of old_endings, it represents the legitimate
-            // deletion of one or more lines while preserving surviving line endings in order.
-            if is_subsequence(&rep_endings, &old_endings) {
+            let edit_old_lines = split_lines(old_slice);
+            let edit_rep_lines = split_lines(&edit.replacement);
+            if replacement_matches_or_reduces_old_lines(&edit_old_lines, &edit_rep_lines) {
                 continue;
             }
 
