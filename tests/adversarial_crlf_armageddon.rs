@@ -359,6 +359,64 @@ fn p1_06_alternate_structured_providers_preserve_conventions() {
     assert_eq!(threadmoth::newline::count_newlines(&landed_env).lf, 2);
 }
 
+#[test]
+fn p1_09_cli_swapped_endings_bypass_refused_across_cli_mcp_library() {
+    let temp = TempDir::new().unwrap();
+    let file_path = temp.path().join("gap.txt");
+    fs::write(&file_path, b"a\nb\r\n").unwrap();
+    fs::write(temp.path().join("s.txt"), b"a\nb\r\n").unwrap();
+    fs::write(temp.path().join("r.txt"), b"b\na\r\n").unwrap();
+
+    // 1. CLI execution
+    let out = cli(
+        temp.path(),
+        &[
+            "edit",
+            "gap.txt",
+            "--search-file",
+            "s.txt",
+            "--replace-file",
+            "r.txt",
+            "--json",
+        ],
+    );
+    assert!(!out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("PRESERVATION_UNAVAILABLE"));
+    assert_eq!(fs::read(&file_path).unwrap(), b"a\nb\r\n");
+
+    // 2. MCP execution
+    let init = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "test", "version": "1.0"}}});
+    let call = json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "threadmoth_edit", "arguments": {"file_path": "gap.txt", "search_file": "s.txt", "replace_file": "r.txt"}}});
+    let responses = call_mcp(temp.path(), &[init, call]);
+    let call_res = &responses[1]["result"];
+    let text = call_res["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("PRESERVATION_UNAVAILABLE"));
+    assert_eq!(fs::read(&file_path).unwrap(), b"a\nb\r\n");
+
+    // 3. Safe reordering execution
+    fs::write(temp.path().join("r_good.txt"), b"b\r\na\n").unwrap();
+    let out_good = cli(
+        temp.path(),
+        &[
+            "edit",
+            "gap.txt",
+            "--search-file",
+            "s.txt",
+            "--replace-file",
+            "r_good.txt",
+            "--json",
+        ],
+    );
+    assert!(
+        out_good.status.success(),
+        "stderr: {}, stdout: {}",
+        String::from_utf8_lossy(&out_good.stderr),
+        String::from_utf8_lossy(&out_good.stdout)
+    );
+    assert_eq!(fs::read(&file_path).unwrap(), b"b\r\na\n");
+}
+
 // =========================================================================
 // ASSAULT PHASE 2: HOSTILE INPUT CORPUS
 // =========================================================================
@@ -782,6 +840,129 @@ impl PseudoRng {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RefEnding {
+    Lf,
+    Crlf,
+    None,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RefLine {
+    content: Vec<u8>,
+    ending: RefEnding,
+}
+
+fn ref_split_lines(bytes: &[u8]) -> Vec<RefLine> {
+    let mut lines = Vec::new();
+    let mut start = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\n' {
+            if i > start && bytes[i - 1] == b'\r' {
+                lines.push(RefLine {
+                    content: bytes[start..i - 1].to_vec(),
+                    ending: RefEnding::Crlf,
+                });
+            } else {
+                lines.push(RefLine {
+                    content: bytes[start..i].to_vec(),
+                    ending: RefEnding::Lf,
+                });
+            }
+            start = i + 1;
+        }
+        i += 1;
+    }
+    if start < bytes.len() {
+        lines.push(RefLine {
+            content: bytes[start..].to_vec(),
+            ending: RefEnding::None,
+        });
+    }
+    lines
+}
+
+fn ref_is_subsequence(needle: &[RefEnding], haystack: &[RefEnding]) -> bool {
+    let mut h = 0;
+    for &n in needle {
+        while h < haystack.len() && haystack[h] != n {
+            h += 1;
+        }
+        if h >= haystack.len() {
+            return false;
+        }
+        h += 1;
+    }
+    true
+}
+
+fn audit_independent_line_identity(pre_bytes: &[u8], post_bytes: &[u8], iteration: usize) {
+    let pre_lines = ref_split_lines(pre_bytes);
+    let post_lines = ref_split_lines(post_bytes);
+
+    let mut pre_map: std::collections::HashMap<Vec<u8>, Vec<RefEnding>> =
+        std::collections::HashMap::new();
+    for l in &pre_lines {
+        pre_map.entry(l.content.clone()).or_default().push(l.ending);
+    }
+
+    let mut post_map: std::collections::HashMap<Vec<u8>, Vec<RefEnding>> =
+        std::collections::HashMap::new();
+    for l in &post_lines {
+        post_map
+            .entry(l.content.clone())
+            .or_default()
+            .push(l.ending);
+    }
+
+    for (content, post_endings) in &post_map {
+        if let Some(pre_endings) = pre_map.get(content) {
+            let pre_lf = pre_endings.iter().filter(|&&e| e == RefEnding::Lf).count();
+            let pre_crlf = pre_endings
+                .iter()
+                .filter(|&&e| e == RefEnding::Crlf)
+                .count();
+            let post_lf = post_endings.iter().filter(|&&e| e == RefEnding::Lf).count();
+            let post_crlf = post_endings
+                .iter()
+                .filter(|&&e| e == RefEnding::Crlf)
+                .count();
+
+            // Invariant A: No retained line content may convert ending from LF to CRLF
+            assert!(
+                !(post_crlf > pre_crlf && post_lf < pre_lf),
+                "Independent Oracle: Retained line {:?} had ending converted from LF to CRLF at iteration {iteration}!",
+                String::from_utf8_lossy(content)
+            );
+            // Invariant B: No retained line content may convert ending from CRLF to LF
+            assert!(
+                !(post_lf > pre_lf && post_crlf < pre_crlf),
+                "Independent Oracle: Retained line {:?} had ending converted from CRLF to LF at iteration {iteration}!",
+                String::from_utf8_lossy(content)
+            );
+
+            // Invariant C: Duplicate lines with mixed endings must not swap or invert endings
+            if pre_lf > 0 && pre_crlf > 0 {
+                if post_endings.len() == pre_endings.len() {
+                    assert_eq!(
+                        post_endings, pre_endings,
+                        "Independent Oracle: Retained identical lines {:?} swapped line endings at iteration {iteration}!",
+                        String::from_utf8_lossy(content)
+                    );
+                }
+                if post_endings.len() < pre_endings.len() {
+                    assert!(
+                        ref_is_subsequence(post_endings, pre_endings),
+                        "Independent Oracle: Retained identical lines {:?} do not match valid subsequence at iteration {iteration}!",
+                        String::from_utf8_lossy(content)
+                    );
+                }
+            }
+        }
+    }
+}
+
 fn run_fuzzing_oracle(iterations: usize, seed: u64) {
     let temp = TempDir::new().unwrap();
     let ws = Workspace::new(temp.path()).unwrap();
@@ -807,7 +988,7 @@ fn run_fuzzing_oracle(iterations: usize, seed: u64) {
 
         // Deterministically construct file structure
         let line_count = rng.range(4, 40);
-        let profile_mode = rng.range(0, 6); // 0: Pure LF, 1: Pure CRLF, 2: Mixed, 3: No newlines, 4: Lone rogue, 5: Repeated, 6: Blocked
+        let profile_mode = rng.range(0, 7); // 0: Pure LF, 1: Pure CRLF, 2: Mixed, 3: No newlines, 4: Lone rogue, 5: Repeated, 6: Blocked, 7: Permutation
 
         let mut source_lines = Vec::with_capacity(line_count);
         let mut source_bytes = Vec::new();
@@ -823,6 +1004,13 @@ fn run_fuzzing_oracle(iterations: usize, seed: u64) {
         for line_idx in 0..line_count {
             let token = if profile_mode == 5 {
                 "REPEATED_LINE"
+            } else if profile_mode == 7 {
+                match line_idx % 4 {
+                    0 => "line_alpha",
+                    1 => "line_beta",
+                    2 => "line_gamma",
+                    _ => "line_delta",
+                }
             } else {
                 *rng.choice(&tokens)
             };
@@ -855,8 +1043,8 @@ fn run_fuzzing_oracle(iterations: usize, seed: u64) {
         let pre_counts = threadmoth::newline::count_newlines(&source_bytes);
         let pre_profile = pre_counts.profile();
 
-        // Generate diverse edit types (multiline replacements, deletions, disguised conversions)
-        let edit_type = rng.range(0, 4);
+        // Generate diverse edit types (multiline replacements, deletions, disguised conversions, permutations)
+        let edit_type = rng.range(0, 6);
         let target_line_idx = rng.range(0, line_count - 2);
         let span = rng.range(1, 3.min(line_count - target_line_idx));
 
@@ -896,6 +1084,30 @@ fn run_fuzzing_oracle(iterations: usize, seed: u64) {
                 } else {
                     format!("{first}{rep_term}")
                 }
+            }
+            4 => {
+                // Permutation attack: reverse lines and invert their line endings
+                let mut rep = String::new();
+                for line in source_lines[target_line_idx..target_line_idx + span]
+                    .iter()
+                    .rev()
+                {
+                    let clean = line.trim_end_matches(['\r', '\n']);
+                    let inverted_term = if line.ends_with("\r\n") { "\n" } else { "\r\n" };
+                    rep.push_str(&format!("{clean}{inverted_term}"));
+                }
+                rep
+            }
+            5 => {
+                // Safe line permutation: reverse lines keeping their exact original line endings
+                let mut rep = String::new();
+                for line in source_lines[target_line_idx..target_line_idx + span]
+                    .iter()
+                    .rev()
+                {
+                    rep.push_str(line);
+                }
+                rep
             }
             _ => format!("MUTATED_{target_line_idx}{rep_term}"),
         };
@@ -963,44 +1175,8 @@ fn run_fuzzing_oracle(iterations: usize, seed: u64) {
                 !cert.preservation.conversion_authorized,
                 "Unauthorized edit falsely claimed conversion authority at iteration {iteration}!"
             );
-            // Invariant 5: Verify the ending of each demonstrably retained line
-            let pre_lines = threadmoth::newline::split_lines(&source_bytes);
-            let post_lines = threadmoth::newline::split_lines(&post_bytes);
-
-            let mut pre_map = std::collections::HashMap::new();
-            for l in &pre_lines {
-                let entry = pre_map.entry(l.content).or_insert((0usize, 0usize));
-                match l.ending {
-                    Some(threadmoth::newline::LineEnding::Lf) => entry.0 += 1,
-                    Some(threadmoth::newline::LineEnding::Crlf) => entry.1 += 1,
-                    None => {}
-                }
-            }
-
-            let mut post_map = std::collections::HashMap::new();
-            for l in &post_lines {
-                let entry = post_map.entry(l.content).or_insert((0usize, 0usize));
-                match l.ending {
-                    Some(threadmoth::newline::LineEnding::Lf) => entry.0 += 1,
-                    Some(threadmoth::newline::LineEnding::Crlf) => entry.1 += 1,
-                    None => {}
-                }
-            }
-
-            for (content, &(post_lf, post_crlf)) in &post_map {
-                if let Some(&(pre_lf, pre_crlf)) = pre_map.get(content) {
-                    assert!(
-                        !(post_crlf > pre_crlf && post_lf < pre_lf),
-                        "Retained line {:?} had ending converted from LF to CRLF at iteration {iteration}!",
-                        String::from_utf8_lossy(content)
-                    );
-                    assert!(
-                        !(post_lf > pre_lf && post_crlf < pre_crlf),
-                        "Retained line {:?} had ending converted from CRLF to LF at iteration {iteration}!",
-                        String::from_utf8_lossy(content)
-                    );
-                }
-            }
+            // Invariant 5: Independent oracle verification of retained line identities
+            audit_independent_line_identity(&source_bytes, &post_bytes, iteration);
         } else if cert.outcome == Outcome::Refused {
             // Invariant 6: Refusal must guarantee ZERO disk mutation
             assert_eq!(

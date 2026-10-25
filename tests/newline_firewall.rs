@@ -1206,3 +1206,106 @@ fn scenario_34_mixed_identity_across_cli_mcp_edit_doc() {
     assert_eq!(cert_good.outcome, Outcome::Applied);
     assert_eq!(fs::read(&p_good).unwrap(), b"a\nc\n");
 }
+
+// 35. Mixed-newline line identity: b\na\r\n attempting to swap endings must refuse
+#[test]
+fn scenario_35_swapped_endings_bypass_refused() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+    let file_path = temp.path().join("swap_bad.txt");
+    fs::write(&file_path, b"a\nb\r\n").unwrap();
+
+    let request = make_request(
+        "swap_bad.txt",
+        OperationPayload::Text(TextOperation::Replace {
+            target: "a\nb\r\n".into(),
+            replacement: "b\na\r\n".into(),
+        }),
+    );
+    let cert = execute_request(&workspace, &request, false);
+    assert_eq!(cert.outcome, Outcome::Refused);
+    assert_eq!(
+        cert.reason_code.as_deref(),
+        Some("PRESERVATION_UNAVAILABLE")
+    );
+    assert_eq!(fs::read(&file_path).unwrap(), b"a\nb\r\n");
+}
+
+// 36. Mixed-newline line identity: b\r\na\n preserving original line endings applies cleanly
+#[test]
+fn scenario_36_safe_reordering_applies() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+    let file_path = temp.path().join("swap_good.txt");
+    fs::write(&file_path, b"a\nb\r\n").unwrap();
+
+    let request = make_request(
+        "swap_good.txt",
+        OperationPayload::Text(TextOperation::Replace {
+            target: "a\nb\r\n".into(),
+            replacement: "b\r\na\n".into(),
+        }),
+    );
+    let cert = execute_request(&workspace, &request, false);
+    assert_eq!(cert.outcome, Outcome::Applied);
+    assert_eq!(fs::read(&file_path).unwrap(), b"b\r\na\n");
+}
+
+// 37. Mixed-newline line identity: Duplicate identical lines with mixed endings inverted must refuse
+#[test]
+fn scenario_37_inverted_duplicate_lines_refused() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+    let file_path = temp.path().join("dup_swap.txt");
+    fs::write(&file_path, b"item\nitem\r\n").unwrap();
+
+    let request = make_request(
+        "dup_swap.txt",
+        OperationPayload::Text(TextOperation::Replace {
+            target: "item\nitem\r\n".into(),
+            replacement: "item\r\nitem\n".into(),
+        }),
+    );
+    let cert = execute_request(&workspace, &request, false);
+    assert_eq!(cert.outcome, Outcome::Refused);
+    assert_eq!(
+        cert.reason_code.as_deref(),
+        Some("PRESERVATION_UNAVAILABLE")
+    );
+    assert_eq!(fs::read(&file_path).unwrap(), b"item\nitem\r\n");
+}
+
+// 38. Mixed-newline line identity: Safe deletion of duplicate line preserves surviving line ending
+#[test]
+fn scenario_38_safe_deletion_of_duplicate_applies() {
+    let temp = TempDir::new().unwrap();
+    let workspace = Workspace::new(temp.path()).unwrap();
+
+    // Delete CRLF item, keep LF item
+    let f1 = temp.path().join("del1.txt");
+    fs::write(&f1, b"item\nitem\r\n").unwrap();
+    let req1 = make_request(
+        "del1.txt",
+        OperationPayload::Text(TextOperation::Replace {
+            target: "item\nitem\r\n".into(),
+            replacement: "item\n".into(),
+        }),
+    );
+    let cert1 = execute_request(&workspace, &req1, false);
+    assert_eq!(cert1.outcome, Outcome::Applied);
+    assert_eq!(fs::read(&f1).unwrap(), b"item\n");
+
+    // Delete LF item, keep CRLF item
+    let f2 = temp.path().join("del2.txt");
+    fs::write(&f2, b"item\nitem\r\n").unwrap();
+    let req2 = make_request(
+        "del2.txt",
+        OperationPayload::Text(TextOperation::Replace {
+            target: "item\nitem\r\n".into(),
+            replacement: "item\r\n".into(),
+        }),
+    );
+    let cert2 = execute_request(&workspace, &req2, false);
+    assert_eq!(cert2.outcome, Outcome::Applied);
+    assert_eq!(fs::read(&f2).unwrap(), b"item\r\n");
+}

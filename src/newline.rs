@@ -294,6 +294,20 @@ pub fn split_lines(bytes: &[u8]) -> Vec<Line<'_>> {
     lines
 }
 
+fn is_subsequence_endings(needle: &[Option<LineEnding>], haystack: &[Option<LineEnding>]) -> bool {
+    let mut h_idx = 0;
+    for &n in needle {
+        while h_idx < haystack.len() && haystack[h_idx] != n {
+            h_idx += 1;
+        }
+        if h_idx >= haystack.len() {
+            return false;
+        }
+        h_idx += 1;
+    }
+    true
+}
+
 fn verify_retained_line_identity(
     orig_lines: &[Line<'_>],
     cand_lines: &[Line<'_>],
@@ -301,8 +315,10 @@ fn verify_retained_line_identity(
     use std::collections::HashMap;
 
     let mut orig_counts: HashMap<&[u8], (usize, usize)> = HashMap::new();
+    let mut orig_seqs: HashMap<&[u8], Vec<Option<LineEnding>>> = HashMap::new();
     for line in orig_lines {
         let entry = orig_counts.entry(line.content).or_insert((0, 0));
+        orig_seqs.entry(line.content).or_default().push(line.ending);
         match line.ending {
             Some(LineEnding::Lf) => entry.0 += 1,
             Some(LineEnding::Crlf) => entry.1 += 1,
@@ -311,8 +327,10 @@ fn verify_retained_line_identity(
     }
 
     let mut cand_counts: HashMap<&[u8], (usize, usize)> = HashMap::new();
+    let mut cand_seqs: HashMap<&[u8], Vec<Option<LineEnding>>> = HashMap::new();
     for line in cand_lines {
         let entry = cand_counts.entry(line.content).or_insert((0, 0));
+        cand_seqs.entry(line.content).or_default().push(line.ending);
         match line.ending {
             Some(LineEnding::Lf) => entry.0 += 1,
             Some(LineEnding::Crlf) => entry.1 += 1,
@@ -342,6 +360,32 @@ fn verify_retained_line_identity(
                     ),
                 });
             }
+
+            // Sequence / correspondence check for repeated lines with mixed endings
+            if orig_lf > 0 && orig_crlf > 0 {
+                let orig_seq = orig_seqs.get(content).unwrap();
+                let cand_seq = cand_seqs.get(content).unwrap();
+                if cand_seq.len() == orig_seq.len() && cand_seq != orig_seq {
+                    return Err(NewlineViolation::UnauthorisedConversion {
+                        original: "mixed (duplicate line convention)",
+                        result: "converted line endings",
+                        details: format!(
+                            "Retained identical lines {:?} swapped or converted line endings without explicit conversion authority.",
+                            String::from_utf8_lossy(content)
+                        ),
+                    });
+                }
+                if cand_seq.len() < orig_seq.len() && !is_subsequence_endings(cand_seq, orig_seq) {
+                    return Err(NewlineViolation::UnauthorisedConversion {
+                        original: "mixed (duplicate line convention)",
+                        result: "converted line endings",
+                        details: format!(
+                            "Retained identical lines {:?} do not correspond to any valid subset of original line endings.",
+                            String::from_utf8_lossy(content)
+                        ),
+                    });
+                }
+            }
         }
     }
 
@@ -356,14 +400,70 @@ pub fn replacement_matches_or_reduces_old_lines(
         return false;
     }
 
-    for rep in rep_lines {
-        for old in old_lines {
-            if old.content == rep.content && old.ending != rep.ending {
+    use std::collections::HashMap;
+
+    let mut old_content_endings: HashMap<&[u8], Vec<Option<LineEnding>>> = HashMap::new();
+    for l in old_lines {
+        old_content_endings
+            .entry(l.content)
+            .or_default()
+            .push(l.ending);
+    }
+
+    let mut rep_content_endings: HashMap<&[u8], Vec<Option<LineEnding>>> = HashMap::new();
+    for l in rep_lines {
+        rep_content_endings
+            .entry(l.content)
+            .or_default()
+            .push(l.ending);
+    }
+
+    for (content, rep_endings) in &rep_content_endings {
+        if let Some(old_endings) = old_content_endings.get(content) {
+            let old_lf = old_endings
+                .iter()
+                .filter(|&&e| e == Some(LineEnding::Lf))
+                .count();
+            let old_crlf = old_endings
+                .iter()
+                .filter(|&&e| e == Some(LineEnding::Crlf))
+                .count();
+            let rep_lf = rep_endings
+                .iter()
+                .filter(|&&e| e == Some(LineEnding::Lf))
+                .count();
+            let rep_crlf = rep_endings
+                .iter()
+                .filter(|&&e| e == Some(LineEnding::Crlf))
+                .count();
+
+            if rep_crlf > old_crlf && rep_lf < old_lf {
+                return false;
+            }
+            if rep_lf > old_lf && rep_crlf < old_crlf {
+                return false;
+            }
+
+            if rep_endings.len() == old_endings.len() && rep_endings != old_endings {
+                return false;
+            }
+            if rep_endings.len() < old_endings.len()
+                && !is_subsequence_endings(rep_endings, old_endings)
+            {
                 return false;
             }
         }
     }
 
+    // If every line in rep_lines is a retained line with preserved ending (e.g. line move / permutation)
+    let all_rep_lines_retained = rep_lines
+        .iter()
+        .all(|r| old_content_endings.contains_key(r.content));
+    if all_rep_lines_retained {
+        return true;
+    }
+
+    // Check Myers diff alignment for in-place text edits / reductions
     let old_contents: Vec<&[u8]> = old_lines.iter().map(|l| l.content).collect();
     let rep_contents: Vec<&[u8]> = rep_lines.iter().map(|l| l.content).collect();
 
@@ -509,14 +609,11 @@ pub fn adapt_edits_for_preservation(
                     b""
                 };
                 let old_endings = extract_line_endings(old_slice);
-                let rep_endings = extract_line_endings(&edit.replacement);
-
                 let old_lines = split_lines(old_slice);
                 let rep_lines = split_lines(&edit.replacement);
 
                 if !old_endings.is_empty()
-                    && (old_endings == rep_endings
-                        || replacement_matches_or_reduces_old_lines(&old_lines, &rep_lines))
+                    && replacement_matches_or_reduces_old_lines(&old_lines, &rep_lines)
                 {
                     // Replacement preserves or legitimately reduces existing endings; no adaptation needed
                     (edit.replacement.clone(), false)
@@ -681,12 +778,7 @@ pub fn validate_candidate_preservation(
         let orig_lines = split_lines(original);
         let cand_lines = split_lines(candidate);
 
-        let orig_endings: Vec<LineEnding> = orig_lines.iter().filter_map(|l| l.ending).collect();
-        let cand_endings: Vec<LineEnding> = cand_lines.iter().filter_map(|l| l.ending).collect();
-
-        if orig_endings != cand_endings {
-            verify_retained_line_identity(&orig_lines, &cand_lines)?;
-        }
+        verify_retained_line_identity(&orig_lines, &cand_lines)?;
 
         for edit in edits {
             let old_slice = if edit.start <= edit.end && edit.end <= original.len() {
@@ -696,11 +788,6 @@ pub fn validate_candidate_preservation(
             };
             let old_endings = extract_line_endings(old_slice);
             let rep_endings = extract_line_endings(&edit.replacement);
-
-            // 1. Identical line ending sequences: exact preservation
-            if old_endings == rep_endings {
-                continue;
-            }
 
             // 2. Intra-line edit (no line endings in old_slice)
             if old_endings.is_empty() {

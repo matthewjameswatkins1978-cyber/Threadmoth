@@ -64,15 +64,76 @@ pub fn plan(observed: &[u8], desired: &[u8]) -> Result<DiffPlan, DiffPlannerErro
         .algorithm(similar::Algorithm::Myers)
         .diff_slices(&old_refs, &new_refs);
 
-    let mut edits = Vec::new();
+    let mut raw_ranges: Vec<(std::ops::Range<usize>, std::ops::Range<usize>)> = Vec::new();
     for op in line_diff.ops() {
-        if matches!(op, similar::DiffOp::Equal { .. }) {
-            continue;
+        if !matches!(op, similar::DiffOp::Equal { .. }) {
+            raw_ranges.push((op.old_range(), op.new_range()));
         }
-        let old_len = op.old_range().len();
-        let new_len = op.new_range().len();
-        if old_len == new_len {
-            for (old_idx, new_idx) in op.old_range().zip(op.new_range()) {
+    }
+
+    let mut merged_ranges: Vec<(std::ops::Range<usize>, std::ops::Range<usize>)> = Vec::new();
+    for (old_r, new_r) in raw_ranges {
+        if let Some(prev) = merged_ranges.last_mut() {
+            let old_gap = old_r.start.saturating_sub(prev.0.end);
+            let new_gap = new_r.start.saturating_sub(prev.1.end);
+            if (prev.0.len() != prev.1.len() || old_r.len() != new_r.len())
+                && old_gap <= 3
+                && new_gap <= 3
+            {
+                let combined_old_start = prev.0.start;
+                let combined_old_end = old_r.end;
+                let combined_new_start = prev.1.start;
+                let combined_new_end = new_r.end;
+
+                let has_mixed = {
+                    let mut old_lf = false;
+                    let mut old_crlf = false;
+                    for line in &old_lines[combined_old_start..combined_old_end] {
+                        if line.ends_with(b"\r\n") {
+                            old_crlf = true;
+                        } else if line.ends_with(b"\n") {
+                            old_lf = true;
+                        }
+                    }
+                    let mut new_lf = false;
+                    let mut new_crlf = false;
+                    for line in &new_lines[combined_new_start..combined_new_end] {
+                        if line.ends_with(b"\r\n") {
+                            new_crlf = true;
+                        } else if line.ends_with(b"\n") {
+                            new_lf = true;
+                        }
+                    }
+                    (old_lf && old_crlf) || (new_lf && new_crlf)
+                };
+
+                if has_mixed {
+                    prev.0 = combined_old_start..combined_old_end;
+                    prev.1 = combined_new_start..combined_new_end;
+                    continue;
+                }
+            }
+        }
+        merged_ranges.push((old_r, new_r));
+    }
+
+    let mut edits = Vec::new();
+    for (old_range, new_range) in merged_ranges {
+        let old_len = old_range.len();
+        let new_len = new_range.len();
+        let endings_match = old_range.clone().zip(new_range.clone()).all(|(o, n)| {
+            let o_line = old_lines[o];
+            let n_line = new_lines[n];
+            (o_line.ends_with(b"\r\n") && n_line.ends_with(b"\r\n"))
+                || (o_line.ends_with(b"\n")
+                    && !o_line.ends_with(b"\r\n")
+                    && n_line.ends_with(b"\n")
+                    && !n_line.ends_with(b"\r\n"))
+                || (!o_line.ends_with(b"\n") && !n_line.ends_with(b"\n"))
+        });
+
+        if old_len == new_len && endings_match {
+            for (old_idx, new_idx) in old_range.zip(new_range) {
                 let old_start = old_offsets[old_idx];
                 let old_end = old_offsets[old_idx + 1];
                 let new_start = new_offsets[new_idx];
@@ -82,10 +143,10 @@ pub fn plan(observed: &[u8], desired: &[u8]) -> Result<DiffPlan, DiffPlannerErro
                 )?;
             }
         } else {
-            let old_start = old_offsets[op.old_range().start];
-            let old_end = old_offsets[op.old_range().end];
-            let new_start = new_offsets[op.new_range().start];
-            let new_end = new_offsets[op.new_range().end];
+            let old_start = old_offsets[old_range.start];
+            let old_end = old_offsets[old_range.end];
+            let new_start = new_offsets[new_range.start];
+            let new_end = new_offsets[new_range.end];
             refine_region(
                 observed, desired, old_start, old_end, new_start, new_end, &mut edits,
             )?;
@@ -259,6 +320,13 @@ fn refine_region(
         })
         .collect();
 
+    let has_mixed_region = {
+        let old_c = crate::newline::count_newlines(old_changed);
+        let new_c = crate::newline::count_newlines(new_changed);
+        old_c.profile() == crate::newline::NewlineProfile::Mixed
+            || new_c.profile() == crate::newline::NewlineProfile::Mixed
+    };
+
     let splits_or_bare_cr = edits[region_edits_start..].iter().any(|e| {
         let rel_s = e.start - old_start;
         let rel_e = e.end - old_start;
@@ -267,7 +335,7 @@ fn refine_region(
             || (crate::newline::count_newlines(&e.replacement).bare_cr > 0)
     });
     let local_applied = apply_byte_edits(old, &local_slice_edits);
-    if splits_or_bare_cr || local_applied.as_deref() != Ok(new) {
+    if splits_or_bare_cr || has_mixed_region || local_applied.as_deref() != Ok(new) {
         edits.truncate(region_edits_start);
         edits.push(ByteEdit {
             start: old_start + common_prefix,
