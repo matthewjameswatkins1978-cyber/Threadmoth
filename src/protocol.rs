@@ -596,6 +596,15 @@ pub enum StructuralValidation {
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+pub struct PreservationNewlineCounts {
+    pub original_lf: usize,
+    pub original_crlf: usize,
+    pub result_lf: usize,
+    pub result_crlf: usize,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct PreservationFacts {
     pub unrelated_bytes_changed: bool,
     pub line_endings_changed: bool,
@@ -605,6 +614,8 @@ pub struct PreservationFacts {
     pub metadata: String,
     pub original_newline_profile: String,
     pub result_newline_profile: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub newline_counts: Option<PreservationNewlineCounts>,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq, Eq)]
@@ -675,6 +686,7 @@ impl Default for PreservationFacts {
             metadata: "not_verified".into(),
             original_newline_profile: "unknown".into(),
             result_newline_profile: "unknown".into(),
+            newline_counts: None,
         }
     }
 }

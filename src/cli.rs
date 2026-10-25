@@ -444,9 +444,19 @@ pub struct EditArgs {
         long,
         alias = "old",
         value_name = "OLD",
-        requires = "replace"
+        conflicts_with = "search_file"
     )]
     pub search: Option<String>,
+
+    /// Read exact search text from a workspace file (bypasses shell quoting).
+    #[arg(
+        long = "search-file",
+        alias = "old-file",
+        value_name = "SEARCH_FILE",
+        conflicts_with = "search",
+        value_hint = ValueHint::FilePath
+    )]
+    pub search_file: Option<std::path::PathBuf>,
 
     /// Replacement text (used with --search for single-file editing).
     #[arg(
@@ -454,13 +464,39 @@ pub struct EditArgs {
         long,
         alias = "new",
         value_name = "NEW",
-        requires = "search"
+        conflicts_with = "replace_file"
     )]
     pub replace: Option<String>,
+
+    /// Read exact replacement text from a workspace file (bypasses shell quoting).
+    #[arg(
+        long = "replace-file",
+        alias = "new-file",
+        value_name = "REPLACE_FILE",
+        conflicts_with = "replace",
+        value_hint = ValueHint::FilePath
+    )]
+    pub replace_file: Option<std::path::PathBuf>,
 
     /// Scope disambiguation anchor (structural scope or section boundary).
     #[arg(long, alias = "scope", value_name = "ANCHOR")]
     pub within: Option<String>,
+
+    /// Refuse unless the exact search target appears exactly N times and all are replaced.
+    #[arg(long = "expect-count", value_name = "N", conflicts_with = "all")]
+    pub expect_count: Option<usize>,
+
+    /// Replace every occurrence across the file (subject to effect budgets).
+    #[arg(long, conflicts_with = "expect_count")]
+    pub all: bool,
+
+    /// Newline handling policy: 'source' adapts to uniform file endings; 'exact' requires literal match.
+    #[arg(
+        long = "newline-policy",
+        value_name = "POLICY",
+        default_value = "source"
+    )]
+    pub newline_policy: String,
 
     /// Prepare and review the plan without mutating sources.
     #[arg(long)]

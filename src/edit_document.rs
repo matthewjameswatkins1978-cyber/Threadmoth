@@ -26,7 +26,17 @@ const FILE_PREFIX: &str = "*** File: ";
 const SEARCH: &str = "<<<<<<< SEARCH";
 const SEPARATOR: &str = "=======";
 const REPLACE: &str = ">>>>>>> REPLACE";
-const MARKERS: [&str; 3] = [SEARCH, SEPARATOR, REPLACE];
+const SHORT_SEARCH: &str = "<<<";
+const SHORT_SEPARATOR: &str = "===";
+const SHORT_REPLACE: &str = ">>>";
+const MARKERS: [&str; 6] = [
+    SEARCH,
+    SEPARATOR,
+    REPLACE,
+    SHORT_SEARCH,
+    SHORT_SEPARATOR,
+    SHORT_REPLACE,
+];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EditDocumentFile {
@@ -131,23 +141,31 @@ pub fn parse(document: &str) -> Result<Vec<EditDocumentFile>, EditDocumentDiagno
                 continue;
             }
             let edit_line = index + 1;
-            if lines[index].trim_end() != SEARCH {
+            let trimmed = lines[index].trim_end();
+            let (sep, rep) = if trimmed == SEARCH {
+                (SEPARATOR, REPLACE)
+            } else if trimmed == SHORT_SEARCH {
+                (SHORT_SEPARATOR, SHORT_REPLACE)
+            } else {
                 return Err(diagnostic(
                     edit_line,
-                    "expected `<<<<<<< SEARCH` or the next `*** File:` header",
+                    "expected `<<<<<<< SEARCH`, `<<<` or the next `*** File:` header",
+                ));
+            };
+            index += 1;
+            let old = read_body(&lines, &mut index, sep, edit_line)?;
+            if index >= lines.len() || lines[index].trim_end() != sep {
+                return Err(diagnostic(
+                    edit_line,
+                    format!("search block is missing `{sep}`"),
                 ));
             }
             index += 1;
-            let old = read_body(&lines, &mut index, SEPARATOR, edit_line)?;
-            if index >= lines.len() || lines[index].trim_end() != SEPARATOR {
-                return Err(diagnostic(edit_line, "search block is missing `=======`"));
-            }
-            index += 1;
-            let new = read_body(&lines, &mut index, REPLACE, edit_line)?;
-            if index >= lines.len() || lines[index].trim_end() != REPLACE {
+            let new = read_body(&lines, &mut index, rep, edit_line)?;
+            if index >= lines.len() || lines[index].trim_end() != rep {
                 return Err(diagnostic(
                     edit_line,
-                    "replacement block is missing `>>>>>>> REPLACE`",
+                    format!("replacement block is missing `{rep}`"),
                 ));
             }
             index += 1;

@@ -44,6 +44,7 @@ fn worker_b() {
         }],
         newline_policy: Default::default(),
         within: None,
+        cardinality: Default::default(),
     };
     match prepare(&workspace, &request_unscoped) {
         SourcePreparationResult::Refused { certificate } => {
@@ -64,6 +65,7 @@ fn worker_b() {
             new: "let timeout = 60;".into(),
         }],
         newline_policy: Default::default(),
+        cardinality: Default::default(),
         within: Some("fn worker_b()".into()),
     };
     match prepare(&workspace, &request_scoped) {
@@ -115,6 +117,7 @@ class BetaService:
             new: "status = \"ready\"".into(),
         }],
         newline_policy: Default::default(),
+        cardinality: Default::default(),
         within: Some("class BetaService:".into()),
     };
 
@@ -162,6 +165,7 @@ port = 8080
             new: "port = 9090".into(),
         }],
         newline_policy: Default::default(),
+        cardinality: Default::default(),
         within: Some("[server]".into()),
     };
 
@@ -211,6 +215,7 @@ Status: active
             new: "Status: archived".into(),
         }],
         newline_policy: Default::default(),
+        cardinality: Default::default(),
         within: Some("## Maintenance".into()),
     };
 
@@ -247,6 +252,7 @@ fn missing_anchor_refuses_safely() {
             new: "world".into(),
         }],
         newline_policy: Default::default(),
+        cardinality: Default::default(),
         within: Some("fn nonexistent()".into()),
     };
 
@@ -284,6 +290,7 @@ fn bar() { let x = 1; }
             new: "let x = 2;".into(),
         }],
         newline_policy: Default::default(),
+        cardinality: Default::default(),
         within: Some("// tag: handler".into()),
     };
 
@@ -324,6 +331,7 @@ fn worker_b() {
             new: "updated_a".into(),
         }],
         newline_policy: Default::default(),
+        cardinality: Default::default(),
         within: Some("fn worker_b()".into()),
     };
 
@@ -358,6 +366,7 @@ fn worker() {
             new: "let target = 2;".into(),
         }],
         newline_policy: Default::default(),
+        cardinality: Default::default(),
         within: Some("let mid_statement = 42;".into()),
     };
 
@@ -394,6 +403,7 @@ Section B
             new: "timeout: 20".into(),
         }],
         newline_policy: Default::default(),
+        cardinality: Default::default(),
         within: Some("Section A".into()),
     };
 
@@ -428,6 +438,7 @@ fn crlf_line_endings_preserved_exactly_under_scoped_disambiguation() {
             new: "let val = 99;".into(),
         }],
         newline_policy: Default::default(),
+        cardinality: Default::default(),
         within: Some("fn second()".into()),
     };
 
@@ -488,6 +499,7 @@ def setup_b():
             },
         ],
         newline_policy: Default::default(),
+        cardinality: Default::default(),
         within: Some("def setup_b():".into()),
     };
 
@@ -718,6 +730,7 @@ Status: real_status
             new: "Status: updated_real_status".into(),
         }],
         newline_policy: Default::default(),
+        cardinality: Default::default(),
         within: Some("# Section A".into()),
     };
 
@@ -764,6 +777,7 @@ config = default
             new: "config = custom".into(),
         }],
         newline_policy: Default::default(),
+        cardinality: Default::default(),
         within: Some("# Internal Component".into()),
     };
 
@@ -919,6 +933,7 @@ status = "b_original"
             new: r#"status = "b_modified""#.into(),
         }],
         newline_policy: Default::default(),
+        cardinality: Default::default(),
         within: Some("# Section A".into()),
     };
 
@@ -954,6 +969,7 @@ status = "b_original"
             new: r#"status = "a_modified""#.into(),
         }],
         newline_policy: Default::default(),
+        cardinality: Default::default(),
         within: Some("# Section A".into()),
     };
 

@@ -58,7 +58,20 @@ threadmoth schema
 threadmoth examples
 ```
 
-For ordinary exact text edits, prefer `threadmoth edit PATH --search OLD --replace NEW` (or in MCP: `threadmoth_edit`). It verifies, applies and certifies in one atomic step. For multi-file changes or multiline edits, use `threadmoth edit changes.tm` (or `threadmoth edit -` via stdin). To review diffs without mutating, add `--plan`. The two-step route remains available: `threadmoth prepare-text PATH --edit OLD NEW --output PLAN --summary` (repeat `--edit OLD NEW` for ordered same-file changes) or `threadmoth prepare-edits changes.tm --output PLAN --review`. For faithful multiline file inputs in the two-step route, use repeated `--edit-files OLD_FILE NEW_FILE` pairs; they read workspace-confined UTF-8 inputs through the same exact pipeline, bounded to 1 MiB combined. Do not mix `--edit` and `--edit-files`. The source-aware route derives uniform LF/CRLF, reports source hash and newline profile, and writes only the requested plan. Review with `threadmoth explain --plan PLAN --format diff`; a fresh review prints the apply command and a stale review requires re-preparation. Apply the reviewed plan with `threadmoth apply-plan --plan PLAN --summary`, then retain its certificate. `--request` preserves the full JSON interface. In MCP, use `threadmoth_edit` for one-call editing, or `threadmoth_prepare_text`, preview `operations[0].request`, then apply the unchanged plan with `threadmoth_apply_plan`. Mixed newline files require explicit exact line endings. Discover with `threadmoth orient`, then use `threadmoth capabilities`, `threadmoth suggest PATH`, and `threadmoth help PROVIDER:OPERATION`. The Target Registry remains authoritative for CLI and MCP shorthand provider selection.
+For ordinary exact text edits, prefer `threadmoth edit PATH --search OLD --replace NEW` (or in MCP: `threadmoth_edit`). It verifies, applies and certifies in one atomic step. For multiline, quote-heavy or shell-sensitive text, use `--search-file PATH` and `--replace-file PATH` to bypass shell quoting completely. To guard multiple replacements, use `--expect-count <N>` (refuses unless target appears exactly N times) or `--all` (replaces every occurrence subject to effect budgets). For mixed-newline files, provide exact bytes and specify `--newline-policy exact`.
+
+For coordinated changes across multiple files or multiline blocks, use a 5-line `changes.tm` edit document (or stdin: `threadmoth edit -`):
+
+```text
+*** File: path/to/file.ext
+<<<
+old text
+===
+new text
+>>>
+```
+
+Long delimiters (`<<<<<<< SEARCH`, `=======`, `>>>>>>> REPLACE`) are also supported. To review diffs without mutating, add `--plan`. The two-step route remains available: `threadmoth prepare-text PATH --edit OLD NEW --output PLAN --summary` (repeat `--edit OLD NEW` for ordered same-file changes) or `threadmoth prepare-edits changes.tm --output PLAN --review`. For faithful multiline file inputs in the two-step route, use repeated `--edit-files OLD_FILE NEW_FILE` pairs; they read workspace-confined UTF-8 inputs through the same exact pipeline, bounded to 1 MiB combined. Do not mix `--edit` and `--edit-files`. The source-aware route derives uniform LF/CRLF, reports source hash and newline profile, and writes only the requested plan. Review with `threadmoth explain --plan PLAN --format diff`; a fresh review prints the apply command and a stale review requires re-preparation. Apply the reviewed plan with `threadmoth apply-plan --plan PLAN --summary`, then retain its certificate. `--request` preserves the full JSON interface. In MCP, use `threadmoth_edit` for one-call editing (with `search`, `search_file`, `replace`, `replace_file`, `expect_count`, `all`, `newline_policy`), or `threadmoth_prepare_text`, preview `operations[0].request`, then apply the unchanged plan with `threadmoth_apply_plan`. Discover with `threadmoth orient`, then use `threadmoth capabilities`, `threadmoth suggest PATH`, and `threadmoth help PROVIDER:OPERATION`. The Target Registry remains authoritative for CLI and MCP shorthand provider selection.
 
 Use the canonical `threadmoth` executable. `thm` may exist as a convenience alias, but it is not the compatibility contract. Do not assume a `.thm` source extension.
 
@@ -83,6 +96,11 @@ For an ordinary text replacement, the current request shape is:
 ```
 
 Older supported protocol versions remain valid where the installed runtime advertises them. Prefer runtime `schema`/`examples` over hard-coding assumptions.
+
+### Request IDs vs Transaction IDs
+
+- **`request_id`**: A transient in-memory correlation identifier for single-file operations and memory logging. It is never written to disk, does not act as an idempotency key, and will never cause a collision or refusal on reuse.
+- **`transaction_id`**: A durable journal identifier for multi-file content transactions, persisted on disk in `.threadmoth/recovery/<transaction_id>.json`. Reusing an active or unrecovered transaction ID fails safely with an `AlreadyExists` refusal to prevent overwriting recovery state.
 
 For a structured scalar value, send JSON with its intended type. The CLI
 `set-value` command parses values strictly as JSON; use `set-value ... --string`

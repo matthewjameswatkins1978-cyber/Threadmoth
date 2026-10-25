@@ -127,6 +127,16 @@ impl TextProvider {
             newline_policy,
         } = op
         {
+            if edits.len() == 1 {
+                return plan_sequence(
+                    content,
+                    edits,
+                    *newline_policy,
+                    within,
+                    file_path,
+                    cardinality,
+                );
+            }
             if !matches!(cardinality, Cardinality::ExactlyOne) {
                 return Err(TextProviderError::Refused(
                     RefusalReason::CardinalityMismatch {
@@ -135,7 +145,14 @@ impl TextProvider {
                     },
                 ));
             }
-            return plan_sequence(content, edits, *newline_policy, within, file_path);
+            return plan_sequence(
+                content,
+                edits,
+                *newline_policy,
+                within,
+                file_path,
+                &Cardinality::ExactlyOne,
+            );
         }
         match op {
             TextOperation::EnsurePresent { content: wanted } => {
@@ -305,6 +322,7 @@ fn plan_sequence(
     newline_policy: NewlinePolicy,
     within: Option<&str>,
     file_path: Option<&str>,
+    cardinality: &Cardinality,
 ) -> Result<Vec<ByteEdit>, TextProviderError> {
     const MAX_SEQUENCE_EDITS: usize = 64;
     if edits.is_empty() || edits.len() > MAX_SEQUENCE_EDITS {
@@ -335,6 +353,17 @@ fn plan_sequence(
             ))
         }
     };
+    if edits.len() == 1 && within.is_none() && !matches!(cardinality, Cardinality::ExactlyOne) {
+        let intent = &edits[0];
+        let target = adapt_newline_text(&intent.old, newline_policy, delimiter)?;
+        let replacement = adapt_newline_text(&intent.new, newline_policy, delimiter)?;
+        let operation = TextOperation::Replace {
+            target,
+            replacement,
+        };
+        return TextProvider::plan(content, &operation, cardinality);
+    }
+
     let mut candidate = content.to_vec();
     if let Some(anchor) = within {
         let (scope_start, mut scope_end) =
@@ -356,28 +385,17 @@ fn plan_sequence(
             }
             let scope_slice = &candidate[scope_start..scope_end];
             let matches = find_matches(scope_slice, target.as_bytes());
-            if matches.is_empty() {
-                return Err(TextProviderError::Refused(RefusalReason::MissingTarget {
-                    target: format!("target '{target}' not found within scope '{anchor}'"),
-                }));
+            enforce_cardinality(scope_slice, target.as_bytes(), &matches, cardinality, false)?;
+            for &rel_offset in matches.iter().rev() {
+                let abs_offset = scope_start + rel_offset;
+                candidate.splice(
+                    abs_offset..abs_offset + target.len(),
+                    replacement.as_bytes().iter().copied(),
+                );
             }
-            if matches.len() > 1 {
-                return Err(TextProviderError::Refused(RefusalReason::DuplicateTarget {
-                    target: format!("target '{target}' is ambiguous within scope '{anchor}'"),
-                    count: matches.len(),
-                    candidates: Vec::new(),
-                    candidates_returned: 0,
-                    truncated: false,
-                }));
-            }
-            let rel_offset = matches[0];
-            let abs_offset = scope_start + rel_offset;
-            candidate.splice(
-                abs_offset..abs_offset + target.len(),
-                replacement.as_bytes().iter().copied(),
-            );
-            let delta = replacement.len() as isize - target.len() as isize;
-            scope_end = (scope_end as isize + delta) as usize;
+            let total_delta =
+                (replacement.len() as isize - target.len() as isize) * matches.len() as isize;
+            scope_end = (scope_end as isize + total_delta) as usize;
         }
     } else {
         for intent in edits {
@@ -387,7 +405,7 @@ fn plan_sequence(
                 target,
                 replacement,
             };
-            let byte_edits = TextProvider::plan(&candidate, &operation, &Cardinality::ExactlyOne)?;
+            let byte_edits = TextProvider::plan(&candidate, &operation, cardinality)?;
             candidate =
                 crate::engine::apply_byte_edits(&candidate, &byte_edits).map_err(|error| {
                     TextProviderError::Error {
@@ -608,20 +626,73 @@ fn plan_move(
     Ok(edits)
 }
 
+fn find_normalized_span<'a>(content: &'a str, normalized_target: &str) -> Option<&'a str> {
+    let target_lines: Vec<&str> = normalized_target.split_terminator('\n').collect();
+    if target_lines.is_empty() {
+        return None;
+    }
+    let content_bytes = content.as_bytes();
+    let mut line_spans = Vec::new();
+    let mut start = 0;
+    for (i, &b) in content_bytes.iter().enumerate() {
+        if b == b'\n' {
+            let line_raw = &content[start..i];
+            let line_clean = line_raw.strip_suffix('\r').unwrap_or(line_raw);
+            line_spans.push((start, i + 1, line_clean));
+            start = i + 1;
+        }
+    }
+    if start < content.len() {
+        let line_raw = &content[start..];
+        let line_clean = line_raw.strip_suffix('\r').unwrap_or(line_raw);
+        line_spans.push((start, content.len(), line_clean));
+    }
+
+    if line_spans.len() < target_lines.len() {
+        return None;
+    }
+
+    for window_start in 0..=line_spans.len() - target_lines.len() {
+        let mut matches = true;
+        for (offset, target_line) in target_lines.iter().enumerate() {
+            if line_spans[window_start + offset].2 != *target_line {
+                matches = false;
+                break;
+            }
+        }
+        if matches {
+            let start_byte = line_spans[window_start].0;
+            let last_idx = window_start + target_lines.len() - 1;
+            let end_byte = if !normalized_target.ends_with('\n') {
+                line_spans[last_idx].0 + line_spans[last_idx].2.len()
+            } else {
+                line_spans[last_idx].1
+            };
+            return Some(&content[start_byte..end_byte]);
+        }
+    }
+    None
+}
+
 fn diagnose_near_miss(content: &[u8], target: &[u8]) -> String {
     let target_str = String::from_utf8_lossy(target);
     let content_str = String::from_utf8_lossy(content);
 
-    let has_crlf = content.windows(2).any(|window| window == b"\r\n");
-    let has_lf_only = content
-        .iter()
-        .enumerate()
-        .any(|(index, byte)| *byte == b'\n' && (index == 0 || content[index - 1] != b'\r'));
-    if has_crlf && has_lf_only && target_str.contains('\n') {
-        let normalized_content = content_str.replace("\r\n", "\n");
+    if target_str.contains('\n') {
         let normalized_target = target_str.replace("\r\n", "\n");
-        if normalized_content.contains(&normalized_target) {
-            return "Target not found exact; the matching source region uses mixed LF and CRLF line endings. Set newline_policy to exact and copy each line ending from the observed source.".into();
+        if let Some(slice) = find_normalized_span(&content_str, &normalized_target) {
+            let has_crlf_in_match = slice.contains("\r\n");
+            let has_lone_lf_in_match = slice
+                .char_indices()
+                .any(|(i, c)| c == '\n' && (i == 0 || &slice[i - 1..i] != "\r"));
+
+            if has_crlf_in_match && has_lone_lf_in_match {
+                return "Target not found exact; the matching source region uses mixed LF and CRLF line endings. Set newline_policy to exact and copy each line ending from the observed source.".into();
+            } else if has_crlf_in_match && !target_str.contains("\r\n") {
+                return "Target not found exact; detected CRLF vs LF line ending discrepancy: the matching source region uses CRLF line endings while the target used LF. Set newline_policy to exact or use CRLF line endings.".into();
+            } else if has_lone_lf_in_match && target_str.contains("\r\n") {
+                return "Target not found exact; detected LF vs CRLF line ending discrepancy: the matching source region uses LF line endings while the target used CRLF. Set newline_policy to exact or use LF line endings.".into();
+            }
         }
     }
 

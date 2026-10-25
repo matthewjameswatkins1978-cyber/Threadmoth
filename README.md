@@ -48,7 +48,20 @@ It is deliberately usable by *any* capable coding agent, not tied to one model, 
 For an ordinary text edit, the common case is now one command:
 
 ~~~bash
+# Single-file editing with inline strings:
 threadmoth edit config.txt --search "mode=development" --replace "mode=production"
+
+# For quote-heavy, multiline or shell-sensitive content, bypass quoting with files:
+threadmoth edit src/main.rs --search-file old.txt --replace-file new.txt
+
+# Guard multiple replacements (refuses unless target appears exactly N times):
+threadmoth edit src/main.rs --search "old_call()" --replace "new_call()" --expect-count 3
+
+# Or replace all occurrences across the file (subject to effect budgets):
+threadmoth edit src/main.rs --search "DEBUG" --replace "INFO" --all
+
+# For mixed-newline files, provide exact bytes and explicit policy:
+threadmoth edit src/main.rs --search-file old.txt --replace-file new.txt --newline-policy exact
 ~~~
 
 Threadmoth checks that the exact target is unambiguous and permitted, prepares the change, applies it through the guarded Core, reads back the result and returns a certificate. There is no mandatory intermediate plan file or second application command.
@@ -65,11 +78,11 @@ For multiline edits and several files, use a compact edit document:
 
 ~~~text
 *** File: frontend.txt
-<<<<<<< SEARCH
+<<<
 VERSION=1.0.0
-=======
+===
 VERSION=2.0.0
->>>>>>> REPLACE
+>>>
 
 *** File: backend.txt
 <<<<<<< SEARCH
@@ -178,6 +191,11 @@ threadmoth apply-plan --plan plan.json --summary
 ~~~
 
 Plans can be persisted for human or supervisor review. A `--plan` preview **without** `--output` is in memory only and does not leave a saved plan behind.
+
+### Request IDs vs Transaction IDs
+
+- **`request_id`**: A transient in-memory correlation identifier for single-file operations and log traces. It is never written to disk, does not act as an idempotency key, and will never cause a collision or refusal on reuse.
+- **`transaction_id`**: A durable journal identifier for multi-file content transactions, persisted on disk in `.threadmoth/recovery/<transaction_id>.json`. Reusing an active or unrecovered transaction ID fails safely with an `ALREADY_EXISTS` refusal to prevent overwriting recovery journals.
 
 The CLI, MCP integration, concise orientation, capability discovery, source inspection and contextual refusal guidance are designed to let capable agents teach themselves the tool, without a wizard or a giant mandatory prompt.
 

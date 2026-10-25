@@ -27,6 +27,8 @@ pub struct SourceAwareTextRequest {
     pub newline_policy: NewlinePolicy,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub within: Option<String>,
+    #[serde(default)]
+    pub cardinality: Cardinality,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
@@ -118,7 +120,7 @@ pub fn prepare(workspace: &Workspace, request: &SourceAwareTextRequest) -> Sourc
                 mode: crate::protocol::RegionGuardMode::ScopeDisambiguation,
             }),
         candidate_guard: None,
-        cardinality: Cardinality::ExactlyOne,
+        cardinality: request.cardinality.clone(),
         budget: EffectBudget {
             max_files: Some(1),
             allowed_path_prefixes: vec![resolved.clone()],

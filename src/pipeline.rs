@@ -417,7 +417,7 @@ pub fn execute_request(workspace: &Workspace, request: &Request, dry_run: bool) 
         Outcome::Applied,
         ranges,
         provider_structural,
-        PreservationFacts::from_bytes(&original, &candidate),
+        PreservationFacts::from_bytes_with_edits(&original, &candidate, &engine_edits),
         commit,
         diff,
         diff_truncated,
@@ -629,7 +629,7 @@ fn prepare_content_request(
         },
         changed_ranges(&edits),
         structural,
-        PreservationFacts::from_bytes(&original, &candidate),
+        PreservationFacts::from_bytes_with_edits(&original, &candidate, &edits),
         CommitGuarantee::default(),
         if original == candidate {
             String::new()
@@ -1306,7 +1306,7 @@ fn commit_prepared_plan(
             },
             changed_ranges(&edits),
             StructuralValidation::NotApplicable,
-            PreservationFacts::from_bytes(&original, &candidate),
+            PreservationFacts::from_bytes_with_edits(&original, &candidate, &edits),
             CommitGuarantee {
                 mode: "committed_atomic_replace".into(),
                 content_replacement: "atomic replacement after staged flush".into(),
@@ -2175,7 +2175,7 @@ fn execute_single_file_transaction(
             },
             changed_ranges(&edits),
             structural,
-            PreservationFacts::from_bytes(&current, &candidate),
+            PreservationFacts::from_bytes_with_edits(&current, &candidate, &edits),
             CommitGuarantee {
                 mode: "dry_run".into(),
                 ..CommitGuarantee::default()
@@ -3840,7 +3840,10 @@ fn completed(
         provider: provider.into(),
         provider_version: provider_version(&r.operation).into(),
         expected_cardinality: r.cardinality.clone(),
-        observed_cardinality: Some(1),
+        observed_cardinality: match &r.cardinality {
+            crate::protocol::Cardinality::ExactlyOne => Some(1),
+            _ => Some(effect.matches),
+        },
         pre_hash: pre,
         post_hash: post,
         changed_ranges: ranges,
@@ -4005,17 +4008,124 @@ fn changed_line_count(original: &[u8], candidate: &[u8]) -> usize {
         })
         .sum()
 }
+fn count_newlines(bytes: &[u8]) -> (usize, usize) {
+    let mut crlf = 0;
+    let mut lf = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\r' && i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
+            crlf += 1;
+            i += 2;
+        } else if bytes[i] == b'\n' {
+            lf += 1;
+            i += 1;
+        } else {
+            i += 1;
+        }
+    }
+    (lf, crlf)
+}
+
+fn verify_unrelated_bytes_changed(a: &[u8], b: &[u8], edits: &[ByteEdit]) -> bool {
+    let mut cursor_a = 0;
+    let mut cursor_b = 0;
+    for edit in edits {
+        if edit.start < cursor_a || edit.end < edit.start || edit.end > a.len() {
+            return true;
+        }
+        let unchanged_len = edit.start - cursor_a;
+        if cursor_b + unchanged_len + edit.replacement.len() > b.len() {
+            return true;
+        }
+        if a[cursor_a..edit.start] != b[cursor_b..cursor_b + unchanged_len] {
+            return true;
+        }
+        if b[cursor_b + unchanged_len..cursor_b + unchanged_len + edit.replacement.len()]
+            != edit.replacement[..]
+        {
+            return true;
+        }
+        cursor_a = edit.end;
+        cursor_b += unchanged_len + edit.replacement.len();
+    }
+    if a[cursor_a..] != b[cursor_b..] {
+        return true;
+    }
+    false
+}
+
 impl PreservationFacts {
-    fn from_bytes(a: &[u8], b: &[u8]) -> Self {
+    pub fn from_bytes(a: &[u8], b: &[u8]) -> Self {
+        Self::from_bytes_with_edits(a, b, &[])
+    }
+
+    pub fn from_bytes_with_edits(a: &[u8], b: &[u8], edits: &[ByteEdit]) -> Self {
+        let (orig_lf, orig_crlf) = count_newlines(a);
+        let (res_lf, res_crlf) = count_newlines(b);
+        let orig_profile = newline_profile(a);
+        let res_profile = newline_profile(b);
+
+        let unrelated_bytes_changed = if edits.is_empty() {
+            if a == b {
+                false
+            } else if let Ok(plan) = crate::diff_planner::plan(a, b) {
+                verify_unrelated_bytes_changed(a, b, &plan.edits)
+            } else {
+                true
+            }
+        } else {
+            verify_unrelated_bytes_changed(a, b, edits)
+        };
+
+        let line_endings_changed = if orig_profile != res_profile {
+            true
+        } else if orig_profile == "mixed" {
+            if edits.is_empty() {
+                false
+            } else {
+                edits.iter().any(|edit| {
+                    if edit.start <= a.len() && edit.end <= a.len() && edit.start <= edit.end {
+                        let (sub_orig_lf, sub_orig_crlf) = count_newlines(&a[edit.start..edit.end]);
+                        let (sub_res_lf, sub_res_crlf) = count_newlines(&edit.replacement);
+                        sub_orig_crlf != sub_res_crlf || sub_orig_lf != sub_res_lf
+                    } else {
+                        false
+                    }
+                })
+            }
+        } else {
+            false
+        };
+
+        let preserved_regions = if edits.is_empty() {
+            if a == b {
+                1
+            } else {
+                0
+            }
+        } else {
+            edits.len() + 1
+        };
+
+        let metadata = format!(
+            "content verification: unrelated_bytes_changed={unrelated_bytes_changed} across {preserved_regions} preserved region(s); newlines: pre(lf={orig_lf}, crlf={orig_crlf}), post(lf={res_lf}, crlf={res_crlf})"
+        );
+
         Self {
-            unrelated_bytes_changed: false,
-            line_endings_changed: newline_profile(a) != newline_profile(b),
+            unrelated_bytes_changed,
+            line_endings_changed,
             bom_changed: a.starts_with(&[0xef, 0xbb, 0xbf]) != b.starts_with(&[0xef, 0xbb, 0xbf]),
             final_newline_changed: a.ends_with(b"\n") != b.ends_with(b"\n"),
             comments_preserved: Some(comment_count(a) == comment_count(b)),
-            metadata: "content-only verification; replacement metadata not asserted".into(),
-            original_newline_profile: newline_profile(a),
-            result_newline_profile: newline_profile(b),
+            metadata,
+            original_newline_profile: orig_profile,
+            result_newline_profile: res_profile,
+            newline_counts: Some(crate::protocol::PreservationNewlineCounts {
+                original_lf: orig_lf,
+                original_crlf: orig_crlf,
+                result_lf: res_lf,
+                result_crlf: res_crlf,
+            }),
         }
     }
 }

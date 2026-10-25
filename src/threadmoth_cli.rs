@@ -13,7 +13,7 @@ use std::{
 use threadmoth::{
     pipeline::execute_request,
     protocol::{
-        Assertion, Certificate, CommitGuarantee, EffectBudget, EffectUsage, Outcome,
+        Assertion, Cardinality, Certificate, CommitGuarantee, EffectBudget, EffectUsage, Outcome,
         PlanApplyResult, PreparedPlan, PreservationFacts, RefusalReason, Request,
         StructuralValidation, TransactionCertificate, TransactionRequest, MAX_PLAN_BYTES,
         MAX_REQUEST_BYTES, PROTOCOL_VERSION,
@@ -465,6 +465,7 @@ fn run_prepare_text(args: PrepareTextArgs) {
                 }
             },
             within: args.within,
+            cardinality: Cardinality::default(),
         }
     };
     match threadmoth::source_prepare::prepare(&workspace, &request) {
@@ -775,6 +776,26 @@ fn run_structural(args: StructuralArgs) {
     }
 }
 
+fn load_input_file(
+    workspace: &Workspace,
+    path: &std::path::Path,
+    flag_name: &str,
+) -> Result<String, String> {
+    let path_str = path.to_string_lossy();
+    let resolved = workspace
+        .resolve_namespaced_path(&path_str, &threadmoth::path::PathNamespace::Native)
+        .map_err(|e| format!("{flag_name} path refused: {e}"))?;
+    let bytes = workspace
+        .read_file(&resolved)
+        .map_err(|e| format!("cannot read {flag_name} file {resolved}: {e}"))?;
+    if bytes.len() > MAX_REQUEST_BYTES {
+        return Err(format!(
+            "{flag_name} file exceeds {MAX_REQUEST_BYTES} bytes"
+        ));
+    }
+    String::from_utf8(bytes).map_err(|_| format!("{flag_name} file must be valid UTF-8"))
+}
+
 fn run_edit(args: EditArgs) {
     let workspace = Workspace::new(env::current_dir().unwrap_or_else(|_| ".".into()))
         .unwrap_or_else(|error| {
@@ -785,30 +806,96 @@ fn run_edit(args: EditArgs) {
     let target_str = args.target.to_string_lossy().into_owned();
     let is_stdin = target_str == "-";
 
-    if args.search.is_some() != args.replace.is_some() {
-        if args.search.is_some() {
-            eprintln!("single-file editing with --search requires --replace");
+    let has_search = args.search.is_some() || args.search_file.is_some();
+    let has_replace = args.replace.is_some() || args.replace_file.is_some();
+
+    if has_search != has_replace {
+        if has_search {
+            eprintln!(
+                "single-file editing requires replacement input (--replace or --replace-file)"
+            );
         } else {
-            eprintln!("single-file editing with --replace requires --search");
+            eprintln!("single-file editing requires search input (--search or --search-file)");
         }
         std::process::exit(2);
     }
 
-    if let (Some(search), Some(replace)) = (&args.search, &args.replace) {
+    if let Some(0) = args.expect_count {
+        eprintln!("--expect-count must be at least 1; to ensure absence use threadmoth prepare-text or an edit document");
+        std::process::exit(2);
+    }
+
+    if !has_search && (args.expect_count.is_some() || args.all) {
+        eprintln!("--expect-count and --all are only valid for single-file edits with search and replacement");
+        std::process::exit(2);
+    }
+
+    let newline_policy = match args.newline_policy.as_str() {
+        "source" => threadmoth::source_prepare::NewlinePolicy::Source,
+        "exact" => threadmoth::source_prepare::NewlinePolicy::Exact,
+        other => {
+            eprintln!("invalid newline policy '{other}': expected 'source' or 'exact'");
+            std::process::exit(2);
+        }
+    };
+
+    let cardinality = if let Some(n) = args.expect_count {
+        if n == 1 {
+            Cardinality::ExactlyOne
+        } else {
+            Cardinality::Exactly(n)
+        }
+    } else if args.all {
+        Cardinality::All
+    } else {
+        Cardinality::ExactlyOne
+    };
+
+    if has_search && has_replace {
         if is_stdin {
             eprintln!(
-                "single-file editing with --search and --replace requires a target file, not '-'"
+                "single-file editing with search and replacement requires a target file, not '-'"
             );
             std::process::exit(2);
         }
+
+        let search = if let Some(s) = args.search {
+            s
+        } else if let Some(path) = &args.search_file {
+            match load_input_file(&workspace, path, "--search-file") {
+                Ok(content) => content,
+                Err(err) => {
+                    eprintln!("{err}");
+                    std::process::exit(2);
+                }
+            }
+        } else {
+            unreachable!()
+        };
+
+        let replace = if let Some(r) = args.replace {
+            r
+        } else if let Some(path) = &args.replace_file {
+            match load_input_file(&workspace, path, "--replace-file") {
+                Ok(content) => content,
+                Err(err) => {
+                    eprintln!("{err}");
+                    std::process::exit(2);
+                }
+            }
+        } else {
+            unreachable!()
+        };
+
         let request = threadmoth::source_prepare::SourceAwareTextRequest {
             file_path: target_str.clone(),
             edits: vec![threadmoth::source_prepare::TextReplacementIntent {
                 old: search.clone(),
                 new: replace.clone(),
             }],
-            newline_policy: threadmoth::source_prepare::NewlinePolicy::Source,
+            newline_policy,
             within: args.within,
+            cardinality,
         };
 
         match threadmoth::source_prepare::prepare(&workspace, &request) {
@@ -832,7 +919,7 @@ fn run_edit(args: EditArgs) {
                                     &certificate,
                                     &workspace,
                                     &target_str,
-                                    Some(search),
+                                    Some(&search),
                                 );
                             }
                             exit_for_outcome(certificate.outcome);
@@ -852,7 +939,7 @@ fn run_edit(args: EditArgs) {
                 if args.json {
                     println!("{}", serde_json::to_string_pretty(&certificate).unwrap());
                 } else {
-                    print_edit_certificate(&certificate, &workspace, &target_str, Some(search));
+                    print_edit_certificate(&certificate, &workspace, &target_str, Some(&search));
                 }
                 exit_for_outcome(certificate.outcome);
             }
@@ -860,7 +947,7 @@ fn run_edit(args: EditArgs) {
     } else {
         if args.within.is_some() {
             eprintln!(
-                "multi-file edit document mode does not accept --within; scope anchors are only valid for single-file inline edits with --search and --replace"
+                "multi-file edit document mode does not accept --within; scope anchors are only valid for single-file inline edits with search and replacement"
             );
             std::process::exit(2);
         }
@@ -908,7 +995,7 @@ fn run_edit(args: EditArgs) {
             });
             if !text.lines().any(|line| line.starts_with("*** File: ")) {
                 eprintln!(
-                    "single-file editing requires --search OLD and --replace NEW\nExample: threadmoth edit {} --search OLD --replace NEW\nFor multi-file edits, use an edit document with `*** File: PATH` headers.",
+                    "single-file editing requires search input (--search or --search-file) and replacement input (--replace or --replace-file)\nExample: threadmoth edit {} --search OLD --replace NEW\nFor multi-file edits, use an edit document with `*** File: PATH` headers.",
                     target_str
                 );
                 std::process::exit(2);
@@ -2138,6 +2225,8 @@ fn run_orient(json_output: bool) {
         );
         println!("Workflow: preview → mutate → verify certificate");
         println!("Quick edit: threadmoth edit PATH --search OLD --replace NEW (verifies and applies in one call)");
+        println!("File input: threadmoth edit PATH --search-file OLD_FILE --replace-file NEW_FILE (bypasses shell quoting)");
+        println!("Multi-occurrence: threadmoth edit PATH --search OLD --replace NEW [--expect-count N | --all]");
         println!("Multi-file: threadmoth edit changes.tm (or stdin: threadmoth edit -; use --plan to preview diff)");
         println!("Text edits: prepare-text PATH --edit OLD NEW --output PLAN --summary → review with explain --plan PLAN --format diff → apply-plan --plan PLAN");
         println!("Multiline intent: use --edit-files OLD_FILE NEW_FILE for faithful UTF-8 input.");
