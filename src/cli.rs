@@ -38,6 +38,12 @@ pub enum Command {
     /// Create one missing file without overwriting an existing destination.
     CreateFile(CreateFileArgs),
 
+    /// Convert unchanged line endings across a file with explicit conversion authority.
+    #[command(
+        after_help = "Examples:\n  threadmoth convert-newlines src/main.rs --to lf\n  threadmoth convert-newlines src/main.rs --to crlf\n  threadmoth convert-newlines src/main.rs --to lf --preview"
+    )]
+    ConvertNewlines(ConvertNewlinesArgs),
+
     /// Apply one verified mutation.
     #[command(
         alias = "apply",
@@ -498,6 +504,10 @@ pub struct EditArgs {
     )]
     pub newline_policy: String,
 
+    /// Explicitly authorize altering unchanged line endings during this edit.
+    #[arg(long = "allow-newline-conversion")]
+    pub allow_newline_conversion: bool,
+
     /// Prepare and review the plan without mutating sources.
     #[arg(long)]
     pub plan: bool,
@@ -656,4 +666,27 @@ impl From<CompletionShell> for clap_complete::Shell {
             CompletionShell::Powershell => clap_complete::Shell::PowerShell,
         }
     }
+}
+
+#[derive(Args, Debug)]
+pub struct ConvertNewlinesArgs {
+    /// Workspace-relative file path.
+    #[arg(value_name = "FILE_PATH", value_hint = ValueHint::FilePath)]
+    pub file: std::path::PathBuf,
+
+    /// Target line-ending convention ('lf' or 'crlf').
+    #[arg(long, value_name = "CONVENTION")]
+    pub to: String,
+
+    /// Preview the conversion without writing to disk.
+    #[arg(long)]
+    pub preview: bool,
+
+    /// Emit machine-readable JSON.
+    #[arg(short = 'j', long)]
+    pub json: bool,
+
+    /// Print compact human summary.
+    #[arg(long)]
+    pub summary: bool,
 }

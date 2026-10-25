@@ -37,6 +37,7 @@ fn worker_b() {
 
     // 1. Without scope, target is ambiguous:
     let request_unscoped = SourceAwareTextRequest {
+        allow_newline_conversion: false,
         file_path: file_path.into(),
         edits: vec![TextReplacementIntent {
             old: "let timeout = 10;".into(),
@@ -59,6 +60,7 @@ fn worker_b() {
 
     // 2. With scope anchor identifying worker_b:
     let request_scoped = SourceAwareTextRequest {
+        allow_newline_conversion: false,
         file_path: file_path.into(),
         edits: vec![TextReplacementIntent {
             old: "let timeout = 10;".into(),
@@ -111,6 +113,7 @@ class BetaService:
 
     // Disambiguate to BetaService process
     let request = SourceAwareTextRequest {
+        allow_newline_conversion: false,
         file_path: file_path.into(),
         edits: vec![TextReplacementIntent {
             old: "status = \"pending\"".into(),
@@ -159,6 +162,7 @@ port = 8080
     fs::write(temp.path().join(file_path), original.as_bytes()).unwrap();
 
     let request = SourceAwareTextRequest {
+        allow_newline_conversion: false,
         file_path: file_path.into(),
         edits: vec![TextReplacementIntent {
             old: "port = 8080".into(),
@@ -209,6 +213,7 @@ Status: active
     fs::write(temp.path().join(file_path), original.as_bytes()).unwrap();
 
     let request = SourceAwareTextRequest {
+        allow_newline_conversion: false,
         file_path: file_path.into(),
         edits: vec![TextReplacementIntent {
             old: "Status: active".into(),
@@ -246,6 +251,7 @@ fn missing_anchor_refuses_safely() {
     fs::write(temp.path().join(file_path), b"fn hello() {}\n").unwrap();
 
     let request = SourceAwareTextRequest {
+        allow_newline_conversion: false,
         file_path: file_path.into(),
         edits: vec![TextReplacementIntent {
             old: "hello".into(),
@@ -284,6 +290,7 @@ fn bar() { let x = 1; }
     fs::write(temp.path().join(file_path), content.as_bytes()).unwrap();
 
     let request = SourceAwareTextRequest {
+        allow_newline_conversion: false,
         file_path: file_path.into(),
         edits: vec![TextReplacementIntent {
             old: "let x = 1;".into(),
@@ -325,6 +332,7 @@ fn worker_b() {
 
     // Target exists in worker_a, but within specifies worker_b
     let request = SourceAwareTextRequest {
+        allow_newline_conversion: false,
         file_path: file_path.into(),
         edits: vec![TextReplacementIntent {
             old: "unique_to_a".into(),
@@ -360,6 +368,7 @@ fn worker() {
 
     // Anchor is a statement inside the function body rather than the declaration header
     let request = SourceAwareTextRequest {
+        allow_newline_conversion: false,
         file_path: file_path.into(),
         edits: vec![TextReplacementIntent {
             old: "let target = 1;".into(),
@@ -397,6 +406,7 @@ Section B
     fs::write(temp.path().join(file_path), content.as_bytes()).unwrap();
 
     let request = SourceAwareTextRequest {
+        allow_newline_conversion: false,
         file_path: file_path.into(),
         edits: vec![TextReplacementIntent {
             old: "timeout: 10".into(),
@@ -432,6 +442,7 @@ fn crlf_line_endings_preserved_exactly_under_scoped_disambiguation() {
     fs::write(temp.path().join(file_path), crlf_content.as_bytes()).unwrap();
 
     let request = SourceAwareTextRequest {
+        allow_newline_conversion: false,
         file_path: file_path.into(),
         edits: vec![TextReplacementIntent {
             old: "let val = 1;".into(),
@@ -487,6 +498,7 @@ def setup_b():
     fs::write(temp.path().join(file_path), content.as_bytes()).unwrap();
 
     let request = SourceAwareTextRequest {
+        allow_newline_conversion: false,
         file_path: file_path.into(),
         edits: vec![
             TextReplacementIntent {
@@ -724,6 +736,7 @@ Status: real_status
     // 1. Anchor "# Section A" appears both inside the fenced code block and subsequently as a real heading.
     // The fenced example must not cause TARGET_AMBIGUOUS or be selected; the real heading must be selected.
     let request = SourceAwareTextRequest {
+        allow_newline_conversion: false,
         file_path: file_path.into(),
         edits: vec![TextReplacementIntent {
             old: "Status: real_status".into(),
@@ -771,6 +784,7 @@ config = default
     .unwrap();
 
     let fenced_request = SourceAwareTextRequest {
+        allow_newline_conversion: false,
         file_path: fenced_file.into(),
         edits: vec![TextReplacementIntent {
             old: "config = default".into(),
@@ -927,6 +941,7 @@ status = "b_original"
     // because four-space-indented ``` is an indented code block, not an opening fence, so # Section B
     // properly terminates the scope of # Section A.
     let request_reaching_into_b = SourceAwareTextRequest {
+        allow_newline_conversion: false,
         file_path: file_path.into(),
         edits: vec![TextReplacementIntent {
             old: r#"status = "b_original""#.into(),
@@ -963,6 +978,7 @@ status = "b_original"
     fs::write(temp.path().join(file_path), doc_with_a_target.as_bytes()).unwrap();
 
     let request_in_a = SourceAwareTextRequest {
+        allow_newline_conversion: false,
         file_path: file_path.into(),
         edits: vec![TextReplacementIntent {
             old: r#"status = "a_original""#.into(),
@@ -1006,6 +1022,7 @@ fn scope_disambiguation_rejected_on_unsupported_operations() {
         version: "1.4.0".into(),
         request_id: "test-replace-scope".into(),
         allow_generated: false,
+        allow_newline_conversion: false,
         file_path: file_path.into(),
         namespace: Default::default(),
         expected_pre_hash: None,
@@ -1045,6 +1062,7 @@ fn scope_disambiguation_rejected_on_unsupported_operations() {
         version: "1.4.0".into(),
         request_id: "test-json-scope".into(),
         allow_generated: false,
+        allow_newline_conversion: false,
         file_path: json_file.into(),
         namespace: Default::default(),
         expected_pre_hash: None,
@@ -1084,6 +1102,7 @@ fn scope_disambiguation_rejected_on_unsupported_operations() {
         version: "1.4.0".into(),
         request_id: "test-code-scope".into(),
         allow_generated: false,
+        allow_newline_conversion: false,
         file_path: file_path.into(),
         namespace: Default::default(),
         expected_pre_hash: None,

@@ -395,6 +395,7 @@ pub fn prepare(
             version: PROTOCOL_VERSION.into(),
             request_id: format!("{transaction_id}-{}", file_index + 1),
             allow_generated: false,
+            allow_newline_conversion: false,
             file_path: path.clone(),
             namespace: crate::path::PathNamespace::Native,
             expected_pre_hash,

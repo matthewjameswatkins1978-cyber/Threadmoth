@@ -327,7 +327,8 @@ fn cli_edit_mixed_newline_exact_bytes_support() {
     let content = b"line1\nline2\nline3\r\nline4\n";
     fs::write(&target, content).unwrap();
 
-    // Default policy source refuses on mixed endings
+    // Under the Newline Firewall, mixed files are supported intelligently:
+    // an edit to existing content succeeds and preserves the local and file endings.
     let out = cli(
         temp.path(),
         &[
@@ -340,13 +341,17 @@ fn cli_edit_mixed_newline_exact_bytes_support() {
             "--json",
         ],
     );
-    assert_eq!(out.status.code(), Some(2));
+    assert_eq!(out.status.code(), Some(0));
     let cert: Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(cert["reason_code"], "PRESERVATION_UNAVAILABLE");
+    assert_eq!(cert["outcome"], "APPLIED");
+    assert_eq!(cert["preservation"]["original_newline_profile"], "mixed");
+    assert_eq!(cert["preservation"]["result_newline_profile"], "mixed");
+    let written = fs::read(&target).unwrap();
+    assert_eq!(written, b"line1\nline2\nreplaced3\r\nline4\n");
 
     // With --newline-policy exact, exact search file with CRLF succeeds!
     let search_file = temp.path().join("old_crlf.txt");
-    fs::write(&search_file, b"line3\r\n").unwrap();
+    fs::write(&search_file, b"replaced3\r\n").unwrap();
     let replace_file = temp.path().join("new_crlf.txt");
     fs::write(&replace_file, b"line3_new\r\n").unwrap();
 

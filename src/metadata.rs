@@ -2085,6 +2085,7 @@ fn base_request(path: &str, operation: OperationPayload) -> Request {
         version: PROTOCOL_VERSION.into(),
         request_id: format!("example-{path}"),
         allow_generated: false,
+        allow_newline_conversion: false,
         file_path: path.into(),
         namespace: PathNamespace::Native,
         expected_pre_hash: None,

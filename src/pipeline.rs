@@ -40,6 +40,7 @@ pub fn execute_pipeline(
         version: plan.version.clone(),
         request_id: String::new(),
         allow_generated: false,
+        allow_newline_conversion: false,
         file_path: plan.file_path.clone(),
         namespace: Default::default(),
         expected_pre_hash: (!plan.expected_pre_hash.is_empty())
@@ -245,10 +246,11 @@ pub fn execute_request(workspace: &Workspace, request: &Request, dry_run: bool) 
             pre_hash,
         );
     }
-    let edits = match plan_edits(&original, request, &file_path, &pre_hash) {
-        Ok(x) => x,
-        Err((r, _d)) => return refusal(request, &file_path, provider, r, pre_hash),
-    };
+    let (edits, newline_adaptation_applied) =
+        match plan_edits(&original, request, &file_path, &pre_hash) {
+            Ok(x) => x,
+            Err((r, _d)) => return refusal(request, &file_path, provider, r, pre_hash),
+        };
     let engine_edits: Vec<ByteEdit> = edits
         .iter()
         .map(|e| ByteEdit {
@@ -271,6 +273,23 @@ pub fn execute_request(workspace: &Workspace, request: &Request, dry_run: bool) 
             )
         }
     };
+    let is_conversion = is_conversion_request(request);
+    if let Err(violation) = crate::newline::validate_candidate_preservation(
+        &original,
+        &candidate,
+        &engine_edits,
+        is_conversion,
+    ) {
+        return refusal(
+            request,
+            &file_path,
+            provider,
+            RefusalReason::PreservationUnavailable {
+                details: violation.message(),
+            },
+            pre_hash,
+        );
+    }
     if let Some(desired) = desired_bytes(request) {
         if candidate != desired {
             return failure(
@@ -320,7 +339,13 @@ pub fn execute_request(workspace: &Workspace, request: &Request, dry_run: bool) 
             Outcome::NoChange,
             ranges,
             provider_structural,
-            PreservationFacts::from_bytes(&original, &candidate),
+            PreservationFacts::from_bytes_with_edits_and_flags(
+                &original,
+                &candidate,
+                &[],
+                newline_adaptation_applied,
+                is_conversion,
+            ),
             CommitGuarantee::default(),
             String::new(),
             false,
@@ -417,7 +442,13 @@ pub fn execute_request(workspace: &Workspace, request: &Request, dry_run: bool) 
         Outcome::Applied,
         ranges,
         provider_structural,
-        PreservationFacts::from_bytes_with_edits(&original, &candidate, &engine_edits),
+        PreservationFacts::from_bytes_with_edits_and_flags(
+            &original,
+            &candidate,
+            &engine_edits,
+            newline_adaptation_applied,
+            is_conversion,
+        ),
         commit,
         diff,
         diff_truncated,
@@ -562,10 +593,13 @@ fn prepare_content_request(
             pre_hash,
         ));
     }
-    let edits = match plan_edits(&original, request, &file_path, &pre_hash) {
-        Ok(edits) => edits,
-        Err((reason, _)) => return Err(refusal(request, &file_path, provider, reason, pre_hash)),
-    };
+    let (edits, newline_adaptation_applied) =
+        match plan_edits(&original, request, &file_path, &pre_hash) {
+            Ok(edits) => edits,
+            Err((reason, _)) => {
+                return Err(refusal(request, &file_path, provider, reason, pre_hash))
+            }
+        };
     let candidate = match apply_byte_edits(&original, &edits) {
         Ok(candidate) => candidate,
         Err(error) => {
@@ -580,6 +614,23 @@ fn prepare_content_request(
             ))
         }
     };
+    let is_conversion = is_conversion_request(request);
+    if let Err(violation) = crate::newline::validate_candidate_preservation(
+        &original,
+        &candidate,
+        &edits,
+        is_conversion,
+    ) {
+        return Err(refusal(
+            request,
+            &file_path,
+            provider,
+            RefusalReason::PreservationUnavailable {
+                details: violation.message(),
+            },
+            pre_hash,
+        ));
+    }
     if let Some(desired) = desired_bytes(request) {
         if candidate != desired {
             return Err(failure(
@@ -629,7 +680,13 @@ fn prepare_content_request(
         },
         changed_ranges(&edits),
         structural,
-        PreservationFacts::from_bytes_with_edits(&original, &candidate, &edits),
+        PreservationFacts::from_bytes_with_edits_and_flags(
+            &original,
+            &candidate,
+            &edits,
+            newline_adaptation_applied,
+            is_conversion,
+        ),
         CommitGuarantee::default(),
         if original == candidate {
             String::new()
@@ -1012,7 +1069,7 @@ pub fn apply_prepared_plan(workspace: &Workspace, plan: &PreparedPlan) -> PlanAp
                 replacement: edit.replacement.clone(),
             })
             .collect();
-        let replanned = match plan_edits(&original, &operation.request, &path, &actual_hash) {
+        let (replanned, _) = match plan_edits(&original, &operation.request, &path, &actual_hash) {
             Ok(edits) => edits,
             Err((reason, _)) => return plan_failure_result(workspace, plan, reason),
         };
@@ -2108,10 +2165,11 @@ fn execute_single_file_transaction(
             }
         }
         let pre_hash = compute_sha256(&current);
-        let edits = match plan_edits(&current, request, &path, &pre_hash) {
-            Ok(edits) => edits,
-            Err((reason, _)) => return transaction_refusal(transaction, reason),
-        };
+        let (edits, newline_adaptation_applied) =
+            match plan_edits(&current, request, &path, &pre_hash) {
+                Ok(edits) => edits,
+                Err((reason, _)) => return transaction_refusal(transaction, reason),
+            };
         let candidate = match apply_byte_edits(&current, &edits) {
             Ok(candidate) => candidate,
             Err(error) => {
@@ -2123,6 +2181,20 @@ fn execute_single_file_transaction(
                 )
             }
         };
+        let is_conversion = is_conversion_request(request);
+        if let Err(violation) = crate::newline::validate_candidate_preservation(
+            &current,
+            &candidate,
+            &edits,
+            is_conversion,
+        ) {
+            return transaction_refusal(
+                transaction,
+                RefusalReason::PreservationUnavailable {
+                    details: violation.message(),
+                },
+            );
+        }
         if let Some(desired) = desired_bytes(request) {
             if candidate != desired {
                 return transaction_failure(
@@ -2175,7 +2247,13 @@ fn execute_single_file_transaction(
             },
             changed_ranges(&edits),
             structural,
-            PreservationFacts::from_bytes_with_edits(&current, &candidate, &edits),
+            PreservationFacts::from_bytes_with_edits_and_flags(
+                &current,
+                &candidate,
+                &edits,
+                newline_adaptation_applied,
+                is_conversion,
+            ),
             CommitGuarantee {
                 mode: "dry_run".into(),
                 ..CommitGuarantee::default()
@@ -2429,7 +2507,22 @@ fn plan_edits(
     request: &Request,
     file_path: &str,
     pre_hash: &str,
-) -> Result<Vec<ByteEdit>, (RefusalReason, String)> {
+) -> Result<(Vec<ByteEdit>, bool), (RefusalReason, String)> {
+    if let Some(desired) = desired_bytes(request) {
+        if let Err(violation) = crate::newline::validate_candidate_preservation(
+            original,
+            desired,
+            &[],
+            is_conversion_request(request),
+        ) {
+            return Err((
+                RefusalReason::PreservationUnavailable {
+                    details: violation.message(),
+                },
+                violation.message(),
+            ));
+        }
+    }
     if let Some(guard) = request.candidate_guard.as_ref() {
         if request
             .expected_pre_hash
@@ -2469,24 +2562,43 @@ fn plan_edits(
         }
     }
     let planned = plan_edits_unchecked(original, request, file_path);
-    let Err((mut reason, detail)) = planned else {
-        return planned;
+    let raw_edits = match planned {
+        Ok(edits) => edits,
+        Err((mut reason, detail)) => {
+            enrich_candidates(&mut reason, pre_hash, provider_name(&request.operation));
+            let Some(guard) = request.candidate_guard.as_ref() else {
+                return Err((reason, detail));
+            };
+            let Some(candidate) = candidate_for_guard(&reason, guard) else {
+                return Err((
+                    RefusalReason::CandidateSelectionInvalid {
+                        offset: guard.offset,
+                        selection_id: guard.selection_id.clone(),
+                        details: "selection_id and offset do not identify one reported candidate"
+                            .into(),
+                    },
+                    "candidate selection did not match the refusal certificate".into(),
+                ));
+            };
+            guarded_plan(original, request, candidate)?
+        }
     };
-    enrich_candidates(&mut reason, pre_hash, provider_name(&request.operation));
-    let Some(guard) = request.candidate_guard.as_ref() else {
-        return Err((reason, detail));
-    };
-    let Some(candidate) = candidate_for_guard(&reason, guard) else {
-        return Err((
-            RefusalReason::CandidateSelectionInvalid {
-                offset: guard.offset,
-                selection_id: guard.selection_id.clone(),
-                details: "selection_id and offset do not identify one reported candidate".into(),
-            },
-            "candidate selection did not match the refusal certificate".into(),
-        ));
-    };
-    guarded_plan(original, request, candidate)
+    let skip_adaptation =
+        is_conversion_request(request) || request_has_exact_newline_policy(request);
+    let (adapted_edits, mut was_adapted) =
+        crate::newline::adapt_edits_for_preservation(original, &raw_edits, skip_adaptation)
+            .map_err(|violation| {
+                (
+                    RefusalReason::PreservationUnavailable {
+                        details: violation.message(),
+                    },
+                    violation.message(),
+                )
+            })?;
+    if check_request_had_newline_adaptation(request, original) {
+        was_adapted = true;
+    }
+    Ok((adapted_edits, was_adapted))
 }
 
 fn enrich_candidates(reason: &mut RefusalReason, pre_hash: &str, provider: &str) {
@@ -2850,6 +2962,29 @@ fn execute_file_operation(
             expected_absent,
             content,
         } => {
+            let newline_counts = crate::newline::count_newlines(content);
+            if newline_counts.bare_cr > 0 {
+                return refusal(
+                    request,
+                    file_path,
+                    provider,
+                    RefusalReason::PreservationUnavailable {
+                        details: "New file introduces bare CR byte(s); bare carriage returns are refused by the newline firewall".into(),
+                    },
+                    String::new(),
+                );
+            }
+            if newline_counts.crlf > 0 && newline_counts.lf > 0 {
+                return refusal(
+                    request,
+                    file_path,
+                    provider,
+                    RefusalReason::PreservationUnavailable {
+                        details: "New file contains mixed CRLF and LF line endings; new files must use uniform line endings".into(),
+                    },
+                    String::new(),
+                );
+            }
             if content.len() > MAX_FILE_BYTES {
                 return refusal(
                     request,
@@ -3415,6 +3550,71 @@ fn generated_marker(bytes: &[u8]) -> &'static str {
         "do not edit"
     } else {
         "generated file"
+    }
+}
+
+pub fn check_request_had_newline_adaptation(request: &Request, original: &[u8]) -> bool {
+    let orig_profile = crate::newline::detect_profile(original);
+    match &request.operation {
+        OperationPayload::Text(crate::provider::text::TextOperation::ReplaceSequence {
+            edits,
+            newline_policy,
+        }) => {
+            if *newline_policy == crate::provider::text::NewlinePolicy::Source {
+                for edit in edits {
+                    let new_counts = crate::newline::count_newlines(edit.new.as_bytes());
+                    if orig_profile == crate::newline::NewlineProfile::Lf && new_counts.crlf > 0 {
+                        return true;
+                    }
+                    if orig_profile == crate::newline::NewlineProfile::Crlf && new_counts.lf > 0 {
+                        return true;
+                    }
+                }
+            }
+            false
+        }
+        OperationPayload::Text(crate::provider::text::TextOperation::Replace {
+            replacement,
+            ..
+        }) => {
+            let new_counts = crate::newline::count_newlines(replacement.as_bytes());
+            if orig_profile == crate::newline::NewlineProfile::Lf && new_counts.crlf > 0 {
+                return true;
+            }
+            if orig_profile == crate::newline::NewlineProfile::Crlf && new_counts.lf > 0 {
+                return true;
+            }
+            false
+        }
+        _ => false,
+    }
+}
+
+fn is_conversion_request(request: &Request) -> bool {
+    if request.allow_newline_conversion {
+        return true;
+    }
+    match &request.operation {
+        OperationPayload::Text(crate::provider::text::TextOperation::ConvertNewlines {
+            ..
+        }) => true,
+        OperationPayload::Text(crate::provider::text::TextOperation::Replace {
+            target,
+            replacement,
+        }) => {
+            (target == "\r\n" && replacement == "\n") || (target == "\n" && replacement == "\r\n")
+        }
+        _ => false,
+    }
+}
+
+fn request_has_exact_newline_policy(request: &Request) -> bool {
+    match &request.operation {
+        OperationPayload::Text(crate::provider::text::TextOperation::ReplaceSequence {
+            newline_policy,
+            ..
+        }) => *newline_policy == crate::provider::text::NewlinePolicy::Exact,
+        _ => false,
     }
 }
 
@@ -4008,23 +4208,6 @@ fn changed_line_count(original: &[u8], candidate: &[u8]) -> usize {
         })
         .sum()
 }
-fn count_newlines(bytes: &[u8]) -> (usize, usize) {
-    let mut crlf = 0;
-    let mut lf = 0;
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'\r' && i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
-            crlf += 1;
-            i += 2;
-        } else if bytes[i] == b'\n' {
-            lf += 1;
-            i += 1;
-        } else {
-            i += 1;
-        }
-    }
-    (lf, crlf)
-}
 
 fn verify_unrelated_bytes_changed(a: &[u8], b: &[u8], edits: &[ByteEdit]) -> bool {
     let mut cursor_a = 0;
@@ -4056,12 +4239,22 @@ fn verify_unrelated_bytes_changed(a: &[u8], b: &[u8], edits: &[ByteEdit]) -> boo
 
 impl PreservationFacts {
     pub fn from_bytes(a: &[u8], b: &[u8]) -> Self {
-        Self::from_bytes_with_edits(a, b, &[])
+        Self::from_bytes_with_edits_and_flags(a, b, &[], false, false)
     }
 
     pub fn from_bytes_with_edits(a: &[u8], b: &[u8], edits: &[ByteEdit]) -> Self {
-        let (orig_lf, orig_crlf) = count_newlines(a);
-        let (res_lf, res_crlf) = count_newlines(b);
+        Self::from_bytes_with_edits_and_flags(a, b, edits, false, false)
+    }
+
+    pub fn from_bytes_with_edits_and_flags(
+        a: &[u8],
+        b: &[u8],
+        edits: &[ByteEdit],
+        newline_adaptation_applied: bool,
+        conversion_authorized: bool,
+    ) -> Self {
+        let orig_counts = crate::newline::count_newlines(a);
+        let res_counts = crate::newline::count_newlines(b);
         let orig_profile = newline_profile(a);
         let res_profile = newline_profile(b);
 
@@ -4085,9 +4278,11 @@ impl PreservationFacts {
             } else {
                 edits.iter().any(|edit| {
                     if edit.start <= a.len() && edit.end <= a.len() && edit.start <= edit.end {
-                        let (sub_orig_lf, sub_orig_crlf) = count_newlines(&a[edit.start..edit.end]);
-                        let (sub_res_lf, sub_res_crlf) = count_newlines(&edit.replacement);
-                        sub_orig_crlf != sub_res_crlf || sub_orig_lf != sub_res_lf
+                        let sub_orig = crate::newline::count_newlines(&a[edit.start..edit.end]);
+                        let sub_res = crate::newline::count_newlines(&edit.replacement);
+                        sub_orig.crlf != sub_res.crlf
+                            || sub_orig.lf != sub_res.lf
+                            || sub_orig.bare_cr != sub_res.bare_cr
                     } else {
                         false
                     }
@@ -4108,7 +4303,9 @@ impl PreservationFacts {
         };
 
         let metadata = format!(
-            "content verification: unrelated_bytes_changed={unrelated_bytes_changed} across {preserved_regions} preserved region(s); newlines: pre(lf={orig_lf}, crlf={orig_crlf}), post(lf={res_lf}, crlf={res_crlf})"
+            "content verification: unrelated_bytes_changed={unrelated_bytes_changed} across {preserved_regions} preserved region(s); newlines: pre(lf={}, crlf={}, bare_cr={}), post(lf={}, crlf={}, bare_cr={}); adaptation_applied={newline_adaptation_applied}; conversion_authorized={conversion_authorized}",
+            orig_counts.lf, orig_counts.crlf, orig_counts.bare_cr,
+            res_counts.lf, res_counts.crlf, res_counts.bare_cr
         );
 
         Self {
@@ -4121,11 +4318,15 @@ impl PreservationFacts {
             original_newline_profile: orig_profile,
             result_newline_profile: res_profile,
             newline_counts: Some(crate::protocol::PreservationNewlineCounts {
-                original_lf: orig_lf,
-                original_crlf: orig_crlf,
-                result_lf: res_lf,
-                result_crlf: res_crlf,
+                original_lf: orig_counts.lf,
+                original_crlf: orig_counts.crlf,
+                original_bare_cr: orig_counts.bare_cr,
+                result_lf: res_counts.lf,
+                result_crlf: res_counts.crlf,
+                result_bare_cr: res_counts.bare_cr,
             }),
+            newline_adaptation_applied,
+            conversion_authorized,
         }
     }
 }
@@ -4159,6 +4360,7 @@ mod tests {
             version: PROTOCOL_VERSION.into(),
             request_id: String::new(),
             allow_generated: false,
+            allow_newline_conversion: false,
             file_path: "x.txt".into(),
             namespace: Default::default(),
             expected_pre_hash: None,
@@ -4186,6 +4388,7 @@ mod tests {
             version: PROTOCOL_VERSION.into(),
             request_id: String::new(),
             allow_generated: false,
+            allow_newline_conversion: false,
             file_path: "x.txt".into(),
             namespace: Default::default(),
             expected_pre_hash: None,

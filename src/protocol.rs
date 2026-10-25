@@ -78,6 +78,8 @@ pub struct Request {
     pub request_id: String,
     #[serde(default)]
     pub allow_generated: bool,
+    #[serde(default)]
+    pub allow_newline_conversion: bool,
     pub file_path: String,
     #[serde(default)]
     pub namespace: PathNamespace,
@@ -599,8 +601,12 @@ pub enum StructuralValidation {
 pub struct PreservationNewlineCounts {
     pub original_lf: usize,
     pub original_crlf: usize,
+    #[serde(default)]
+    pub original_bare_cr: usize,
     pub result_lf: usize,
     pub result_crlf: usize,
+    #[serde(default)]
+    pub result_bare_cr: usize,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq, Eq)]
@@ -616,6 +622,10 @@ pub struct PreservationFacts {
     pub result_newline_profile: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub newline_counts: Option<PreservationNewlineCounts>,
+    #[serde(default)]
+    pub newline_adaptation_applied: bool,
+    #[serde(default)]
+    pub conversion_authorized: bool,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq, Eq)]
@@ -687,6 +697,8 @@ impl Default for PreservationFacts {
             original_newline_profile: "unknown".into(),
             result_newline_profile: "unknown".into(),
             newline_counts: None,
+            newline_adaptation_applied: false,
+            conversion_authorized: false,
         }
     }
 }

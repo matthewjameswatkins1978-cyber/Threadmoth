@@ -69,13 +69,27 @@ pub fn plan(observed: &[u8], desired: &[u8]) -> Result<DiffPlan, DiffPlannerErro
         if matches!(op, similar::DiffOp::Equal { .. }) {
             continue;
         }
-        let old_start = old_offsets[op.old_range().start];
-        let old_end = old_offsets[op.old_range().end];
-        let new_start = new_offsets[op.new_range().start];
-        let new_end = new_offsets[op.new_range().end];
-        refine_region(
-            observed, desired, old_start, old_end, new_start, new_end, &mut edits,
-        )?;
+        let old_len = op.old_range().len();
+        let new_len = op.new_range().len();
+        if old_len == new_len {
+            for (old_idx, new_idx) in op.old_range().zip(op.new_range()) {
+                let old_start = old_offsets[old_idx];
+                let old_end = old_offsets[old_idx + 1];
+                let new_start = new_offsets[new_idx];
+                let new_end = new_offsets[new_idx + 1];
+                refine_region(
+                    observed, desired, old_start, old_end, new_start, new_end, &mut edits,
+                )?;
+            }
+        } else {
+            let old_start = old_offsets[op.old_range().start];
+            let old_end = old_offsets[op.old_range().end];
+            let new_start = new_offsets[op.new_range().start];
+            let new_end = new_offsets[op.new_range().end];
+            refine_region(
+                observed, desired, old_start, old_end, new_start, new_end, &mut edits,
+            )?;
+        }
         if edits.len() > MAX_PLANNER_REGIONS {
             return Err(DiffPlannerError::ResourceLimit {
                 dimension: "derived_regions",
@@ -161,12 +175,22 @@ fn refine_region(
         .count();
     let old_after_prefix = &old[common_prefix..];
     let new_after_prefix = &new[common_prefix..];
-    let common_suffix = old_after_prefix
+    let mut common_suffix = old_after_prefix
         .iter()
         .rev()
         .zip(new_after_prefix.iter().rev())
         .take_while(|(old_byte, new_byte)| old_byte == new_byte)
         .count();
+    if common_suffix > 0 {
+        let old_rem = &old_after_prefix[..old_after_prefix.len() - common_suffix];
+        let new_rem = &new_after_prefix[..new_after_prefix.len() - common_suffix];
+        if ((old_rem.ends_with(b"\r") && !new_rem.ends_with(b"\r"))
+            || (!old_rem.ends_with(b"\r") && new_rem.ends_with(b"\r")))
+            && old_after_prefix[old_after_prefix.len() - common_suffix] == b'\n'
+        {
+            common_suffix -= 1;
+        }
+    }
     let old_changed_end = old.len() - common_suffix;
     let new_changed_end = new.len() - common_suffix;
     let old_changed = &old[common_prefix..old_changed_end];

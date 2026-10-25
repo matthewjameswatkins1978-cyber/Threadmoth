@@ -17,6 +17,7 @@ fn request(path: &str, old: &str, new: &str) -> Request {
         version: PROTOCOL_VERSION.into(),
         request_id: format!("legacy-{path}"),
         allow_generated: false,
+        allow_newline_conversion: false,
         file_path: path.into(),
         namespace: Default::default(),
         expected_pre_hash: None,

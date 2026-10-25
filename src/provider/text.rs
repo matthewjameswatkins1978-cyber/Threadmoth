@@ -54,6 +54,9 @@ pub enum TextOperation {
         target: String,
         replacement: String,
     },
+    ConvertNewlines {
+        to: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug, Clone, PartialEq, Eq)]
@@ -121,6 +124,27 @@ impl TextProvider {
                         .into(),
                 },
             ));
+        }
+        if let TextOperation::ConvertNewlines { to } = op {
+            let target_profile = match to.to_ascii_lowercase().as_str() {
+                "lf" => crate::newline::NewlineProfile::Lf,
+                "crlf" => crate::newline::NewlineProfile::Crlf,
+                other => {
+                    return Err(TextProviderError::Refused(RefusalReason::MalformedInput {
+                        details: format!("unsupported target newline convention: '{other}'; expected 'lf' or 'crlf'"),
+                    }));
+                }
+            };
+            let (adapted, changed) =
+                crate::newline::adapt_bytes_to_convention(content, target_profile);
+            if !changed {
+                return Ok(Vec::new());
+            }
+            return Ok(vec![ByteEdit {
+                start: 0,
+                end: content.len(),
+                replacement: adapted,
+            }]);
         }
         if let TextOperation::ReplaceSequence {
             edits,
@@ -209,7 +233,9 @@ impl TextProvider {
                 false,
                 true,
             ),
-            TextOperation::Move { .. } | TextOperation::EnsurePresent { .. } => unreachable!(),
+            TextOperation::Move { .. }
+            | TextOperation::EnsurePresent { .. }
+            | TextOperation::ConvertNewlines { .. } => unreachable!(),
             TextOperation::ReplaceSequence { .. } => unreachable!(),
         };
 
@@ -289,7 +315,8 @@ impl TextProvider {
             }
             TextOperation::Move { .. }
             | TextOperation::EnsurePresent { .. }
-            | TextOperation::ReplaceSequence { .. } => {
+            | TextOperation::ReplaceSequence { .. }
+            | TextOperation::ConvertNewlines { .. } => {
                 return Err(TextProviderError::Refused(
                     RefusalReason::UnsupportedOperation {
                         operation: "candidate guard is not available for this text operation"
@@ -335,28 +362,38 @@ fn plan_sequence(
         ));
     }
     let profile = newline_profile(content);
-    let has_multiline_intent = edits
-        .iter()
-        .any(|edit| edit.old.contains(['\r', '\n']) || edit.new.contains(['\r', '\n']));
-    let delimiter = match (newline_policy, profile, has_multiline_intent) {
-        (NewlinePolicy::Exact, _, _) => "\n",
-        (NewlinePolicy::Source, "lf", _) => "\n",
-        (NewlinePolicy::Source, "crlf", _) => "\r\n",
-        (NewlinePolicy::Source, "none", false) => "\n",
-        _ => {
-            return Err(TextProviderError::Refused(
-                RefusalReason::PreservationUnavailable {
-                    details: format!(
-                        "source newline profile is {profile}; use newline_policy=exact and supply literal line endings"
-                    ),
-                },
-            ))
+    let is_mixed = profile == "mixed";
+    let delimiter = match (newline_policy, profile) {
+        (NewlinePolicy::Exact, _) => "\n",
+        (NewlinePolicy::Source, "lf") => "\n",
+        (NewlinePolicy::Source, "crlf") => "\r\n",
+        (NewlinePolicy::Source, "none") => "\n",
+        (NewlinePolicy::Source, "mixed") => {
+            let any_mismatch = edits.iter().any(|edit| {
+                edit.old.contains(['\r', '\n'])
+                    && memmem::find(content, edit.old.as_bytes()).is_none()
+            });
+            if any_mismatch {
+                return Err(TextProviderError::Refused(
+                    RefusalReason::PreservationUnavailable {
+                        details: "source newline profile is mixed; multiline targets must match exact line endings".into(),
+                    },
+                ));
+            }
+            "\n"
         }
+        _ => "\n",
     };
     if edits.len() == 1 && within.is_none() && !matches!(cardinality, Cardinality::ExactlyOne) {
         let intent = &edits[0];
-        let target = adapt_newline_text(&intent.old, newline_policy, delimiter)?;
-        let replacement = adapt_newline_text(&intent.new, newline_policy, delimiter)?;
+        let (target, replacement) = if is_mixed && newline_policy == NewlinePolicy::Source {
+            resolve_edit_for_mixed(content, intent)
+        } else {
+            (
+                adapt_newline_text(&intent.old, newline_policy, delimiter)?,
+                adapt_newline_text(&intent.new, newline_policy, delimiter)?,
+            )
+        };
         let operation = TextOperation::Replace {
             target,
             replacement,
@@ -371,8 +408,14 @@ fn plan_sequence(
                 .map_err(TextProviderError::Refused)?;
 
         for intent in edits {
-            let target = adapt_newline_text(&intent.old, newline_policy, delimiter)?;
-            let replacement = adapt_newline_text(&intent.new, newline_policy, delimiter)?;
+            let (target, replacement) = if is_mixed && newline_policy == NewlinePolicy::Source {
+                resolve_edit_for_mixed(&candidate[scope_start..scope_end], intent)
+            } else {
+                (
+                    adapt_newline_text(&intent.old, newline_policy, delimiter)?,
+                    adapt_newline_text(&intent.new, newline_policy, delimiter)?,
+                )
+            };
             if target.is_empty() {
                 return Err(TextProviderError::Refused(RefusalReason::MissingTarget {
                     target: String::new(),
@@ -399,8 +442,14 @@ fn plan_sequence(
         }
     } else {
         for intent in edits {
-            let target = adapt_newline_text(&intent.old, newline_policy, delimiter)?;
-            let replacement = adapt_newline_text(&intent.new, newline_policy, delimiter)?;
+            let (target, replacement) = if is_mixed && newline_policy == NewlinePolicy::Source {
+                resolve_edit_for_mixed(&candidate, intent)
+            } else {
+                (
+                    adapt_newline_text(&intent.old, newline_policy, delimiter)?,
+                    adapt_newline_text(&intent.new, newline_policy, delimiter)?,
+                )
+            };
             let operation = TextOperation::Replace {
                 target,
                 replacement,
@@ -434,6 +483,24 @@ fn plan_sequence(
 
 fn newline_profile(content: &[u8]) -> &'static str {
     crate::engine::newline_profile(content)
+}
+
+fn resolve_edit_for_mixed(content: &[u8], intent: &TextReplacementIntent) -> (String, String) {
+    if memmem::find(content, intent.old.as_bytes()).is_some() {
+        return (intent.old.clone(), intent.new.clone());
+    }
+    let old_lf = intent.old.replace("\r\n", "\n");
+    if memmem::find(content, old_lf.as_bytes()).is_some() {
+        return (old_lf, intent.new.replace("\r\n", "\n"));
+    }
+    let old_crlf = old_lf.replace('\n', "\r\n");
+    if memmem::find(content, old_crlf.as_bytes()).is_some() {
+        return (
+            old_crlf,
+            intent.new.replace("\r\n", "\n").replace('\n', "\r\n"),
+        );
+    }
+    (intent.old.clone(), intent.new.clone())
 }
 
 fn adapt_newline_text(
@@ -681,10 +748,12 @@ fn diagnose_near_miss(content: &[u8], target: &[u8]) -> String {
     if target_str.contains('\n') {
         let normalized_target = target_str.replace("\r\n", "\n");
         if let Some(slice) = find_normalized_span(&content_str, &normalized_target) {
-            let has_crlf_in_match = slice.contains("\r\n");
-            let has_lone_lf_in_match = slice
-                .char_indices()
-                .any(|(i, c)| c == '\n' && (i == 0 || &slice[i - 1..i] != "\r"));
+            let slice_bytes = slice.as_bytes();
+            let has_crlf_in_match = slice_bytes.windows(2).any(|w| w == b"\r\n");
+            let has_lone_lf_in_match = slice_bytes
+                .iter()
+                .enumerate()
+                .any(|(i, &b)| b == b'\n' && (i == 0 || slice_bytes[i - 1] != b'\r'));
 
             if has_crlf_in_match && has_lone_lf_in_match {
                 return "Target not found exact; the matching source region uses mixed LF and CRLF line endings. Set newline_policy to exact and copy each line ending from the observed source.".into();
@@ -904,6 +973,22 @@ mod tests {
                 assert!(target.contains("Non-Breaking Space"));
             }
             _ => panic!("Expected near-miss NBSP refusal"),
+        }
+    }
+
+    #[test]
+    fn test_near_miss_multibyte_unicode_before_newline_does_not_panic() {
+        let content = "café\r\nline2\r\n".as_bytes();
+        let op = TextOperation::Replace {
+            target: "café\nline2".to_string(),
+            replacement: "replaced".to_string(),
+        };
+        let res = TextProvider::plan(content, &op, &Cardinality::ExactlyOne);
+        match res {
+            Err(TextProviderError::Refused(RefusalReason::MissingTarget { target })) => {
+                assert!(target.contains("CRLF"));
+            }
+            _ => panic!("Expected near-miss CRLF refusal without panic"),
         }
     }
 

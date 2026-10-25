@@ -12,6 +12,7 @@ fn request(path: &str, operation: OperationPayload) -> Request {
         version: PROTOCOL_VERSION.into(),
         request_id: String::new(),
         allow_generated: false,
+        allow_newline_conversion: false,
         file_path: path.into(),
         namespace: Default::default(),
         expected_pre_hash: None,

@@ -113,6 +113,16 @@ struct StructuralToolArgs {
 
 #[derive(Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+struct ConvertNewlinesToolArgs {
+    #[serde(rename = "file_path", alias = "path", alias = "file")]
+    file_path: String,
+    to: String,
+    #[serde(default)]
+    preview: bool,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 struct EditToolArgs {
     #[serde(default)]
     #[serde(rename = "file_path", alias = "path", alias = "target", alias = "file")]
@@ -145,6 +155,9 @@ struct EditToolArgs {
     #[serde(rename = "document", alias = "content")]
     document: Option<String>,
     #[serde(default)]
+    #[serde(rename = "allow_newline_conversion")]
+    allow_newline_conversion: bool,
+    #[serde(default)]
     plan: bool,
 }
 
@@ -157,6 +170,7 @@ fn shorthand_request(file: &str, operation: OperationPayload, bytes: usize) -> R
         version: PROTOCOL_VERSION.into(),
         request_id: format!("mcp-shorthand-{file}"),
         allow_generated: false,
+        allow_newline_conversion: false,
         file_path: file.replace('\\', "/"),
         namespace: Default::default(),
         expected_pre_hash: None,
@@ -260,6 +274,7 @@ fn handle_mcp_message(
                 "id": id,
                 "result": {"tools": [
                     {"name": "threadmoth_edit", "description": "Apply or preview an exact verified edit in one invocation. For a single file, provide file_path, search (or search_file) and replace (or replace_file). Set plan: true to preview without mutating.", "inputSchema": schema_for!(EditToolArgs)},
+                    {"name": "threadmoth_convert_newlines", "description": "Convert line endings across a workspace file with explicit conversion authority", "inputSchema": schema_for!(ConvertNewlinesToolArgs)},
                     {"name": "threadmoth_mutate", "description": "Apply one typed Threadmoth mutation and return its certificate; target specificity must come from the user or evidence", "inputSchema": schema_for!(Request)},
                     {"name": "threadmoth_preview", "description": "Preview one typed Threadmoth mutation without writing; if approved, call threadmoth_mutate with the same request; do not invent target specificity", "inputSchema": schema_for!(Request)},
                     {"name": "threadmoth_plan", "description": "Prepare a deterministic guarded plan without writing; preserve unresolved target ambiguity", "inputSchema": schema_for!(Request)},
@@ -405,6 +420,20 @@ fn call_tool(
     observation_cache: &mut threadmoth::metadata::ObservationCache,
 ) -> Result<Value, String> {
     match name {
+        "threadmoth_convert_newlines" => {
+            let args: ConvertNewlinesToolArgs =
+                serde_json::from_value(arguments).map_err(schema_error)?;
+            let mut req = shorthand_request(
+                &args.file_path,
+                OperationPayload::Text(
+                    threadmoth::provider::text::TextOperation::ConvertNewlines { to: args.to },
+                ),
+                1024 * 1024,
+            );
+            req.allow_newline_conversion = true;
+            let cert = threadmoth::pipeline::execute_request(workspace, &req, args.preview);
+            serde_json::to_value(&cert).map_err(|e| e.to_string())
+        }
         "threadmoth_edit" => {
             let args = serde_json::from_value::<EditToolArgs>(arguments).map_err(schema_error)?;
             execute_mcp_edit(workspace, args)
@@ -432,6 +461,7 @@ fn call_tool(
                 newline_policy: args.newline_policy,
                 within: args.within,
                 cardinality: Cardinality::default(),
+                allow_newline_conversion: false,
             };
             let result = threadmoth::source_prepare::prepare(workspace, &request);
             let output = match result {
@@ -758,6 +788,7 @@ fn execute_mcp_edit(workspace: &Workspace, args: EditToolArgs) -> Result<Value, 
             newline_policy,
             within: args.within,
             cardinality,
+            allow_newline_conversion: args.allow_newline_conversion,
         };
         return match threadmoth::source_prepare::prepare(workspace, &request) {
             threadmoth::source_prepare::SourcePreparationResult::Prepared(prepared) => {

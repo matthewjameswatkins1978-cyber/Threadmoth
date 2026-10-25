@@ -31,6 +31,7 @@ fn request(path: &str, edits: &[(&str, &str)]) -> SourceAwareTextRequest {
         newline_policy: NewlinePolicy::Source,
         within: None,
         cardinality: Default::default(),
+        allow_newline_conversion: false,
     }
 }
 
@@ -305,6 +306,7 @@ fn workflow_comparison_measures_retries_calls_and_request_bytes() {
         version: PROTOCOL_VERSION.into(),
         request_id: "legacy-full-request".into(),
         allow_generated: false,
+        allow_newline_conversion: false,
         file_path: "config.txt".into(),
         namespace: Default::default(),
         expected_pre_hash: None,

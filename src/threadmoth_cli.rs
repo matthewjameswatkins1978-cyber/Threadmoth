@@ -23,9 +23,10 @@ use threadmoth::{
 
 use cli::{
     ApplyPlanArgs, BenchmarkArgs, BenchmarkProfile, CapabilitiesArgs, Cli, Command,
-    CompletionShell, CreateFileArgs, DoctorArgs, EditArgs, ExplainFormat, HelpArgs, InspectArgs,
-    PlanArgs, PrepareEditsArgs, PrepareTextArgs, RecoverArgs, ReplaceExactArgs, SchemaArgs,
-    SetStringArgs, SetValueArgs, StructuralArgs, SuggestArgs, UpdateArgs, THREADMOTH_VERSION,
+    CompletionShell, ConvertNewlinesArgs, CreateFileArgs, DoctorArgs, EditArgs, ExplainFormat,
+    HelpArgs, InspectArgs, PlanArgs, PrepareEditsArgs, PrepareTextArgs, RecoverArgs,
+    ReplaceExactArgs, SchemaArgs, SetStringArgs, SetValueArgs, StructuralArgs, SuggestArgs,
+    UpdateArgs, THREADMOTH_VERSION,
 };
 
 fn main() {
@@ -36,6 +37,7 @@ fn main() {
         Command::SetValue(args) => run_set_value(args),
         Command::SetString(args) => run_set_string(args),
         Command::CreateFile(args) => run_create_file(args),
+        Command::ConvertNewlines(args) => run_convert_newlines(args),
         Command::Mutate(args) => run_request(args.request.as_deref(), false, args.summary),
         Command::Preview(args) => run_request(args.request.as_deref(), true, args.summary),
         Command::Transact(args) => {
@@ -89,6 +91,7 @@ fn shorthand_request(
         version: PROTOCOL_VERSION.into(),
         request_id: format!("shorthand-{}", file.display()),
         allow_generated: false,
+        allow_newline_conversion: false,
         file_path: file.to_string_lossy().replace('\\', "/"),
         namespace: Default::default(),
         expected_pre_hash: None,
@@ -456,6 +459,7 @@ fn run_prepare_text(args: PrepareTextArgs) {
         threadmoth::source_prepare::SourceAwareTextRequest {
             file_path: file.to_string_lossy().into_owned(),
             edits,
+            allow_newline_conversion: false,
             newline_policy: match args.newline_policy.unwrap_or_default() {
                 cli::PrepareTextNewlinePolicy::Source => {
                     threadmoth::source_prepare::NewlinePolicy::Source
@@ -896,6 +900,7 @@ fn run_edit(args: EditArgs) {
             newline_policy,
             within: args.within,
             cardinality,
+            allow_newline_conversion: args.allow_newline_conversion,
         };
 
         match threadmoth::source_prepare::prepare(&workspace, &request) {
@@ -2572,6 +2577,25 @@ fn empty_transaction_certificate(reason: RefusalReason) -> TransactionCertificat
         recovery: None,
         schema_diagnostic: None,
     }
+}
+
+fn run_convert_newlines(args: ConvertNewlinesArgs) {
+    let mut req = shorthand_request(
+        &args.file,
+        threadmoth::protocol::OperationPayload::Text(
+            threadmoth::provider::text::TextOperation::ConvertNewlines { to: args.to },
+        ),
+        1024 * 1024,
+    );
+    req.allow_newline_conversion = true;
+    let workspace = Workspace::new(env::current_dir().unwrap_or_else(|_| ".".into()))
+        .unwrap_or_else(|error| {
+            eprintln!("workspace initialization failed: {error}");
+            std::process::exit(3)
+        });
+    let certificate = execute_request(&workspace, &req, args.preview);
+    emit_certificate(&certificate, args.summary, args.json);
+    exit_for_outcome(certificate.outcome);
 }
 
 #[cfg(test)]

@@ -77,7 +77,7 @@ Use the canonical `threadmoth` executable. `thm` may exist as a convenience alia
 
 ## Make a bounded request
 
-Construct a request with a workspace-relative `file_path`, stable `request_id`, a supported protocol version, explicit provider/operation and cardinality. Add `expected_pre_hash`, a narrow region/candidate guard and hard effect budget when they are known. Prefer an exact path or named target over a broad replacement. Read the local schema and examples instead of inventing fields.
+Construct a request with a workspace-relative `file_path`, in-memory correlation `request_id`, a supported protocol version, explicit provider/operation and cardinality. Add `expected_pre_hash`, a narrow region/candidate guard and hard effect budget when they are known. Prefer an exact path or named target over a broad replacement. Read the local schema and examples instead of inventing fields.
 
 For an ordinary text replacement, the current request shape is:
 

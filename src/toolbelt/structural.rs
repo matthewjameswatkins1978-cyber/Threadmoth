@@ -1066,6 +1066,7 @@ pub fn build_transaction(
             version: PROTOCOL_VERSION.into(),
             request_id: req_id,
             allow_generated: false,
+            allow_newline_conversion: false,
             file_path: file,
             namespace: Default::default(),
             expected_pre_hash: Some(live_hash),
