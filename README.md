@@ -3,45 +3,59 @@
 </p>
 
 <h1 align="center">Threadmoth</h1>
-<p align="center"><strong>Deterministic, source-preserving file editing for AI agents.</strong></p>
+<p align="center"><strong>The editing engine for AI agents that need to get it right.</strong></p>
 <p align="center"><strong>Find the exact thing. Change only that thing. Prove what happened.</strong></p>
 
 <p align="center">
-  <a href="#start-here">Start here</a> ·
-  <a href="#why-threadmoth-exists">Why it exists</a> ·
-  <a href="#what-makes-it-different">What makes it different</a> ·
-  <a href="#how-it-compares">How it compares</a> ·
+  <a href="#start-here">Get started</a> ·
+  <a href="#the-toolbelt-specialists-find-threadmoth-writes">The Toolbelt</a> ·
+  <a href="#why-threadmoth-exists">Why Threadmoth</a> ·
+  <a href="#where-it-shines">Use cases</a> ·
   <a href="#capabilities">Capabilities</a> ·
   <a href="#install">Install</a>
 </p>
 
 ---
 
-## The problem is not writing code. It is landing the right change.
+## Brilliant agents deserve a better way to edit files.
 
-An AI agent might correctly decide to update one setting, one function or three related files. But the final step is surprisingly easy to get wrong: the editing tool matches the wrong occurrence, rewrites unrelated formatting, uses a stale copy of the file, changes too much or declares success before anyone checks what landed.
+AI can reason across a codebase, find an elegant solution and produce a convincing patch. But there is a difference between **knowing what to change** and **proving that the right change landed**.
 
-We have excellent editors, patches, structural search tools and coding agents. They solve many parts of this problem. What is often missing is a *consistent mutation contract* between an agent's intent and the bytes on disk.
+One ambiguous match. One stale file. One overenthusiastic formatter. One failed write halfway through a multi-file edit. That's enough to turn a good decision into a bad result.
 
-**Threadmoth is that contract.**
+**Threadmoth gives coding agents a dependable last mile.** It is an open-source, MIT-licensed Rust CLI and MCP server for precise, bounded, source-preserving edits. Agents can use exact text, structured-file providers, syntax-aware tools and, as of **1.21.0**, cross-file AST pattern rewrites through the **Toolbelt**. Every supported edit goes through the same guarded mutation pipeline.
 
-Threadmoth is an open-source, MIT-licensed Rust command-line tool and MCP server. It is **not an AI model** and does not decide what the user wants. It takes a bounded edit request, identifies what it can actually prove, and either applies and verifies the intended change or refuses to guess.
+| What agents need | What Threadmoth provides |
+| --- | --- |
+| **Make the intended edit** | Exact targeting, cardinality checks and context-aware providers |
+| **Keep everything else intact** | Byte-conscious edits that preserve unaffected source, formatting and line endings where supported |
+| **Work across files** | Guarded content transactions, effect budgets, journaling and recovery reporting |
+| **Use powerful specialists safely** | ast-grep proposes structural rewrites; Threadmoth validates and applies them |
+| **Know what really happened** | Read-back verification, source/result hashes, diffs, structured outcomes and certificates |
+| **Avoid bluffing** | Clear refusals for ambiguity, stale inputs, unsupported operations and breached limits |
+
+**Not another coding agent. Not another IDE. Not a wrapper that blindly runs search-and-replace.** Threadmoth is the editing authority that an agent can call when precision matters.
 
 ~~~text
-Human or agent decides what needs changing
-                    |
-                    v
-              Threadmoth
-     OBSERVE -> IDENTIFY -> GUARD
-       PLAN -> VERIFY PROSPECTIVE
-      MUTATE -> VERIFY COMMITTED
-                -> CERTIFY
-                    |
-                    v
-        Exact change or clear refusal
+      HUMAN + CODING AGENT
+       decides the intent
+                |
+                v
+    DISCOVER + INSPECT + PROPOSE
+    native providers / ast-grep
+                |
+                v
+       THREADMOTH CORE
+   source identity • scope • budgets
+   preview • guarded transaction
+   verification • recovery
+                |
+                v
+      EXACT EDIT OR REFUSAL
+       + machine-readable evidence
 ~~~
 
-It is deliberately usable by *any* capable coding agent, not tied to one model, provider, editor or orchestration framework.
+It works with capable agents through a normal CLI or MCP, without choosing their model, orchestrator or workflow for them.
 
 ## Start here
 
@@ -113,7 +127,9 @@ threadmoth set-string .env.local API_HOST 127.0.0.1
 
 `set-value` treats its value as JSON; `set-string` takes a literal string. No silent type guessing.
 
-For cross-file AST pattern transformations, the Toolbelt structural attachment connects `ast-grep` as a non-mutating proposal engine while keeping mutation and rollback authority strictly within Threadmoth:
+### Cross-file structural editing with the Toolbelt
+
+Threadmoth 1.21.0 brings **ast-grep** into the same dependable editing workflow. Match an AST pattern across a code tree, preview the proposed rewrites, and let Threadmoth handle validation, mutation and verification. ast-grep is invoked to **propose**, not to write source files directly:
 
 ~~~bash
 # Preview proposed AST transformations across files without touching disk:
@@ -127,6 +143,30 @@ threadmoth apply-plan --plan plan.json --summary
 # Or apply directly with atomic verification and rollback protection:
 threadmoth structural --pattern 'old_fn($A)' --rewrite 'new_fn($A)' src/
 ~~~
+
+## The Toolbelt: specialists find. Threadmoth writes.
+
+The exciting part of **1.21.0** is not simply that Threadmoth can run a structural search. It's that powerful external tools can contribute their understanding **without becoming a second, less accountable way to modify a project**.
+
+The first Toolbelt attachment uses [ast-grep](https://ast-grep.github.io/) to recognise code shapes and propose rewrites, including metavariable-driven transformations over multiple files. Threadmoth then checks the returned paths, UTF-8 byte ranges, matched source, overlapping edits, observed file hashes and effect limits **before** anything is committed.
+
+~~~text
+       ast-grep: find the code shape
+                    |
+             proposal JSON
+                    v
+         Threadmoth: validate it
+                    |
+        prepare / preview / guard
+                    v
+       apply, verify and certify
+~~~
+
+One command for routine changes, explicit plans for higher-stakes ones, **one mutation authority underneath both**. Structural proposals inherit Threadmoth's guarded transaction and recovery machinery instead of relying on a successful subprocess exit as proof of a correct edit.
+
+This is **syntax-aware structural editing**, not compiler-level symbol resolution or a promise to update every semantic reference. The subprocess is not an OS sandbox; Threadmoth invokes the attachment in non-mutating proposal mode and applies its own checks before writing.
+
+The Toolbelt contract is intentionally small: specialists advertise their capabilities and propose changes; Threadmoth decides what it can safely commit. See the [Toolbelt architecture](docs/toolbelt-attachment-architecture.md).
 
 ## Why Threadmoth exists
 
@@ -144,7 +184,7 @@ Those tools are useful. Threadmoth addresses the narrower but crucial last mile:
 
 ## What makes it different
 
-### 1. Parsers find the target. Core controls the bytes.
+### 1. Let specialist tools find it. Keep one authority for writing it.
 
 A parser may recognise a JSON key, a TOML table, a Markdown heading, an HTML node or a function in a supported language. But it does not get permission to reprint or regenerate the whole file.
 
@@ -180,7 +220,7 @@ There is a meaningful difference between *a command returned zero* and *the expe
 
 ### 6. One easy door, with deeper machinery behind it.
 
-Version **1.19.0** introduces the unified `threadmoth edit` CLI and `threadmoth_edit` MCP tool. A routine, exact edit can take one invocation instead of the older prepare/apply sequence. Both routes use the same prepared-plan execution authority.
+The unified `threadmoth edit` CLI and `threadmoth_edit` MCP tool give routine exact changes a one-call path. More sophisticated transformations can use `threadmoth structural` and `threadmoth_structural`; both feed Threadmoth's guarded execution authority, rather than introducing an independent file writer.
 
 More demanding work still has explicit, inspectable steps:
 
@@ -199,6 +239,21 @@ Plans can be persisted for human or supervisor review. A `--plan` preview **with
 
 The CLI, MCP integration, concise orientation, capability discovery, source inspection and contextual refusal guidance are designed to let capable agents teach themselves the tool, without a wizard or a giant mandatory prompt.
 
+## Where it shines
+
+Threadmoth is useful wherever **the edit is small, the consequences aren't, and an agent needs to be able to explain its work**.
+
+| Agent task | Threadmoth's contribution |
+| --- | --- |
+| **Change one value in a busy configuration file** | Select the correct structured key without gratuitously rewriting surrounding source |
+| **Update a repeated code pattern across a project** | Let ast-grep locate syntax shapes; validate proposals and apply a guarded multi-file content transaction |
+| **Change a precise part of a long file** | Match with exact text or scoped context; refuse if more than one target fits |
+| **Coordinate edits in an active checkout** | Check source identity and reject stale plans instead of guessing after another writer has changed a file |
+| **Perform a risky edit in reviewable stages** | Prepare a plan, inspect a diff, apply against the expected source, then read the certificate |
+| **Recover from a failed transaction** | Attempt rollback, retain recovery evidence when restoration is incomplete and report what needs attention |
+
+This isn't about replacing the agent's judgement. It's about giving that judgement **a reliable way to touch the filesystem**.
+
 ## How it compares
 
 Threadmoth does not claim to win every editing task. These are different tools with different strengths:
@@ -207,11 +262,11 @@ Threadmoth does not claim to win every editing task. These are different tools w
 | --- | --- | --- |
 | **`sed`, regex, scripts and direct writes** | Flexible, familiar, powerful for ad-hoc transformations | Exact-target cardinality, stale-source checks, effect budgets, guarded application and result certificates under a common contract |
 | **[`git apply`](https://git-scm.com/docs/git-apply) and patch tools** | Applying diffs with context, checking patch applicability, Git-integrated workflows | Provider-aware targeting beyond patches, explicit effect budgets, source-preserving structured edits, and one consistent certificate interface; `git apply --check` remains valuable |
-| **[ast-grep](https://ast-grep.github.io/) and [Comby](https://comby.dev/)** | Rich syntactic or structural pattern matching and large-scale refactoring | A different emphasis: authoritative bounded writes, cross-format provider discovery, source identity, multi-file content transactions and verifiable outcomes. These tools can be excellent ways to *find* or design an edit |
+| **[ast-grep](https://ast-grep.github.io/) and [Comby](https://comby.dev/)** | Rich syntactic or structural pattern matching and large-scale rewrites | Threadmoth **now integrates ast-grep** as its first Toolbelt specialist, turning AST match proposals into source-checked, guarded edits with certificates; Comby remains a separate tool |
 | **`jq`, `yq` and format-specific writers** | Powerful data queries, transformations and format-aware manipulation | Small source-local edits with a common preservation and verification contract, when supported; Threadmoth is not a substitute for complex format-specific transformations |
 | **[Aider](https://aider.chat/docs/) and other coding agents** | Reasoning about code, deciding changes, editing across a project, running tests and integrating with Git | Not a replacement. Threadmoth is the deterministic mutation layer such agents can choose to use |
 
-**Where Threadmoth has a genuine advantage:** when an automated edit must be *precise, bounded, minimally invasive, auditable and repeatable across file types*, with a clear refusal if those conditions cannot be established.
+**Where Threadmoth has a genuine advantage:** when an automated edit must be *precise, bounded, minimally invasive, auditable and repeatable across file types*. Its superpower is the **shared editing contract**: one careful place to validate and commit changes proposed in several different ways, with a clear refusal when the evidence isn't there.
 
 **Where another tool may be better:** whole-project semantic refactors, generated code, complex data transformations, interactive editing, formatting, compilation, testing and Git history management.
 
@@ -339,6 +394,8 @@ Otherwise:
     refuse clearly, or report failure and recovery state
 ~~~
 
+**Let the agent be clever. Let the edit be certain where it can be proven.**
+
 **Find the exact thing. Change only that thing. Prove what happened.**
 
-MIT licensed. Built in Rust. Designed to be useful to *any* agent, and predictable enough to trust with the last mile.
+MIT licensed. Built in Rust. Model-agnostic. A careful pair of hands for the last mile of agentic software development.
