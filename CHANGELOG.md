@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.22.0 - Newline Firewall and Agent-Friendly Editing
+
+### Added
+
+- **Core Newline Firewall:** Automatically preserve uniform LF and CRLF files while allowing safe, locally inferred edits in mixed-newline files. A central pre-commit check applies across supported mutation routes, including prepared plans and transactions.
+- **Deliberate Conversion Controls:** Explicit CLI and MCP newline conversion operations and conversion authorisation, separate from exact-match semantics.
+- **Simpler Agent Editing:** File-based search/replacement inputs, expected-match counts, replace-all safeguards, and compact multi-file edit documents.
+- **Permanent Adversarial Coverage:** Terrorbats CRLF Armageddon regression suite with a bounded deterministic fuzz profile in CI and an opt-in 1,000-case assault.
+
+### Fixed
+
+- Accidental CRLF/LF injection from Windows-generated replacement text, including the Hamesh regression.
+- Mixed-file line-identity bugs affecting deletions and reordering, with byte-level preservation validation.
+- Diff planner splitting CRLF boundaries, multiline candidate refinement, edit-document effect-budget underestimates, and Unicode near-miss slicing.
+- Misleading newline diagnostics and preservation evidence.
+
+### Compatibility
+
+- Wire protocol remains `1.4.0`. Conversion authorisation is additive and defaults to disabled.
+- Release version updated from `1.21.0` to `1.22.0`.
+
 ## 1.21.0 - Toolbelt Structural Editing and Reliability Consolidation
 
 ### Added
