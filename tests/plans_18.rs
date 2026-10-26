@@ -16,6 +16,7 @@ fn request() -> Request {
         version: "1.3.0".into(),
         request_id: "plan-test".into(),
         allow_generated: false,
+        allow_newline_conversion: false,
         file_path: "config.txt".into(),
         namespace: Default::default(),
         expected_pre_hash: None,

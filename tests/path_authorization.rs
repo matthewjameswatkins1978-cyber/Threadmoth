@@ -17,6 +17,7 @@ fn text_request(path: &str, prefix: &str) -> Request {
         version: PROTOCOL_VERSION.into(),
         request_id: "path-authorization-regression".into(),
         allow_generated: false,
+        allow_newline_conversion: false,
         file_path: path.into(),
         namespace: Default::default(),
         expected_pre_hash: None,

@@ -27,6 +27,10 @@ pub struct SourceAwareTextRequest {
     pub newline_policy: NewlinePolicy,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub within: Option<String>,
+    #[serde(default)]
+    pub cardinality: Cardinality,
+    #[serde(default)]
+    pub allow_newline_conversion: bool,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
@@ -58,6 +62,7 @@ pub fn prepare(workspace: &Workspace, request: &SourceAwareTextRequest) -> Sourc
                 version: PROTOCOL_VERSION.into(),
                 request_id: "source-text-prepare".into(),
                 allow_generated: false,
+                allow_newline_conversion: request.allow_newline_conversion,
                 file_path: request.file_path.clone(),
                 namespace: crate::path::PathNamespace::Native,
                 expected_pre_hash: None,
@@ -83,6 +88,7 @@ pub fn prepare(workspace: &Workspace, request: &SourceAwareTextRequest) -> Sourc
                 version: PROTOCOL_VERSION.into(),
                 request_id: "source-text-prepare".into(),
                 allow_generated: false,
+                allow_newline_conversion: request.allow_newline_conversion,
                 file_path: resolved.clone(),
                 namespace: crate::path::PathNamespace::Native,
                 expected_pre_hash: None,
@@ -106,6 +112,7 @@ pub fn prepare(workspace: &Workspace, request: &SourceAwareTextRequest) -> Sourc
         version: PROTOCOL_VERSION.into(),
         request_id: format!("source-text-{}", &source_hash[..16]),
         allow_generated: false,
+        allow_newline_conversion: request.allow_newline_conversion,
         file_path: resolved.clone(),
         namespace: crate::path::PathNamespace::Native,
         expected_pre_hash: Some(source_hash.clone()),
@@ -118,7 +125,7 @@ pub fn prepare(workspace: &Workspace, request: &SourceAwareTextRequest) -> Sourc
                 mode: crate::protocol::RegionGuardMode::ScopeDisambiguation,
             }),
         candidate_guard: None,
-        cardinality: Cardinality::ExactlyOne,
+        cardinality: request.cardinality.clone(),
         budget: EffectBudget {
             max_files: Some(1),
             allowed_path_prefixes: vec![resolved.clone()],

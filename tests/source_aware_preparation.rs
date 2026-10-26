@@ -30,6 +30,8 @@ fn request(path: &str, edits: &[(&str, &str)]) -> SourceAwareTextRequest {
             .collect(),
         newline_policy: NewlinePolicy::Source,
         within: None,
+        cardinality: Default::default(),
+        allow_newline_conversion: false,
     }
 }
 
@@ -304,6 +306,7 @@ fn workflow_comparison_measures_retries_calls_and_request_bytes() {
         version: PROTOCOL_VERSION.into(),
         request_id: "legacy-full-request".into(),
         allow_generated: false,
+        allow_newline_conversion: false,
         file_path: "config.txt".into(),
         namespace: Default::default(),
         expected_pre_hash: None,
@@ -1451,6 +1454,7 @@ fn test_certificate_metadata_truthfulness_and_coordinates() {
     let repair_req_json = serde_json::json!({
         "version": "1.4.0",
         "file_path": "mixed_test.txt",
+        "allow_newline_conversion": true,
         "operation": {
             "provider": "text",
             "operation": {

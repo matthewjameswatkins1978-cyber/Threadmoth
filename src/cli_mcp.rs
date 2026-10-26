@@ -113,6 +113,16 @@ struct StructuralToolArgs {
 
 #[derive(Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+struct ConvertNewlinesToolArgs {
+    #[serde(rename = "file_path", alias = "path", alias = "file")]
+    file_path: String,
+    to: String,
+    #[serde(default)]
+    preview: bool,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 struct EditToolArgs {
     #[serde(default)]
     #[serde(rename = "file_path", alias = "path", alias = "target", alias = "file")]
@@ -121,14 +131,32 @@ struct EditToolArgs {
     #[serde(rename = "search", alias = "old")]
     search: Option<String>,
     #[serde(default)]
+    #[serde(rename = "search_file", alias = "old_file")]
+    search_file: Option<String>,
+    #[serde(default)]
     #[serde(rename = "replace", alias = "new")]
     replace: Option<String>,
+    #[serde(default)]
+    #[serde(rename = "replace_file", alias = "new_file")]
+    replace_file: Option<String>,
     #[serde(default)]
     #[serde(rename = "within", alias = "scope", alias = "in")]
     within: Option<String>,
     #[serde(default)]
+    #[serde(rename = "expect_count")]
+    expect_count: Option<usize>,
+    #[serde(default)]
+    #[serde(rename = "all")]
+    all: bool,
+    #[serde(default)]
+    #[serde(rename = "newline_policy")]
+    newline_policy: Option<String>,
+    #[serde(default)]
     #[serde(rename = "document", alias = "content")]
     document: Option<String>,
+    #[serde(default)]
+    #[serde(rename = "allow_newline_conversion")]
+    allow_newline_conversion: bool,
     #[serde(default)]
     plan: bool,
 }
@@ -142,6 +170,7 @@ fn shorthand_request(file: &str, operation: OperationPayload, bytes: usize) -> R
         version: PROTOCOL_VERSION.into(),
         request_id: format!("mcp-shorthand-{file}"),
         allow_generated: false,
+        allow_newline_conversion: false,
         file_path: file.replace('\\', "/"),
         namespace: Default::default(),
         expected_pre_hash: None,
@@ -244,7 +273,8 @@ fn handle_mcp_message(
                 "jsonrpc": "2.0",
                 "id": id,
                 "result": {"tools": [
-                    {"name": "threadmoth_edit", "description": "Apply or preview an exact verified edit in one invocation. For a single file, provide file_path, search and replace. For multi-file changes, provide document content or document file_path. Set plan: true to preview without mutating.", "inputSchema": schema_for!(EditToolArgs)},
+                    {"name": "threadmoth_edit", "description": "Apply or preview an exact verified edit in one invocation. For a single file, provide file_path, search (or search_file) and replace (or replace_file). Set plan: true to preview without mutating.", "inputSchema": schema_for!(EditToolArgs)},
+                    {"name": "threadmoth_convert_newlines", "description": "Convert line endings across a workspace file with explicit conversion authority", "inputSchema": schema_for!(ConvertNewlinesToolArgs)},
                     {"name": "threadmoth_mutate", "description": "Apply one typed Threadmoth mutation and return its certificate; target specificity must come from the user or evidence", "inputSchema": schema_for!(Request)},
                     {"name": "threadmoth_preview", "description": "Preview one typed Threadmoth mutation without writing; if approved, call threadmoth_mutate with the same request; do not invent target specificity", "inputSchema": schema_for!(Request)},
                     {"name": "threadmoth_plan", "description": "Prepare a deterministic guarded plan without writing; preserve unresolved target ambiguity", "inputSchema": schema_for!(Request)},
@@ -390,6 +420,20 @@ fn call_tool(
     observation_cache: &mut threadmoth::metadata::ObservationCache,
 ) -> Result<Value, String> {
     match name {
+        "threadmoth_convert_newlines" => {
+            let args: ConvertNewlinesToolArgs =
+                serde_json::from_value(arguments).map_err(schema_error)?;
+            let mut req = shorthand_request(
+                &args.file_path,
+                OperationPayload::Text(
+                    threadmoth::provider::text::TextOperation::ConvertNewlines { to: args.to },
+                ),
+                1024 * 1024,
+            );
+            req.allow_newline_conversion = true;
+            let cert = threadmoth::pipeline::execute_request(workspace, &req, args.preview);
+            serde_json::to_value(&cert).map_err(|e| e.to_string())
+        }
         "threadmoth_edit" => {
             let args = serde_json::from_value::<EditToolArgs>(arguments).map_err(schema_error)?;
             execute_mcp_edit(workspace, args)
@@ -416,6 +460,8 @@ fn call_tool(
                 edits: args.edits,
                 newline_policy: args.newline_policy,
                 within: args.within,
+                cardinality: Cardinality::default(),
+                allow_newline_conversion: false,
             };
             let result = threadmoth::source_prepare::prepare(workspace, &request);
             let output = match result {
@@ -603,10 +649,27 @@ fn call_tool(
 }
 
 fn execute_mcp_edit(workspace: &Workspace, args: EditToolArgs) -> Result<Value, String> {
-    let has_search = args.search.is_some();
-    let has_replace = args.replace.is_some();
+    let has_search = args.search.is_some() || args.search_file.is_some();
+    let has_replace = args.replace.is_some() || args.replace_file.is_some();
     let has_document = args.document.is_some();
     let has_file = args.file_path.is_some();
+
+    if args.search.is_some() && args.search_file.is_some() {
+        return Err("contradictory parameters: cannot combine `search` with `search_file`".into());
+    }
+    if args.replace.is_some() && args.replace_file.is_some() {
+        return Err(
+            "contradictory parameters: cannot combine `replace` with `replace_file`".into(),
+        );
+    }
+    if args.expect_count.is_some() && args.all {
+        return Err("contradictory parameters: cannot combine `expect_count` with `all`".into());
+    }
+    if let Some(0) = args.expect_count {
+        return Err(
+            "`expect_count` must be at least 1; to ensure absence use an edit document".into(),
+        );
+    }
 
     if has_document && (has_search || has_replace) {
         return Err(
@@ -624,7 +687,15 @@ fn execute_mcp_edit(workspace: &Workspace, args: EditToolArgs) -> Result<Value, 
 
     if has_search != has_replace {
         if has_search {
-            return Err("incomplete inline edit: `search` was provided without `replace`".into());
+            if args.search_file.is_some() {
+                return Err("incomplete inline edit: `search_file` was provided without `replace` or `replace_file`".into());
+            } else {
+                return Err(
+                    "incomplete inline edit: `search` was provided without `replace`".into(),
+                );
+            }
+        } else if args.replace_file.is_some() {
+            return Err("incomplete inline edit: `replace_file` was provided without `search` or `search_file`".into());
         } else {
             return Err("incomplete inline edit: `replace` was provided without `search`".into());
         }
@@ -632,26 +703,92 @@ fn execute_mcp_edit(workspace: &Workspace, args: EditToolArgs) -> Result<Value, 
 
     if args.within.is_some() && (has_document || !has_search || !has_replace) {
         return Err(
-            "multi-file edit document mode does not accept `within`; scope anchors are only valid for single-file inline edits with `search` and `replace`"
+            "multi-file edit document mode does not accept `within`; scope anchors are only valid for single-file inline edits with search and replace"
                 .into(),
         );
     }
 
-    if let (Some(search), Some(replace)) = (args.search, args.replace) {
+    if (args.expect_count.is_some() || args.all) && !has_search {
+        return Err(
+            "`expect_count` and `all` are only valid for single-file edits with search and replace"
+                .into(),
+        );
+    }
+
+    if has_search && has_replace {
         let Some(file_path) = args.file_path else {
             return Err(
                 "single-file inline edit requires `file_path` alongside `search` and `replace`"
                     .into(),
             );
         };
+
+        let search = if let Some(s) = args.search {
+            s
+        } else if let Some(path) = &args.search_file {
+            let resolved = workspace
+                .resolve_namespaced_path(path, &threadmoth::path::PathNamespace::Native)
+                .map_err(|e| format!("search_file path refused: {e}"))?;
+            let bytes = workspace
+                .read_file(&resolved)
+                .map_err(|e| format!("cannot read search_file {resolved}: {e}"))?;
+            if bytes.len() > MAX_REQUEST_BYTES {
+                return Err(format!("search_file exceeds {MAX_REQUEST_BYTES} bytes"));
+            }
+            String::from_utf8(bytes).map_err(|_| "search_file must be valid UTF-8".to_string())?
+        } else {
+            unreachable!()
+        };
+
+        let replace = if let Some(r) = args.replace {
+            r
+        } else if let Some(path) = &args.replace_file {
+            let resolved = workspace
+                .resolve_namespaced_path(path, &threadmoth::path::PathNamespace::Native)
+                .map_err(|e| format!("replace_file path refused: {e}"))?;
+            let bytes = workspace
+                .read_file(&resolved)
+                .map_err(|e| format!("cannot read replace_file {resolved}: {e}"))?;
+            if bytes.len() > MAX_REQUEST_BYTES {
+                return Err(format!("replace_file exceeds {MAX_REQUEST_BYTES} bytes"));
+            }
+            String::from_utf8(bytes).map_err(|_| "replace_file must be valid UTF-8".to_string())?
+        } else {
+            unreachable!()
+        };
+
+        let newline_policy = match args.newline_policy.as_deref().unwrap_or("source") {
+            "source" => threadmoth::source_prepare::NewlinePolicy::Source,
+            "exact" => threadmoth::source_prepare::NewlinePolicy::Exact,
+            other => {
+                return Err(format!(
+                    "invalid newline policy '{other}': expected 'source' or 'exact'"
+                ))
+            }
+        };
+
+        let cardinality = if let Some(n) = args.expect_count {
+            if n == 1 {
+                Cardinality::ExactlyOne
+            } else {
+                Cardinality::Exactly(n)
+            }
+        } else if args.all {
+            Cardinality::All
+        } else {
+            Cardinality::ExactlyOne
+        };
+
         let request = threadmoth::source_prepare::SourceAwareTextRequest {
             file_path,
             edits: vec![threadmoth::source_prepare::TextReplacementIntent {
                 old: search,
                 new: replace,
             }],
-            newline_policy: threadmoth::source_prepare::NewlinePolicy::Source,
+            newline_policy,
             within: args.within,
+            cardinality,
+            allow_newline_conversion: args.allow_newline_conversion,
         };
         return match threadmoth::source_prepare::prepare(workspace, &request) {
             threadmoth::source_prepare::SourcePreparationResult::Prepared(prepared) => {

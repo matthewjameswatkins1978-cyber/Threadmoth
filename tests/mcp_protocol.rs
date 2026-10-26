@@ -107,7 +107,12 @@ fn tools_list_exposes_preview_and_notification_has_no_response() {
         .unwrap()
         .iter()
         .any(|tool| tool["name"] == "threadmoth_update"));
-    assert_eq!(output[0]["result"]["tools"].as_array().unwrap().len(), 16);
+    assert_eq!(output[0]["result"]["tools"].as_array().unwrap().len(), 17);
+    assert!(output[0]["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|tool| tool["name"] == "threadmoth_convert_newlines"));
     assert!(output[0]["result"]["tools"]
         .as_array()
         .unwrap()

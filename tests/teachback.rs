@@ -13,6 +13,7 @@ fn request(path: String, operation: OperationPayload, prefix: &str) -> Request {
         version: PROTOCOL_VERSION.into(),
         request_id: "teachback-regression".into(),
         allow_generated: false,
+        allow_newline_conversion: false,
         file_path: path,
         namespace: Default::default(),
         expected_pre_hash: None,

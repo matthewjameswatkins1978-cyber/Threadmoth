@@ -26,7 +26,17 @@ const FILE_PREFIX: &str = "*** File: ";
 const SEARCH: &str = "<<<<<<< SEARCH";
 const SEPARATOR: &str = "=======";
 const REPLACE: &str = ">>>>>>> REPLACE";
-const MARKERS: [&str; 3] = [SEARCH, SEPARATOR, REPLACE];
+const SHORT_SEARCH: &str = "<<<";
+const SHORT_SEPARATOR: &str = "===";
+const SHORT_REPLACE: &str = ">>>";
+const MARKERS: [&str; 6] = [
+    SEARCH,
+    SEPARATOR,
+    REPLACE,
+    SHORT_SEARCH,
+    SHORT_SEPARATOR,
+    SHORT_REPLACE,
+];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EditDocumentFile {
@@ -131,23 +141,31 @@ pub fn parse(document: &str) -> Result<Vec<EditDocumentFile>, EditDocumentDiagno
                 continue;
             }
             let edit_line = index + 1;
-            if lines[index].trim_end() != SEARCH {
+            let trimmed = lines[index].trim_end();
+            let (sep, rep) = if trimmed == SEARCH {
+                (SEPARATOR, REPLACE)
+            } else if trimmed == SHORT_SEARCH {
+                (SHORT_SEPARATOR, SHORT_REPLACE)
+            } else {
                 return Err(diagnostic(
                     edit_line,
-                    "expected `<<<<<<< SEARCH` or the next `*** File:` header",
+                    "expected `<<<<<<< SEARCH`, `<<<` or the next `*** File:` header",
+                ));
+            };
+            index += 1;
+            let old = read_body(&lines, &mut index, sep, edit_line)?;
+            if index >= lines.len() || lines[index].trim_end() != sep {
+                return Err(diagnostic(
+                    edit_line,
+                    format!("search block is missing `{sep}`"),
                 ));
             }
             index += 1;
-            let old = read_body(&lines, &mut index, SEPARATOR, edit_line)?;
-            if index >= lines.len() || lines[index].trim_end() != SEPARATOR {
-                return Err(diagnostic(edit_line, "search block is missing `=======`"));
-            }
-            index += 1;
-            let new = read_body(&lines, &mut index, REPLACE, edit_line)?;
-            if index >= lines.len() || lines[index].trim_end() != REPLACE {
+            let new = read_body(&lines, &mut index, rep, edit_line)?;
+            if index >= lines.len() || lines[index].trim_end() != rep {
                 return Err(diagnostic(
                     edit_line,
-                    "replacement block is missing `>>>>>>> REPLACE`",
+                    format!("replacement block is missing `{rep}`"),
                 ));
             }
             index += 1;
@@ -341,34 +359,41 @@ pub fn prepare(
         let authority_root = workspace_scope(&path);
         let source = workspace.read_file(&path).ok();
         let expected_pre_hash = source.as_deref().map(compute_sha256);
-        let changed_bytes = source
-            .as_deref()
-            .and_then(|source| {
-                TextProvider::plan(
-                    source,
-                    &TextOperation::ReplaceSequence {
-                        edits: file.edits.clone(),
-                        newline_policy: NewlinePolicy::Source,
-                    },
-                    &Cardinality::ExactlyOne,
-                )
-                .ok()
-            })
-            .map(|edits| crate::pipeline::changed_byte_effect(&edits))
-            .unwrap_or_default();
-        let changed_lines = file
-            .edits
-            .iter()
-            .map(|edit| {
-                edit.old.bytes().filter(|byte| *byte == b'\n').count()
-                    + edit.new.bytes().filter(|byte| *byte == b'\n').count()
-                    + 2
-            })
-            .sum::<usize>();
+        let planned_edits = source.as_deref().and_then(|source| {
+            TextProvider::plan(
+                source,
+                &TextOperation::ReplaceSequence {
+                    edits: file.edits.clone(),
+                    newline_policy: NewlinePolicy::Source,
+                },
+                &Cardinality::ExactlyOne,
+            )
+            .ok()
+        });
+        let (changed_bytes, changed_regions, changed_lines) =
+            if let (Some(source), Some(edits)) = (source.as_deref(), planned_edits.as_ref()) {
+                let bytes = crate::pipeline::changed_byte_effect(edits);
+                let regions = edits.len();
+                let candidate = crate::engine::apply_byte_edits(source, edits)
+                    .unwrap_or_else(|_| source.to_vec());
+                let lines = crate::pipeline::changed_line_count(source, &candidate);
+                (bytes, regions, lines)
+            } else {
+                let changed_lines = file
+                    .edits
+                    .iter()
+                    .map(|edit| {
+                        edit.old.bytes().filter(|byte| *byte == b'\n').count()
+                            + edit.new.bytes().filter(|byte| *byte == b'\n').count()
+                            + 2
+                    })
+                    .sum::<usize>();
+                (0, changed_lines.max(file.edits.len()), changed_lines)
+            };
         let per_file_budget = EffectBudget {
             max_files: Some(1),
-            max_matches: Some(changed_lines.max(file.edits.len())),
-            max_changed_regions: Some(changed_lines.max(file.edits.len())),
+            max_matches: Some(changed_regions.max(file.edits.len())),
+            max_changed_regions: Some(changed_regions.max(file.edits.len())),
             max_changed_lines: Some(changed_lines),
             max_changed_bytes: Some(changed_bytes),
             allowed_path_prefixes: vec![path.clone()],
@@ -377,6 +402,7 @@ pub fn prepare(
             version: PROTOCOL_VERSION.into(),
             request_id: format!("{transaction_id}-{}", file_index + 1),
             allow_generated: false,
+            allow_newline_conversion: false,
             file_path: path.clone(),
             namespace: crate::path::PathNamespace::Native,
             expected_pre_hash,
@@ -407,14 +433,22 @@ pub fn prepare(
         .iter()
         .map(|request| request.budget.max_changed_lines.unwrap_or_default())
         .sum::<usize>();
+    let changed_regions = requests
+        .iter()
+        .map(|request| request.budget.max_changed_regions.unwrap_or_default())
+        .sum::<usize>();
+    let changed_matches = requests
+        .iter()
+        .map(|request| request.budget.max_matches.unwrap_or_default())
+        .sum::<usize>();
     let transaction = TransactionRequest {
         version: PROTOCOL_VERSION.into(),
         transaction_id: transaction_id.clone(),
         requests,
         budget: EffectBudget {
             max_files: Some(files.len()),
-            max_matches: Some(changed_lines.max(edit_count)),
-            max_changed_regions: Some(changed_lines.max(edit_count)),
+            max_matches: Some(changed_matches.max(edit_count)),
+            max_changed_regions: Some(changed_regions.max(edit_count)),
             max_changed_lines: Some(changed_lines),
             max_changed_bytes: Some(changed_bytes),
             allowed_path_prefixes: allowed_paths,

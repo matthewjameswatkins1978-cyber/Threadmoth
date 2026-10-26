@@ -8,6 +8,7 @@ pub mod edit_document;
 pub mod engine;
 pub mod lifecycle;
 pub mod metadata;
+pub mod newline;
 pub mod path;
 pub mod pattern;
 pub mod pipeline;

@@ -38,6 +38,12 @@ pub enum Command {
     /// Create one missing file without overwriting an existing destination.
     CreateFile(CreateFileArgs),
 
+    /// Convert unchanged line endings across a file with explicit conversion authority.
+    #[command(
+        after_help = "Examples:\n  threadmoth convert-newlines src/main.rs --to lf\n  threadmoth convert-newlines src/main.rs --to crlf\n  threadmoth convert-newlines src/main.rs --to lf --preview"
+    )]
+    ConvertNewlines(ConvertNewlinesArgs),
+
     /// Apply one verified mutation.
     #[command(
         alias = "apply",
@@ -444,9 +450,19 @@ pub struct EditArgs {
         long,
         alias = "old",
         value_name = "OLD",
-        requires = "replace"
+        conflicts_with = "search_file"
     )]
     pub search: Option<String>,
+
+    /// Read exact search text from a workspace file (bypasses shell quoting).
+    #[arg(
+        long = "search-file",
+        alias = "old-file",
+        value_name = "SEARCH_FILE",
+        conflicts_with = "search",
+        value_hint = ValueHint::FilePath
+    )]
+    pub search_file: Option<std::path::PathBuf>,
 
     /// Replacement text (used with --search for single-file editing).
     #[arg(
@@ -454,13 +470,43 @@ pub struct EditArgs {
         long,
         alias = "new",
         value_name = "NEW",
-        requires = "search"
+        conflicts_with = "replace_file"
     )]
     pub replace: Option<String>,
+
+    /// Read exact replacement text from a workspace file (bypasses shell quoting).
+    #[arg(
+        long = "replace-file",
+        alias = "new-file",
+        value_name = "REPLACE_FILE",
+        conflicts_with = "replace",
+        value_hint = ValueHint::FilePath
+    )]
+    pub replace_file: Option<std::path::PathBuf>,
 
     /// Scope disambiguation anchor (structural scope or section boundary).
     #[arg(long, alias = "scope", value_name = "ANCHOR")]
     pub within: Option<String>,
+
+    /// Refuse unless the exact search target appears exactly N times and all are replaced.
+    #[arg(long = "expect-count", value_name = "N", conflicts_with = "all")]
+    pub expect_count: Option<usize>,
+
+    /// Replace every occurrence across the file (subject to effect budgets).
+    #[arg(long, conflicts_with = "expect_count")]
+    pub all: bool,
+
+    /// Newline handling policy: 'source' adapts to uniform file endings; 'exact' requires literal match.
+    #[arg(
+        long = "newline-policy",
+        value_name = "POLICY",
+        default_value = "source"
+    )]
+    pub newline_policy: String,
+
+    /// Explicitly authorize altering unchanged line endings during this edit.
+    #[arg(long = "allow-newline-conversion")]
+    pub allow_newline_conversion: bool,
 
     /// Prepare and review the plan without mutating sources.
     #[arg(long)]
@@ -620,4 +666,27 @@ impl From<CompletionShell> for clap_complete::Shell {
             CompletionShell::Powershell => clap_complete::Shell::PowerShell,
         }
     }
+}
+
+#[derive(Args, Debug)]
+pub struct ConvertNewlinesArgs {
+    /// Workspace-relative file path.
+    #[arg(value_name = "FILE_PATH", value_hint = ValueHint::FilePath)]
+    pub file: std::path::PathBuf,
+
+    /// Target line-ending convention ('lf' or 'crlf').
+    #[arg(long, value_name = "CONVENTION")]
+    pub to: String,
+
+    /// Preview the conversion without writing to disk.
+    #[arg(long)]
+    pub preview: bool,
+
+    /// Emit machine-readable JSON.
+    #[arg(short = 'j', long)]
+    pub json: bool,
+
+    /// Print compact human summary.
+    #[arg(long)]
+    pub summary: bool,
 }

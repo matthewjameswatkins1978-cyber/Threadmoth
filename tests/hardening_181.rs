@@ -14,6 +14,7 @@ fn ambiguous_request() -> Request {
         version: "1.3.1".into(),
         request_id: "hardening-181-ambiguity".into(),
         allow_generated: false,
+        allow_newline_conversion: false,
         file_path: "x.txt".into(),
         namespace: Default::default(),
         expected_pre_hash: None,
