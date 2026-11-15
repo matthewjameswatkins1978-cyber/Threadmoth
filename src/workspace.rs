@@ -93,7 +93,7 @@ impl Workspace {
                 Ok(mut file) => {
                     let marker = format!("pid={}\n", std::process::id());
                     file.write_all(marker.as_bytes())?;
-                    file.sync_all()?;
+                    file.flush()?;
                     return Ok(MutationLock { path, _file: file });
                 }
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
@@ -399,7 +399,7 @@ impl Workspace {
         bytes: &[u8],
     ) -> Result<(), WorkspaceError> {
         let resolved = self.resolve_path(rel_path)?;
-        self.ensure_file_size(&resolved)?;
+        self.ensure_file_size_and_writeable(&resolved)?;
         let observed = fs::read(&resolved)?;
         let actual = sha256(&observed);
         if actual != expected_hash {
@@ -411,7 +411,6 @@ impl Workspace {
         if let Some(parent) = resolved.parent() {
             self.ensure_parent(parent)?;
         }
-        self.ensure_windows_replaceable(&resolved)?;
         let mut file = AtomicWriteFile::open(&resolved)?;
         file.write_all(bytes)?;
         file.flush()?;
@@ -419,16 +418,44 @@ impl Workspace {
         Ok(())
     }
 
-    fn ensure_windows_replaceable(&self, _path: &Path) -> Result<(), WorkspaceError> {
+    fn ensure_file_size_and_writeable(&self, path: &Path) -> Result<(), WorkspaceError> {
+        let metadata = fs::metadata(path)?;
+        let length = metadata.len();
+        if length > MAX_FILE_BYTES as u64 {
+            return Err(WorkspaceError::ResourceLimit {
+                dimension: "max_file_bytes".into(),
+                limit: MAX_FILE_BYTES,
+                actual: length.min(usize::MAX as u64) as usize,
+            });
+        }
         #[cfg(target_os = "windows")]
-        if _path.exists() && fs::metadata(_path)?.permissions().readonly() {
+        if metadata.permissions().readonly() {
             return Err(WorkspaceError::Io(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 format!(
                     "read-only destination cannot be atomically replaced on Windows: {}",
-                    _path.display()
+                    path.display()
                 ),
             )));
+        }
+        Ok(())
+    }
+
+    fn ensure_windows_replaceable(&self, _path: &Path) -> Result<(), WorkspaceError> {
+        #[cfg(target_os = "windows")]
+        match fs::metadata(_path) {
+            Ok(meta) if meta.permissions().readonly() => {
+                return Err(WorkspaceError::Io(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    format!(
+                        "read-only destination cannot be atomically replaced on Windows: {}",
+                        _path.display()
+                    ),
+                )));
+            }
+            Ok(_) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(WorkspaceError::Io(e)),
         }
         Ok(())
     }
@@ -485,23 +512,56 @@ fn reject_parent_components(path: &str) -> Result<(), WorkspaceError> {
     Ok(())
 }
 
+#[cfg(windows)]
+fn is_link_or_reparse(meta: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    meta.file_type().is_symlink() || (meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0)
+}
+
+#[cfg(not(windows))]
+fn is_link_or_reparse(meta: &fs::Metadata) -> bool {
+    meta.file_type().is_symlink()
+}
+
 /// Canonicalize an existing target or its deepest existing ancestor, then
 /// append the still-missing leaf components. This resolves symlinks and
 /// Windows reparse points before a create/write path is authorized.
+/// Dangling symlinks and broken junctions are rejected with SymlinkEscape.
 fn canonicalize_candidate(path: &Path) -> Result<PathBuf, WorkspaceError> {
     let mut ancestor = path.to_path_buf();
     let mut suffix = Vec::new();
     loop {
         match fs::symlink_metadata(&ancestor) {
-            Ok(_) => {
-                let mut resolved = fs::canonicalize(&ancestor)?;
-                if !suffix.is_empty() && !fs::metadata(&resolved)?.is_dir() {
-                    return Err(WorkspaceError::NotFound(path.display().to_string()));
+            Ok(meta) => {
+                if is_link_or_reparse(&meta) {
+                    let mut resolved = fs::canonicalize(&ancestor).map_err(|_| {
+                        WorkspaceError::SymlinkEscape(ancestor.display().to_string())
+                    })?;
+                    let is_dir = fs::metadata(&resolved).map(|m| m.is_dir()).unwrap_or(false);
+                    if !suffix.is_empty() && !is_dir {
+                        return Err(WorkspaceError::NotFound(path.display().to_string()));
+                    }
+                    for component in suffix.iter().rev() {
+                        resolved.push(component);
+                    }
+                    return Ok(resolved);
+                } else {
+                    let mut resolved = fs::canonicalize(&ancestor).map_err(|e| match e.kind() {
+                        io::ErrorKind::NotFound => {
+                            WorkspaceError::NotFound(ancestor.display().to_string())
+                        }
+                        _ => WorkspaceError::Io(e),
+                    })?;
+                    let is_dir = fs::metadata(&resolved).map(|m| m.is_dir()).unwrap_or(false);
+                    if !suffix.is_empty() && !is_dir {
+                        return Err(WorkspaceError::NotFound(path.display().to_string()));
+                    }
+                    for component in suffix.iter().rev() {
+                        resolved.push(component);
+                    }
+                    return Ok(resolved);
                 }
-                for component in suffix.iter().rev() {
-                    resolved.push(component);
-                }
-                return Ok(resolved);
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 let name = ancestor
@@ -597,6 +657,133 @@ mod tests {
             w.write_file_atomic_checked("x.txt", &h, b"three"),
             Err(WorkspaceError::StaleIdentity { .. })
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dangling_symlink_rejected() {
+        use std::os::unix::fs::symlink;
+        let t = TempDir::new().unwrap();
+        symlink(
+            t.path().join("nonexistent_target"),
+            t.path().join("dangling_link"),
+        )
+        .unwrap();
+        let w = Workspace::new(t.path()).unwrap();
+        assert!(matches!(
+            w.resolve_path("dangling_link"),
+            Err(WorkspaceError::SymlinkEscape(_))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn parent_directory_symlink_replacement_rejected() {
+        use std::os::unix::fs::symlink;
+        let t = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let dir = t.path().join("sub");
+        fs::create_dir(&dir).unwrap();
+        let file = dir.join("f.txt");
+        fs::write(&file, b"content").unwrap();
+        let h = sha256(b"content");
+        let w = Workspace::new(t.path()).unwrap();
+
+        fs::remove_file(&file).unwrap();
+        fs::remove_dir(&dir).unwrap();
+        symlink(outside.path(), &dir).unwrap();
+        fs::write(outside.path().join("f.txt"), b"content").unwrap();
+
+        assert!(matches!(
+            w.write_file_atomic_checked("sub/f.txt", &h, b"new_content"),
+            Err(WorkspaceError::SymlinkEscape(_))
+        ));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_junction_escape_rejected() {
+        let t = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let link = t.path().join("junc_link");
+        let cmd = std::process::Command::new("cmd")
+            .args([
+                "/C",
+                "mklink",
+                "/J",
+                &link.to_string_lossy(),
+                &outside.path().to_string_lossy(),
+            ])
+            .output();
+        if let Ok(out) = cmd {
+            if out.status.success() {
+                let w = Workspace::new(t.path()).unwrap();
+                assert!(matches!(
+                    w.resolve_path("junc_link/target.txt"),
+                    Err(WorkspaceError::SymlinkEscape(_))
+                ));
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_dangling_junction_rejected() {
+        let t = TempDir::new().unwrap();
+        let link = t.path().join("dangling_junc");
+        let nonexistent = t.path().join("missing_outside");
+        let cmd = std::process::Command::new("cmd")
+            .args([
+                "/C",
+                "mklink",
+                "/J",
+                &link.to_string_lossy(),
+                &nonexistent.to_string_lossy(),
+            ])
+            .output();
+        if let Ok(out) = cmd {
+            if out.status.success() {
+                let w = Workspace::new(t.path()).unwrap();
+                assert!(matches!(
+                    w.resolve_path("dangling_junc/target.txt"),
+                    Err(WorkspaceError::SymlinkEscape(_))
+                ));
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_parent_directory_replacement_rejected() {
+        let t = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let sub = t.path().join("sub");
+        fs::create_dir(&sub).unwrap();
+        let file = sub.join("f.txt");
+        fs::write(&file, b"content").unwrap();
+        let h = sha256(b"content");
+        let w = Workspace::new(t.path()).unwrap();
+
+        fs::remove_file(&file).unwrap();
+        fs::remove_dir(&sub).unwrap();
+        let cmd = std::process::Command::new("cmd")
+            .args([
+                "/C",
+                "mklink",
+                "/J",
+                &sub.to_string_lossy(),
+                &outside.path().to_string_lossy(),
+            ])
+            .output();
+        if let Ok(out) = cmd {
+            if out.status.success() {
+                fs::write(outside.path().join("f.txt"), b"content").unwrap();
+                assert!(matches!(
+                    w.write_file_atomic_checked("sub/f.txt", &h, b"new_content"),
+                    Err(WorkspaceError::SymlinkEscape(_))
+                ));
+            }
+        }
     }
 
     #[test]

@@ -939,9 +939,23 @@ pub fn plan_identity(plan: &PreparedPlan) -> String {
     format!("sha256:{}", compute_sha256(&bytes))
 }
 
+struct ByteCounter(usize);
+
+impl std::io::Write for ByteCounter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0 += buf.len();
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 fn serialized_plan_size(plan: &PreparedPlan) -> usize {
-    serde_json::to_vec(plan)
-        .map(|bytes| bytes.len())
+    let mut counter = ByteCounter(0);
+    serde_json::to_writer(&mut counter, plan)
+        .map(|()| counter.0)
         .unwrap_or(usize::MAX)
 }
 
@@ -1136,8 +1150,16 @@ pub fn apply_prepared_plan(workspace: &Workspace, plan: &PreparedPlan) -> PlanAp
         aggregate.changed_regions += effect.changed_regions;
         aggregate.changed_lines += effect.changed_lines;
         aggregate.changed_bytes += effect.changed_bytes;
+        let candidate_hash = compute_sha256(&candidate);
         overrides.insert(operation.file_path.clone(), candidate.clone());
-        prepared.push((path, original, candidate, stored_edits));
+        prepared.push((
+            path,
+            original,
+            actual_hash,
+            candidate,
+            candidate_hash,
+            stored_edits,
+        ));
     }
     if let Some((dimension, limit, actual)) = budget_violation(&aggregate, &plan.budget) {
         return plan_failure_result(
@@ -1160,13 +1182,15 @@ pub fn apply_prepared_plan(workspace: &Workspace, plan: &PreparedPlan) -> PlanAp
         .unwrap_or_else(|| format!("plan-{}", &plan.plan_id[7..23.min(plan.plan_id.len())]));
     let entries: Vec<JournalEntry> = prepared
         .iter()
-        .map(|(path, original, candidate, _)| JournalEntry {
-            path: path.clone(),
-            pre_hash: compute_sha256(original),
-            candidate_hash: compute_sha256(candidate),
-            original: original.clone(),
-            candidate: candidate.clone(),
-        })
+        .map(
+            |(path, original, pre_hash, candidate, candidate_hash, _)| JournalEntry {
+                path: path.clone(),
+                pre_hash: pre_hash.clone(),
+                candidate_hash: candidate_hash.clone(),
+                original: original.clone(),
+                candidate: candidate.clone(),
+            },
+        )
         .collect();
     let journal = Journal {
         protocol_version: plan.protocol_version.clone(),
@@ -1246,20 +1270,9 @@ fn commit_prepared_plan(
     transaction: &TransactionRequest,
     journal: &Journal,
     aggregate: EffectUsage,
-    prepared: Vec<(String, Vec<u8>, Vec<u8>, Vec<ByteEdit>)>,
+    prepared: Vec<(String, Vec<u8>, String, Vec<u8>, String, Vec<ByteEdit>)>,
     assertions: &[Assertion],
 ) -> Result<(Vec<Certificate>, &'static str, Option<WorkspaceError>), Certificate> {
-    if let Err(error) = recovery::check_journal_size(journal) {
-        return Err(failure(
-            &transaction.requests[0],
-            &journal.entries[0].path,
-            "plan",
-            journal.entries[0].pre_hash.clone(),
-            FailureReason::CommitFailure {
-                message: error.to_string(),
-            },
-        ));
-    }
     if let Err(error) = recovery::write_journal(workspace, journal) {
         return Err(failure(
             &transaction.requests[0],
@@ -1359,7 +1372,9 @@ fn commit_prepared_plan(
             }
         };
     let mut certificates = Vec::new();
-    for (index, (path, original, candidate, edits)) in prepared.into_iter().enumerate() {
+    for (index, (path, original, pre_hash, candidate, candidate_hash, edits)) in
+        prepared.into_iter().enumerate()
+    {
         let request = transaction
             .requests
             .get(index)
@@ -1369,8 +1384,8 @@ fn commit_prepared_plan(
             request,
             &path,
             "plan",
-            compute_sha256(&original),
-            Some(compute_sha256(&candidate)),
+            pre_hash,
+            Some(candidate_hash),
             if original == candidate {
                 Outcome::NoChange
             } else {
@@ -1489,9 +1504,8 @@ pub fn commit_and_cleanup_journal(
     committed: &[&JournalEntry],
 ) -> Result<&'static str, (RollbackReport, String)> {
     let mark_result = recovery::mark_journal_committed(workspace, transaction_id);
-    let disk_phase = recovery::read_journal_phase(workspace, transaction_id);
 
-    if mark_result.is_ok() || matches!(disk_phase, Ok(Some(recovery::JournalPhase::Committed))) {
+    if mark_result.is_ok() {
         // Journal was successfully published to disk as Committed!
         // We MUST NEVER roll back candidate files.
         match recovery::remove_journal(workspace, transaction_id) {
@@ -1499,36 +1513,44 @@ pub fn commit_and_cleanup_journal(
             Err(_) => Ok("recovery_available"),
         }
     } else {
-        // Commit decision was NOT established on disk (mark failed and disk phase is not Committed).
-        // Threadmoth MUST NOT acknowledge this transaction as Applied even if journal removal succeeds.
-        // Roll back all committed files to original, attempt best-effort journal removal,
-        // and return an error with the rollback report.
-        // Attempt exhaustive reverse-order rollback of all committed files.
-        let rollback = rollback_entries(workspace, committed);
-        let mark_err = mark_result
-            .err()
-            .map(|e| e.to_string())
-            .unwrap_or_else(|| format!("journal phase is {:?}", disk_phase.ok().flatten()));
-
-        if rollback.is_all_ok() {
-            // All committed files were verified restored to original.
-            // Journal cleanup is safe and permitted.
-            let cleanup_result = recovery::remove_journal(workspace, transaction_id);
-            let clean_err = cleanup_result
+        let disk_phase = recovery::read_journal_phase(workspace, transaction_id);
+        if matches!(disk_phase, Ok(Some(recovery::JournalPhase::Committed))) {
+            match recovery::remove_journal(workspace, transaction_id) {
+                Ok(()) => Ok("not_required"),
+                Err(_) => Ok("recovery_available"),
+            }
+        } else {
+            // Commit decision was NOT established on disk (mark failed and disk phase is not Committed).
+            // Threadmoth MUST NOT acknowledge this transaction as Applied even if journal removal succeeds.
+            // Roll back all committed files to original, attempt best-effort journal removal,
+            // and return an error with the rollback report.
+            // Attempt exhaustive reverse-order rollback of all committed files.
+            let rollback = rollback_entries(workspace, committed);
+            let mark_err = mark_result
                 .err()
-                .map(|e| format!("; cleanup error: {e}"))
-                .unwrap_or_default();
-            let msg = format!(
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| format!("journal phase is {:?}", disk_phase.ok().flatten()));
+
+            if rollback.is_all_ok() {
+                // All committed files were verified restored to original.
+                // Journal cleanup is safe and permitted.
+                let cleanup_result = recovery::remove_journal(workspace, transaction_id);
+                let clean_err = cleanup_result
+                    .err()
+                    .map(|e| format!("; cleanup error: {e}"))
+                    .unwrap_or_default();
+                let msg = format!(
                 "commit decision failed: could not record committed state ({mark_err}){clean_err}"
             );
-            Err((rollback, msg))
-        } else {
-            // Rollback was partial or failed: NEVER remove journal!
-            // The journal on disk contains critical original/candidate evidence required for manual recovery.
-            let msg = format!(
+                Err((rollback, msg))
+            } else {
+                // Rollback was partial or failed: NEVER remove journal!
+                // The journal on disk contains critical original/candidate evidence required for manual recovery.
+                let msg = format!(
                 "commit decision failed: could not record committed state ({mark_err}); rollback incomplete, journal retained for manual recovery"
             );
-            Err((rollback, msg))
+                Err((rollback, msg))
+            }
         }
     }
 }
@@ -4270,10 +4292,7 @@ fn verify_unrelated_bytes_changed(a: &[u8], b: &[u8], edits: &[ByteEdit]) -> boo
         cursor_a = edit.end;
         cursor_b += unchanged_len + edit.replacement.len();
     }
-    if a[cursor_a..] != b[cursor_b..] {
-        return true;
-    }
-    false
+    a[cursor_a..] != b[cursor_b..]
 }
 
 impl PreservationFacts {

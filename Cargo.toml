@@ -8,7 +8,6 @@ autobins = false
 description = "Deterministic, source-preserving file mutation for AI agents"
 license = "MIT"
 repository = "https://github.com/matthewjameswatkins1978-cyber/Threadmoth"
-homepage = "https://github.com/matthewjameswatkins1978-cyber/Threadmoth"
 keywords = ["file-mutation", "automation", "json", "toml", "cli"]
 categories = ["command-line-utilities", "config"]
 
