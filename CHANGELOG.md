@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.23.0 - Persistent Agent Fast Path
+
+### Improved
+
+- Prefer a long-lived stdio MCP connection for repeated agent operations, avoiding per-edit shell and process startup. Document direct CLI and batched edit-document alternatives.
+- Cache structural tool discovery for the MCP process lifetime and count serialized plan bytes without allocating a second full buffer.
+- Reduce redundant metadata queries, file hashing, journal serialization and successful-commit phase probing while retaining typed journal validation and atomic recovery.
+
+### Fixed
+
+- Harden path containment for dangling symlinks and Windows reparse points, including junctions, and revalidate parent containment before atomic replacement.
+- Reject malformed or incomplete recovery journals and preserve explicit commit/recovery outcomes.
+
+### Verification and compatibility
+
+- Windows and Linux CI passed the performance branch; 17 hostile Terrorbats attacks were not observed in the final campaign.
+- Wire protocol remains `1.4.0`. Persistent MCP is an existing transport; the Pi integration is maintained separately in Pi-Bits.
+
 ## 1.22.0 - Newline Firewall and Agent-Friendly Editing
 
 ### Added
