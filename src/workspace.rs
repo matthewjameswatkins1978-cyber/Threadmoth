@@ -381,9 +381,7 @@ impl Workspace {
             if !parent.exists() {
                 fs::create_dir_all(parent)?;
             }
-            if !path_is_within(parent, &self.root) {
-                return Err(WorkspaceError::SymlinkEscape(parent.display().to_string()));
-            }
+            self.ensure_parent(parent)?;
         }
         self.ensure_windows_replaceable(&resolved)?;
         let mut file = AtomicWriteFile::open(&resolved)?;
@@ -411,9 +409,7 @@ impl Workspace {
             });
         }
         if let Some(parent) = resolved.parent() {
-            if !path_is_within(parent, &self.root) {
-                return Err(WorkspaceError::SymlinkEscape(parent.display().to_string()));
-            }
+            self.ensure_parent(parent)?;
         }
         let mut file = AtomicWriteFile::open(&resolved)?;
         file.write_all(bytes)?;
@@ -519,19 +515,34 @@ fn reject_parent_components(path: &str) -> Result<(), WorkspaceError> {
 /// Canonicalize an existing target or its deepest existing ancestor, then
 /// append the still-missing leaf components. This resolves symlinks and
 /// Windows reparse points before a create/write path is authorized.
+/// Dangling symlinks and broken junctions are rejected with SymlinkEscape.
 fn canonicalize_candidate(path: &Path) -> Result<PathBuf, WorkspaceError> {
     let mut ancestor = path.to_path_buf();
     let mut suffix = Vec::new();
     loop {
-        match fs::canonicalize(&ancestor) {
-            Ok(mut resolved) => {
-                if !suffix.is_empty() && !fs::metadata(&resolved)?.is_dir() {
-                    return Err(WorkspaceError::NotFound(path.display().to_string()));
+        match fs::symlink_metadata(&ancestor) {
+            Ok(meta) => {
+                if meta.file_type().is_symlink() {
+                    let mut resolved = fs::canonicalize(&ancestor).map_err(|_| {
+                        WorkspaceError::SymlinkEscape(ancestor.display().to_string())
+                    })?;
+                    if !suffix.is_empty() && !fs::metadata(&resolved)?.is_dir() {
+                        return Err(WorkspaceError::NotFound(path.display().to_string()));
+                    }
+                    for component in suffix.iter().rev() {
+                        resolved.push(component);
+                    }
+                    return Ok(resolved);
+                } else {
+                    let mut resolved = fs::canonicalize(&ancestor)?;
+                    if !suffix.is_empty() && !fs::metadata(&resolved)?.is_dir() {
+                        return Err(WorkspaceError::NotFound(path.display().to_string()));
+                    }
+                    for component in suffix.iter().rev() {
+                        resolved.push(component);
+                    }
+                    return Ok(resolved);
                 }
-                for component in suffix.iter().rev() {
-                    resolved.push(component);
-                }
-                return Ok(resolved);
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 let name = ancestor
@@ -627,6 +638,107 @@ mod tests {
             w.write_file_atomic_checked("x.txt", &h, b"three"),
             Err(WorkspaceError::StaleIdentity { .. })
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dangling_symlink_rejected() {
+        use std::os::unix::fs::symlink;
+        let t = TempDir::new().unwrap();
+        symlink(
+            t.path().join("nonexistent_target"),
+            t.path().join("dangling_link"),
+        )
+        .unwrap();
+        let w = Workspace::new(t.path()).unwrap();
+        assert!(matches!(
+            w.resolve_path("dangling_link"),
+            Err(WorkspaceError::SymlinkEscape(_))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn parent_directory_symlink_replacement_rejected() {
+        use std::os::unix::fs::symlink;
+        let t = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let dir = t.path().join("sub");
+        fs::create_dir(&dir).unwrap();
+        let file = dir.join("f.txt");
+        fs::write(&file, b"content").unwrap();
+        let h = sha256(b"content");
+        let w = Workspace::new(t.path()).unwrap();
+
+        fs::remove_file(&file).unwrap();
+        fs::remove_dir(&dir).unwrap();
+        symlink(outside.path(), &dir).unwrap();
+        fs::write(outside.path().join("f.txt"), b"content").unwrap();
+
+        assert!(matches!(
+            w.write_file_atomic_checked("sub/f.txt", &h, b"new_content"),
+            Err(WorkspaceError::SymlinkEscape(_))
+        ));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_junction_escape_rejected() {
+        let t = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let link = t.path().join("junc_link");
+        let cmd = std::process::Command::new("cmd")
+            .args([
+                "/C",
+                "mklink",
+                "/J",
+                &link.to_string_lossy(),
+                &outside.path().to_string_lossy(),
+            ])
+            .output();
+        if let Ok(out) = cmd {
+            if out.status.success() {
+                let w = Workspace::new(t.path()).unwrap();
+                assert!(matches!(
+                    w.resolve_path("junc_link/target.txt"),
+                    Err(WorkspaceError::SymlinkEscape(_))
+                ));
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_parent_directory_replacement_rejected() {
+        let t = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let sub = t.path().join("sub");
+        fs::create_dir(&sub).unwrap();
+        let file = sub.join("f.txt");
+        fs::write(&file, b"content").unwrap();
+        let h = sha256(b"content");
+        let w = Workspace::new(t.path()).unwrap();
+
+        fs::remove_file(&file).unwrap();
+        fs::remove_dir(&sub).unwrap();
+        let cmd = std::process::Command::new("cmd")
+            .args([
+                "/C",
+                "mklink",
+                "/J",
+                &sub.to_string_lossy(),
+                &outside.path().to_string_lossy(),
+            ])
+            .output();
+        if let Ok(out) = cmd {
+            if out.status.success() {
+                fs::write(outside.path().join("f.txt"), b"content").unwrap();
+                assert!(matches!(
+                    w.write_file_atomic_checked("sub/f.txt", &h, b"new_content"),
+                    Err(WorkspaceError::SymlinkEscape(_))
+                ));
+            }
+        }
     }
 
     #[test]

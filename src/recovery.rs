@@ -150,6 +150,10 @@ pub fn write_journal(workspace: &Workspace, journal: &Journal) -> Result<(), Wor
 #[derive(serde::Deserialize)]
 struct JournalPhaseProbe {
     #[serde(default)]
+    transaction_id: Option<String>,
+    #[serde(default)]
+    protocol_version: Option<String>,
+    #[serde(default)]
     phase: Option<JournalPhase>,
 }
 
@@ -162,8 +166,35 @@ pub fn read_journal_phase(
         let path = dir.join(&filename);
         if path.exists() {
             let bytes = fs::read(&path)?;
+            if bytes.len() > MAX_JOURNAL_BYTES {
+                return Err(WorkspaceError::ResourceLimit {
+                    dimension: "max_journal_bytes".into(),
+                    limit: MAX_JOURNAL_BYTES,
+                    actual: bytes.len(),
+                });
+            }
             let probe: JournalPhaseProbe = serde_json::from_slice(&bytes)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            if let Some(ref tid) = probe.transaction_id {
+                if tid != transaction_id {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!(
+                            "journal transaction_id mismatch: expected {transaction_id}, found {tid}"
+                        ),
+                    )
+                    .into());
+                }
+            }
+            if let Some(ref pv) = probe.protocol_version {
+                if !SUPPORTED_PROTOCOL_VERSIONS.contains(&pv.as_str()) {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("unsupported journal protocol version: {pv}"),
+                    )
+                    .into());
+                }
+            }
             return Ok(probe.phase);
         }
     }
@@ -185,9 +216,39 @@ pub fn mark_journal_committed(
         let path = dir.join(&filename);
         if path.exists() {
             let bytes = fs::read(&path)?;
+            if bytes.len() > MAX_JOURNAL_BYTES {
+                return Err(WorkspaceError::ResourceLimit {
+                    dimension: "max_journal_bytes".into(),
+                    limit: MAX_JOURNAL_BYTES,
+                    actual: bytes.len(),
+                });
+            }
             let mut val: serde_json::Value = serde_json::from_slice(&bytes)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-            val["phase"] = serde_json::json!("committed");
+            let obj = val.as_object_mut().ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "invalid journal: root must be a JSON object",
+                )
+            })?;
+            let tid = obj.get("transaction_id").and_then(|v| v.as_str());
+            if tid != Some(transaction_id) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("journal transaction_id mismatch: expected {transaction_id}"),
+                )
+                .into());
+            }
+            if let Some(pv) = obj.get("protocol_version").and_then(|v| v.as_str()) {
+                if !SUPPORTED_PROTOCOL_VERSIONS.contains(&pv) {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("unsupported journal protocol version: {pv}"),
+                    )
+                    .into());
+                }
+            }
+            obj.insert("phase".to_string(), serde_json::json!("committed"));
             let updated_bytes = serde_json::to_vec(&val)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
             if updated_bytes.len() > MAX_JOURNAL_BYTES {
@@ -962,6 +1023,100 @@ mod tests {
         let decoded: Journal = serde_json::from_value(legacy).unwrap();
         assert_eq!(decoded.entries[0].original, vec![0, 255]);
         assert_eq!(decoded.entries[0].candidate, vec![1, 128]);
+    }
+
+    #[test]
+    fn journal_phase_probe_rejects_corrupt_json() {
+        let temp = TempDir::new().unwrap();
+        let workspace = Workspace::new(temp.path()).unwrap();
+        let recovery_dir = temp.path().join(RECOVERY_DIR);
+        fs::create_dir_all(&recovery_dir).unwrap();
+        fs::write(recovery_dir.join("corrupt.json"), b"not valid json {{{").unwrap();
+
+        assert!(read_journal_phase(&workspace, "corrupt").is_err());
+        assert!(mark_journal_committed(&workspace, "corrupt").is_err());
+    }
+
+    #[test]
+    fn journal_phase_probe_rejects_non_object_json_without_panic() {
+        let temp = TempDir::new().unwrap();
+        let workspace = Workspace::new(temp.path()).unwrap();
+        let recovery_dir = temp.path().join(RECOVERY_DIR);
+        fs::create_dir_all(&recovery_dir).unwrap();
+        for payload in [
+            b"123".as_slice(),
+            b"\"string\"",
+            b"[1, 2, 3]",
+            b"null",
+            b"true",
+        ] {
+            fs::write(recovery_dir.join("non_obj.json"), payload).unwrap();
+            assert!(read_journal_phase(&workspace, "non_obj").is_err());
+            assert!(mark_journal_committed(&workspace, "non_obj").is_err());
+        }
+    }
+
+    #[test]
+    fn journal_phase_probe_rejects_mismatched_transaction_id() {
+        let temp = TempDir::new().unwrap();
+        let workspace = Workspace::new(temp.path()).unwrap();
+        let recovery_dir = temp.path().join(RECOVERY_DIR);
+        fs::create_dir_all(&recovery_dir).unwrap();
+        let val = serde_json::json!({
+            "protocol_version": PROTOCOL_VERSION,
+            "transaction_id": "forged_id",
+            "phase": "prepared"
+        });
+        fs::write(
+            recovery_dir.join("target_id.json"),
+            serde_json::to_vec(&val).unwrap(),
+        )
+        .unwrap();
+
+        assert!(read_journal_phase(&workspace, "target_id").is_err());
+        assert!(mark_journal_committed(&workspace, "target_id").is_err());
+    }
+
+    #[test]
+    fn journal_phase_probe_rejects_invalid_phase_enum() {
+        let temp = TempDir::new().unwrap();
+        let workspace = Workspace::new(temp.path()).unwrap();
+        let recovery_dir = temp.path().join(RECOVERY_DIR);
+        fs::create_dir_all(&recovery_dir).unwrap();
+        let val = serde_json::json!({
+            "protocol_version": PROTOCOL_VERSION,
+            "transaction_id": "invalid_phase",
+            "phase": "corrupt_phase"
+        });
+        fs::write(
+            recovery_dir.join("invalid_phase.json"),
+            serde_json::to_vec(&val).unwrap(),
+        )
+        .unwrap();
+
+        assert!(read_journal_phase(&workspace, "invalid_phase").is_err());
+    }
+
+    #[test]
+    fn journal_phase_probe_handles_missing_phase() {
+        let temp = TempDir::new().unwrap();
+        let workspace = Workspace::new(temp.path()).unwrap();
+        let recovery_dir = temp.path().join(RECOVERY_DIR);
+        fs::create_dir_all(&recovery_dir).unwrap();
+        let val = serde_json::json!({
+            "protocol_version": PROTOCOL_VERSION,
+            "transaction_id": "missing_phase"
+        });
+        fs::write(
+            recovery_dir.join("missing_phase.json"),
+            serde_json::to_vec(&val).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            read_journal_phase(&workspace, "missing_phase").unwrap(),
+            None
+        );
     }
 }
 

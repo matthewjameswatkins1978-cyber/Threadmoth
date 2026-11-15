@@ -42,7 +42,7 @@ fn profile_1mb_edit_phases() {
 
         // 1. File read
         let t_read_start = Instant::now();
-        let bytes = workspace.read_file(&target_rel.to_string()).unwrap();
+        let bytes = workspace.read_file(target_rel).unwrap();
         let t_read = t_read_start.elapsed().as_micros();
 
         // 2. Hash
@@ -96,9 +96,29 @@ fn profile_1mb_edit_phases() {
     }
 
     let avg = |v: &[u128]| v.iter().sum::<u128>() as f64 / v.len() as f64;
-    println!("Phase 1: workspace.read_file() : {:.2} us ({:.3} ms)", avg(&read_us), avg(&read_us)/1000.0);
-    println!("Phase 2: compute_sha256()      : {:.2} us ({:.3} ms)", avg(&hash_us), avg(&hash_us)/1000.0);
-    println!("Phase 3: prepare_request_plan(): {:.2} us ({:.3} ms)", avg(&prep_plan_us), avg(&prep_plan_us)/1000.0);
-    println!("Phase 4: apply_prepared_plan() : {:.2} us ({:.3} ms)", avg(&apply_plan_us), avg(&apply_plan_us)/1000.0);
-    println!("TOTAL In-Process Edit Duration : {:.2} us ({:.3} ms)", avg(&total_us), avg(&total_us)/1000.0);
+    println!(
+        "Phase 1: workspace.read_file() : {:.2} us ({:.3} ms)",
+        avg(&read_us),
+        avg(&read_us) / 1000.0
+    );
+    println!(
+        "Phase 2: compute_sha256()      : {:.2} us ({:.3} ms)",
+        avg(&hash_us),
+        avg(&hash_us) / 1000.0
+    );
+    println!(
+        "Phase 3: prepare_request_plan(): {:.2} us ({:.3} ms)",
+        avg(&prep_plan_us),
+        avg(&prep_plan_us) / 1000.0
+    );
+    println!(
+        "Phase 4: apply_prepared_plan() : {:.2} us ({:.3} ms)",
+        avg(&apply_plan_us),
+        avg(&apply_plan_us) / 1000.0
+    );
+    println!(
+        "TOTAL In-Process Edit Duration : {:.2} us ({:.3} ms)",
+        avg(&total_us),
+        avg(&total_us) / 1000.0
+    );
 }
