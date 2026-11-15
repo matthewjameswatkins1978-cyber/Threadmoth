@@ -1,0 +1,918 @@
+{
+  "metadata": {
+    "os_caption": "Windows-11-10.0.26320-SP0",
+    "python_version": "3.15.1 (tags/v3.15.1:c37e74c, Oct 21 2026, 06:24:08) [MSC v.1951 64 bit (AMD64)]",
+    "exe_path": "C:\\Users\\Matmus\\Documents\\antigravity\\proud-hypatia\\target\\release\\threadmoth.exe",
+    "exe_size": 36007424,
+    "timestamp": "2026-11-15 06:34:20",
+    "exe_sha256": "6465e19b98cc6b33989f78357f9ff02a881560e2cee2541dc624007477459a58",
+    "git_sha": "6e361940278769bbe2e92047c1d05fb8c7adde80",
+    "git_branch": "perf/agent-fast-path-windows",
+    "os_name": "Microsoft Windows 11 Pro Insider Preview",
+    "os_version": "10.0.26320",
+    "os_build": "26320",
+    "cpu_name": "AMD Ryzen 9 3900X 12-Core Processor            ",
+    "cpu_cores": 12,
+    "cpu_logical": 24,
+    "c_fs": "NTFS",
+    "c_free_gb": 251.74,
+    "c_size_gb": 930.72,
+    "antivirus_enabled": true,
+    "rtp_enabled": true
+  },
+  "wrong_applied": 0,
+  "results": {
+    "startup_and_shell": {
+      "direct_cli_version_warm": {
+        "count": 15,
+        "mean_ms": 16.656,
+        "median_ms": 16.691,
+        "p95_ms": 17.876,
+        "min_ms": 14.785,
+        "max_ms": 17.886,
+        "std_ms": 1.026,
+        "iqr_ms": 1.661,
+        "raw_ms": [
+          16.346,
+          17.615,
+          17.886,
+          15.057,
+          16.09,
+          16.691,
+          16.167,
+          16.939,
+          17.6,
+          17.876,
+          15.702,
+          15.939,
+          17.66,
+          17.487,
+          14.785
+        ]
+      },
+      "direct_cli_version_first": 61.367,
+      "direct_cli_capabilities_warm": {
+        "count": 15,
+        "mean_ms": 66.924,
+        "median_ms": 34.603,
+        "p95_ms": 70.008,
+        "min_ms": 32.377,
+        "max_ms": 455.379,
+        "std_ms": 108.145,
+        "iqr_ms": 1.017,
+        "raw_ms": [
+          455.379,
+          70.008,
+          33.949,
+          32.377,
+          33.677,
+          34.052,
+          33.876,
+          34.532,
+          34.603,
+          34.824,
+          67.623,
+          35.036,
+          34.235,
+          34.966,
+          34.718
+        ]
+      },
+      "direct_cli_orient_warm": {
+        "count": 15,
+        "mean_ms": 47.889,
+        "median_ms": 37.998,
+        "p95_ms": 72.891,
+        "min_ms": 32.853,
+        "max_ms": 103.16,
+        "std_ms": 21.072,
+        "iqr_ms": 2.739,
+        "raw_ms": [
+          72.891,
+          32.853,
+          33.897,
+          70.655,
+          71.008,
+          103.16,
+          36.413,
+          37.998,
+          35.226,
+          38.858,
+          38.327,
+          36.119,
+          36.305,
+          38.448,
+          36.172
+        ]
+      },
+      "fresh_pwsh_noprofile_version": {
+        "count": 7,
+        "mean_ms": 425.783,
+        "median_ms": 335.698,
+        "p95_ms": 343.457,
+        "min_ms": 322.07,
+        "max_ms": 982.627,
+        "std_ms": 245.654,
+        "iqr_ms": 12.065,
+        "raw_ms": [
+          982.627,
+          343.457,
+          334.553,
+          337.069,
+          325.004,
+          335.698,
+          322.07
+        ]
+      },
+      "fresh_pwsh_default_version": {
+        "count": 5,
+        "mean_ms": 2240.408,
+        "median_ms": 2147.972,
+        "p95_ms": 2192.141,
+        "min_ms": 2064.627,
+        "max_ms": 2700.125,
+        "std_ms": 261.547,
+        "iqr_ms": 94.967,
+        "raw_ms": [
+          2700.125,
+          2097.174,
+          2064.627,
+          2147.972,
+          2192.141
+        ]
+      },
+      "inside_shell_version_warm": {
+        "count": 15,
+        "mean_ms": 16.474,
+        "median_ms": 15.256,
+        "p95_ms": 19.757,
+        "min_ms": 14.722,
+        "max_ms": 26.959,
+        "std_ms": 3.236,
+        "iqr_ms": 0.535,
+        "raw_ms": [
+          26.959,
+          15.256,
+          15.282,
+          15.001,
+          15.049,
+          15.216,
+          14.797,
+          15.536,
+          15.085,
+          15.661,
+          14.722,
+          19.757,
+          18.518,
+          15.341,
+          14.932
+        ]
+      }
+    },
+    "small_file_workflows": {
+      "workflow_a_direct_onecall_edit": {
+        "count": 15,
+        "mean_ms": 29.268,
+        "median_ms": 26.068,
+        "p95_ms": 39.387,
+        "min_ms": 24.905,
+        "max_ms": 61.165,
+        "std_ms": 9.491,
+        "iqr_ms": 0.644,
+        "raw_ms": [
+          39.387,
+          27.06,
+          26.324,
+          26.068,
+          26.425,
+          25.823,
+          27.293,
+          25.953,
+          61.165,
+          24.905,
+          26.254,
+          25.479,
+          25.781,
+          25.107,
+          25.99
+        ]
+      },
+      "workflow_b_direct_route_total": {
+        "count": 15,
+        "mean_ms": 68.985,
+        "median_ms": 63.578,
+        "p95_ms": 96.124,
+        "min_ms": 58.394,
+        "max_ms": 118.256,
+        "std_ms": 16.322,
+        "iqr_ms": 4.39,
+        "raw_ms": [
+          69.082,
+          63.578,
+          62.928,
+          65.074,
+          65.675,
+          59.299,
+          96.124,
+          61.395,
+          59.484,
+          58.394,
+          61.285,
+          63.376,
+          64.105,
+          66.726,
+          118.256
+        ]
+      },
+      "workflow_b_step1_prepare_text": {
+        "count": 15,
+        "mean_ms": 20.06,
+        "median_ms": 19.123,
+        "p95_ms": 23.411,
+        "min_ms": 18.295,
+        "max_ms": 23.997,
+        "std_ms": 1.832,
+        "iqr_ms": 2.108,
+        "raw_ms": [
+          20.735,
+          23.411,
+          19.123,
+          21.046,
+          21.951,
+          18.714,
+          19.863,
+          18.49,
+          18.627,
+          18.81,
+          18.295,
+          20.269,
+          18.965,
+          23.997,
+          18.607
+        ]
+      },
+      "workflow_b_step2_explain_diff": {
+        "count": 15,
+        "mean_ms": 22.954,
+        "median_ms": 17.43,
+        "p95_ms": 52.777,
+        "min_ms": 16.296,
+        "max_ms": 65.053,
+        "std_ms": 14.813,
+        "iqr_ms": 1.27,
+        "raw_ms": [
+          20.065,
+          17.33,
+          16.666,
+          17.936,
+          18.319,
+          16.296,
+          52.777,
+          17.718,
+          16.857,
+          16.566,
+          16.931,
+          17.43,
+          16.588,
+          17.774,
+          65.053
+        ]
+      },
+      "workflow_b_step3_apply_plan": {
+        "count": 15,
+        "mean_ms": 25.971,
+        "median_ms": 25.405,
+        "p95_ms": 28.552,
+        "min_ms": 22.838,
+        "max_ms": 34.597,
+        "std_ms": 2.943,
+        "iqr_ms": 2.091,
+        "raw_ms": [
+          28.283,
+          22.838,
+          27.139,
+          26.091,
+          25.405,
+          24.288,
+          23.485,
+          25.187,
+          24.0,
+          23.018,
+          26.059,
+          25.676,
+          28.552,
+          24.954,
+          34.597
+        ]
+      },
+      "workflow_c_inside_shell_onecall_edit": {
+        "count": 15,
+        "mean_ms": 28.263,
+        "median_ms": 26.347,
+        "p95_ms": 36.33,
+        "min_ms": 25.402,
+        "max_ms": 37.939,
+        "std_ms": 4.114,
+        "iqr_ms": 0.714,
+        "raw_ms": [
+          37.939,
+          26.37,
+          25.739,
+          26.542,
+          25.402,
+          31.482,
+          31.752,
+          36.33,
+          25.961,
+          26.101,
+          26.125,
+          26.347,
+          25.558,
+          26.471,
+          25.828
+        ]
+      }
+    },
+    "structured_edits": {
+      "direct_cli_set_value": {
+        "count": 15,
+        "mean_ms": 24.777,
+        "median_ms": 21.396,
+        "p95_ms": 22.222,
+        "min_ms": 20.779,
+        "max_ms": 70.869,
+        "std_ms": 12.76,
+        "iqr_ms": 0.865,
+        "raw_ms": [
+          70.869,
+          22.222,
+          22.063,
+          21.093,
+          21.24,
+          21.014,
+          21.338,
+          21.862,
+          20.987,
+          21.396,
+          20.779,
+          20.95,
+          21.879,
+          22.216,
+          21.741
+        ]
+      }
+    },
+    "large_file": {
+      "direct_cli_large_1mb_edit": {
+        "count": 10,
+        "mean_ms": 282.729,
+        "median_ms": 280.427,
+        "p95_ms": 291.19,
+        "min_ms": 269.942,
+        "max_ms": 311.915,
+        "std_ms": 12.398,
+        "iqr_ms": 6.515,
+        "raw_ms": [
+          291.19,
+          289.65,
+          271.669,
+          281.612,
+          275.362,
+          311.915,
+          275.097,
+          279.449,
+          281.405,
+          269.942
+        ]
+      }
+    },
+    "repeated_small_files": {
+      "repeated_20_files_separate_cli_launches": {
+        "count": 5,
+        "mean_ms": 653.129,
+        "median_ms": 600.812,
+        "p95_ms": 666.493,
+        "min_ms": 590.912,
+        "max_ms": 809.819,
+        "std_ms": 92.764,
+        "iqr_ms": 68.883,
+        "raw_ms": [
+          809.819,
+          600.812,
+          590.912,
+          597.61,
+          666.493
+        ]
+      },
+      "repeated_20_files_single_edit_doc": {
+        "count": 5,
+        "mean_ms": 146.664,
+        "median_ms": 153.488,
+        "p95_ms": 162.935,
+        "min_ms": 117.444,
+        "max_ms": 177.625,
+        "std_ms": 26.175,
+        "iqr_ms": 41.107,
+        "raw_ms": [
+          162.935,
+          177.625,
+          117.444,
+          153.488,
+          121.828
+        ]
+      }
+    },
+    "refusals_and_safety": {
+      "ambiguity_refusal": {
+        "count": 15,
+        "mean_ms": 24.232,
+        "median_ms": 19.428,
+        "p95_ms": 57.623,
+        "min_ms": 16.354,
+        "max_ms": 59.574,
+        "std_ms": 14.175,
+        "iqr_ms": 3.956,
+        "raw_ms": [
+          25.105,
+          20.619,
+          20.609,
+          59.574,
+          21.67,
+          20.564,
+          16.902,
+          16.623,
+          16.457,
+          16.354,
+          57.623,
+          19.428,
+          16.663,
+          18.211,
+          17.082
+        ]
+      },
+      "stale_hash_refusal": {
+        "count": 15,
+        "mean_ms": 23.177,
+        "median_ms": 19.093,
+        "p95_ms": 42.696,
+        "min_ms": 16.602,
+        "max_ms": 53.311,
+        "std_ms": 10.858,
+        "iqr_ms": 3.204,
+        "raw_ms": [
+          31.109,
+          18.133,
+          42.696,
+          19.499,
+          20.435,
+          19.868,
+          20.349,
+          17.42,
+          16.694,
+          53.311,
+          16.602,
+          17.145,
+          17.055,
+          18.246,
+          19.093
+        ]
+      }
+    },
+    "persistent_mcp": {
+      "mcp_connection_establishment_total": 17.29,
+      "mcp_step1_initialize": 7.9,
+      "mcp_step2_tools_list": 7.254,
+      "mcp_orient_tool_call_warm": {
+        "count": 15,
+        "mean_ms": 1.377,
+        "median_ms": 0.116,
+        "p95_ms": 0.199,
+        "min_ms": 0.098,
+        "max_ms": 18.92,
+        "std_ms": 4.853,
+        "iqr_ms": 0.03,
+        "raw_ms": [
+          18.92,
+          0.117,
+          0.124,
+          0.186,
+          0.199,
+          0.13,
+          0.105,
+          0.154,
+          0.101,
+          0.109,
+          0.116,
+          0.098,
+          0.1,
+          0.099,
+          0.1
+        ]
+      },
+      "mcp_capabilities_tool_call_warm": {
+        "count": 15,
+        "mean_ms": 1.923,
+        "median_ms": 1.852,
+        "p95_ms": 2.258,
+        "min_ms": 1.746,
+        "max_ms": 2.334,
+        "std_ms": 0.175,
+        "iqr_ms": 0.145,
+        "raw_ms": [
+          2.258,
+          1.95,
+          1.876,
+          1.86,
+          1.82,
+          1.852,
+          2.334,
+          2.002,
+          1.796,
+          1.832,
+          1.798,
+          1.746,
+          1.805,
+          1.834,
+          2.078
+        ]
+      },
+      "mcp_exact_replace_onecall_warm": {
+        "count": 15,
+        "mean_ms": 5.899,
+        "median_ms": 5.093,
+        "p95_ms": 6.521,
+        "min_ms": 4.639,
+        "max_ms": 16.173,
+        "std_ms": 2.884,
+        "iqr_ms": 0.447,
+        "raw_ms": [
+          16.173,
+          6.521,
+          5.734,
+          5.671,
+          5.256,
+          4.764,
+          5.093,
+          4.85,
+          4.778,
+          5.207,
+          4.639,
+          4.809,
+          5.002,
+          5.143,
+          4.849
+        ]
+      },
+      "mcp_prepare_and_apply_route_total": {
+        "count": 15,
+        "mean_ms": 11.309,
+        "median_ms": 11.203,
+        "p95_ms": 12.276,
+        "min_ms": 10.178,
+        "max_ms": 13.184,
+        "std_ms": 0.747,
+        "iqr_ms": 0.802,
+        "raw_ms": [
+          13.184,
+          11.034,
+          11.203,
+          11.592,
+          11.218,
+          10.178,
+          10.964,
+          11.448,
+          10.532,
+          11.54,
+          12.276,
+          10.738,
+          11.897,
+          11.175,
+          10.654
+        ]
+      },
+      "mcp_step1_prepare_text": {
+        "count": 15,
+        "mean_ms": 2.1,
+        "median_ms": 2.075,
+        "p95_ms": 2.413,
+        "min_ms": 1.906,
+        "max_ms": 2.519,
+        "std_ms": 0.176,
+        "iqr_ms": 0.153,
+        "raw_ms": [
+          2.017,
+          1.989,
+          2.114,
+          2.075,
+          1.947,
+          1.906,
+          2.103,
+          2.264,
+          2.05,
+          1.961,
+          2.519,
+          2.137,
+          2.413,
+          1.922,
+          2.088
+        ]
+      },
+      "mcp_step2_apply_plan": {
+        "count": 15,
+        "mean_ms": 9.209,
+        "median_ms": 9.185,
+        "p95_ms": 9.758,
+        "min_ms": 8.271,
+        "max_ms": 11.166,
+        "std_ms": 0.697,
+        "iqr_ms": 0.884,
+        "raw_ms": [
+          11.166,
+          9.045,
+          9.089,
+          9.517,
+          9.271,
+          8.271,
+          8.861,
+          9.185,
+          8.481,
+          9.578,
+          9.758,
+          8.601,
+          9.484,
+          9.253,
+          8.566
+        ]
+      },
+      "mcp_set_value_warm": {
+        "count": 15,
+        "mean_ms": 5.608,
+        "median_ms": 5.125,
+        "p95_ms": 5.34,
+        "min_ms": 4.422,
+        "max_ms": 14.35,
+        "std_ms": 2.434,
+        "iqr_ms": 0.497,
+        "raw_ms": [
+          14.35,
+          5.125,
+          4.693,
+          5.044,
+          4.53,
+          5.19,
+          5.34,
+          4.632,
+          5.214,
+          5.127,
+          5.036,
+          5.032,
+          5.246,
+          4.422,
+          5.145
+        ]
+      },
+      "mcp_ambiguity_refusal": {
+        "count": 15,
+        "mean_ms": 2.561,
+        "median_ms": 2.27,
+        "p95_ms": 2.878,
+        "min_ms": 1.875,
+        "max_ms": 6.426,
+        "std_ms": 1.112,
+        "iqr_ms": 0.433,
+        "raw_ms": [
+          6.426,
+          1.962,
+          2.001,
+          1.875,
+          2.215,
+          2.27,
+          2.24,
+          2.728,
+          2.02,
+          2.014,
+          2.447,
+          2.759,
+          2.878,
+          2.298,
+          2.278
+        ]
+      },
+      "mcp_inspect_outline_derived": {
+        "count": 15,
+        "mean_ms": 5.643,
+        "median_ms": 5.668,
+        "p95_ms": 6.643,
+        "min_ms": 4.993,
+        "max_ms": 6.782,
+        "std_ms": 0.516,
+        "iqr_ms": 0.53,
+        "raw_ms": [
+          6.643,
+          5.597,
+          6.782,
+          5.685,
+          5.17,
+          5.835,
+          5.598,
+          5.075,
+          5.7,
+          4.993,
+          5.668,
+          5.136,
+          5.698,
+          5.783,
+          5.278
+        ]
+      },
+      "mcp_inspect_outline_cache_hit": {
+        "count": 15,
+        "mean_ms": 0.628,
+        "median_ms": 0.604,
+        "p95_ms": 0.745,
+        "min_ms": 0.522,
+        "max_ms": 0.804,
+        "std_ms": 0.08,
+        "iqr_ms": 0.12,
+        "raw_ms": [
+          0.745,
+          0.804,
+          0.695,
+          0.616,
+          0.588,
+          0.597,
+          0.691,
+          0.58,
+          0.571,
+          0.522,
+          0.562,
+          0.607,
+          0.697,
+          0.549,
+          0.604
+        ]
+      },
+      "mcp_repeated_20_files_sequence": {
+        "count": 5,
+        "mean_ms": 163.9,
+        "median_ms": 133.184,
+        "p95_ms": 134.901,
+        "min_ms": 124.2,
+        "max_ms": 301.123,
+        "std_ms": 76.844,
+        "iqr_ms": 8.806,
+        "raw_ms": [
+          301.123,
+          124.2,
+          126.095,
+          133.184,
+          134.901
+        ]
+      }
+    },
+    "in_process_benchmarks": {
+      "tough_report": {
+        "tool": "threadmoth benchmark",
+        "profile": "tough",
+        "state": "PASS",
+        "cases": [
+          {
+            "name": "tiny",
+            "bytes": 21,
+            "iterations": 100,
+            "wrong_applied": 0,
+            "average_us": 461.92299999999994,
+            "certificate_bytes": 1831,
+            "state": "PASS"
+          },
+          {
+            "name": "config_30k",
+            "bytes": 30008,
+            "iterations": 50,
+            "wrong_applied": 0,
+            "average_us": 731.9040000000001,
+            "certificate_bytes": 1851,
+            "state": "PASS"
+          },
+          {
+            "name": "text_1m",
+            "bytes": 1000008,
+            "iterations": 25,
+            "wrong_applied": 0,
+            "average_us": 4776.144,
+            "certificate_bytes": 1856,
+            "state": "PASS"
+          },
+          {
+            "name": "text_5m",
+            "bytes": 5000008,
+            "iterations": 10,
+            "wrong_applied": 0,
+            "average_us": 23948.25,
+            "certificate_bytes": 1856,
+            "state": "PASS"
+          },
+          {
+            "name": "text_32m",
+            "bytes": 32000008,
+            "iterations": 3,
+            "wrong_applied": 0,
+            "average_us": 163106.86666666667,
+            "certificate_bytes": 1861,
+            "state": "PASS"
+          },
+          {
+            "name": "many_lines_2m",
+            "bytes": 1999992,
+            "iterations": 10,
+            "wrong_applied": 0,
+            "average_us": 30084.98,
+            "certificate_bytes": 1892,
+            "state": "PASS"
+          },
+          {
+            "name": "long_line_refinement_2m",
+            "bytes": 2000006,
+            "iterations": 5,
+            "wrong_applied": 0,
+            "average_us": 16340.2,
+            "certificate_bytes": 6193,
+            "state": "PASS"
+          },
+          {
+            "name": "small_files_250",
+            "bytes": 2500,
+            "iterations": 250,
+            "wrong_applied": 0,
+            "average_us": 5262.9932,
+            "certificate_bytes": 1843,
+            "state": "PASS"
+          }
+        ],
+        "wrong_applied": 0
+      },
+      "torture_report": {
+        "tool": "threadmoth torture",
+        "state": "PASS",
+        "passed": 10,
+        "failed": 0,
+        "skipped": 0,
+        "invocations": 109,
+        "footgun_safe": 100,
+        "footgun_total": 100,
+        "cases": [
+          {
+            "name": "exact replacement applies",
+            "state": "PASS",
+            "detail": "outcome=Applied"
+          },
+          {
+            "name": "ambiguous.txt",
+            "state": "PASS",
+            "detail": "outcome=Refused"
+          },
+          {
+            "name": "missing.txt",
+            "state": "PASS",
+            "detail": "outcome=Refused"
+          },
+          {
+            "name": "empty-set.txt",
+            "state": "PASS",
+            "detail": "outcome=Refused"
+          },
+          {
+            "name": "empty-rename.txt",
+            "state": "PASS",
+            "detail": "outcome=Refused"
+          },
+          {
+            "name": "stale.txt",
+            "state": "PASS",
+            "detail": "outcome=Refused"
+          },
+          {
+            "name": "read-only staged-residue cleanup",
+            "state": "PASS",
+            "detail": "outcome=Failed residue=false"
+          },
+          {
+            "name": "FOOTGUN-100",
+            "state": "PASS",
+            "detail": "safe=100/100"
+          },
+          {
+            "name": "symlink escape",
+            "state": "PASS",
+            "detail": "outcome=Refused"
+          },
+          {
+            "name": "successful transaction cleanup",
+            "state": "PASS",
+            "detail": "outcome=Applied recovery_dir_present=false"
+          }
+        ]
+      }
+    }
+  }
+}

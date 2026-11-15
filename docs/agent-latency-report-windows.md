@@ -334,10 +334,78 @@ All benchmark scripts and machine-readable JSON datasets are preserved in the re
 - **Raw Baseline (Built):** [docs/agent_latency_baseline_built.json](file:///c:/Users/Matmus/Documents/antigravity/proud-hypatia/docs/agent_latency_baseline_built.json)
 - **Raw Baseline (Installed):** [docs/agent_latency_baseline_installed.json](file:///c:/Users/Matmus/Documents/antigravity/proud-hypatia/docs/agent_latency_baseline_installed.json)
 - **Raw After-Improvements Dataset:** [docs/agent_latency_after_improvements.json](file:///c:/Users/Matmus/Documents/antigravity/proud-hypatia/docs/agent_latency_after_improvements.json)
+- **Raw Fast-Path Dataset (TM-PERF-WIN-02):** [docs/agent_latency_fast_path.json](file:///c:/Users/Matmus/Documents/antigravity/proud-hypatia/docs/agent_latency_fast_path.json)
 
 To reproduce the benchmark:
 ```powershell
 python scripts/agent_benchmark.py --exe target/release/threadmoth.exe --out docs/agent_latency_reproduced.json
 python scripts/compare_results.py
 ```
+
+---
+
+## 13. TM-PERF-WIN-02: Agent Fast Path & 1 MB Edit Optimization
+
+### Objective & Scope
+The second performance phase focused on eliminating internal algorithmic and transactional bottlenecks in everyday agent mutations, specifically targeting large-file edits (1 MB+), multi-file batch throughput, and agent harness integrations (such as Pi's Threadmoth extension).
+
+### Profiling the 1 MB Edit Bottleneck
+An instrumented diagnostic test harness ([tests/profile_1mb.rs](file:///c:/Users/Matmus/Documents/antigravity/proud-hypatia/tests/profile_1mb.rs)) separated the end-to-end in-process edit lifecycle on a 1 MB file into discrete phases:
+
+```text
+Phase 1: workspace.read_file()          :   7.00 ms
+Phase 2: compute_sha256()               :   0.52 ms
+Phase 3: prepare_request_plan()         :   6.06 ms
+Phase 4: apply_prepared_plan()          :  77.14 ms  (85% of total edit latency)
+--------------------------------------------------------------------------------
+Total In-Process Edit Duration          :  90.72 ms
+```
+
+Detailed profiling within `apply_prepared_plan()` revealed the primary bottlenecks:
+1. **Journal Transcoding Tax:** `JournalEntry` stores `original` and `candidate` payloads. On a 1 MB file, standard Serde serialization generated ~2.7 MB of base64-encoded text.
+2. **Duplicate Phase Marking Overhead:** Updating journal state (`mark_journal_committed`) was re-decoding 2.7 MB of JSON/base64 and re-serializing it, adding **28.73 ms**.
+3. **Eager Recovery Probing:** In `commit_and_cleanup_journal`, `read_journal_phase` was invoked unconditionally after `mark_journal_committed`, forcing a full disk read and deserialization of the 2.7 MB journal file on every successful commit.
+4. **Duplicate Journal Validation:** `check_journal_size` performed a full duplicate JSON serialization pass before `write_journal`.
+5. **Redundant Hashing Passes:** Up to 8 full SHA-256 passes were executed over the 1 MB buffer across the preparation, validation, journal, and certificate generation pipelines.
+
+### Fast-Path Optimizations Implemented (`6e36194`)
+1. **Lightweight Journal Phase Probing:**
+   - Implemented `JournalPhaseProbe` in [src/recovery.rs](file:///c:/Users/Matmus/Documents/antigravity/proud-hypatia/src/recovery.rs), reading only the `"phase"` enum field without parsing multi-megabyte `original`/`candidate` payloads.
+2. **In-Place JSON Phase Commit:**
+   - Rewrote `mark_journal_committed` to parse into `serde_json::Value` and mutate `val["phase"] = "committed"` directly. This eliminated the expensive base64 transcoding cycle, dropping phase commit latency from **13.5 ms to 2.9 ms**.
+3. **Lazy Journal Recovery Probing:**
+   - Guarded `read_journal_phase` in `commit_and_cleanup_journal` to execute *only* when `mark_journal_committed` returns an error, bypassing disk re-reads on normal execution paths.
+4. **Eliminated Redundant Serializations & Passes:**
+   - Removed duplicate `check_journal_size` calls.
+   - Reused pre-computed `actual_hash` and `candidate_hash` across journal records and certificate construction, cutting redundant SHA-256 passes in half.
+
+### Measured Empirical Impact
+
+| Workload / Operation | Baseline Median (p95) | Fast-Path Median (p95) | Delta |
+| :--- | :--- | :--- | :--- |
+| **In-Process 1 MB Edit Duration** | 90.72 ms | **72.44 ms** | **-20.2%** |
+| **Direct CLI 1 MB Edit** | 332.20 ms (407.47 ms) | **280.43 ms (291.19 ms)** | **-15.6% (med)**, **-28.5% (p95)** |
+| **Direct CLI 20-File Batch** | 706.47 ms (756.95 ms) | **600.81 ms (666.49 ms)** | **-15.0% (-105.7 ms)** |
+| **CLI One-Call Small Edit** | 28.77 ms (32.66 ms) | **26.07 ms (39.39 ms)** | **-9.4%** |
+| **CLI Apply Plan Phase** | 29.31 ms (61.03 ms) | **25.41 ms (28.55 ms)** | **-13.3% (med)**, **-53.2% (p95)** |
+| **Persistent MCP Apply Plan** | 10.54 ms (16.94 ms) | **9.19 ms (9.76 ms)** | **-12.9% (med)**, **-42.4% (p95)** |
+| **Persistent MCP `set_value`** | 7.33 ms (8.12 ms) | **5.12 ms (5.34 ms)** | **-30.1%** |
+| **Persistent MCP Refusal** | 3.48 ms (6.35 ms) | **2.27 ms (2.88 ms)** | **-34.8%** |
+
+### Pi Extension Persistent MCP Investigation
+Investigation of Pi's Threadmoth extension (`D:\Projects\pi-bits\threadmoth-pi\guarded-edit.mjs`) revealed:
+- Each edit currently spawns two separate CLI child processes (`prepare-text` and `apply-plan`) and allocates a temporary directory on disk (`%TEMP%\pi-threadmoth-*`), writing and reading `plan.json`.
+- Total edit latency in Pi on Windows is **~65–180 ms** per edit.
+- Threadmoth's persistent MCP server (`threadmoth mcp`) exposes `threadmoth_prepare_text` and `threadmoth_apply_plan` with full schema and plan compatibility.
+- Benchmarking persistent MCP stdio communication in Node.js demonstrated that a warm two-step edit executes in **28.28 ms** with zero temporary disk files and zero child process spawns, while retaining the exact same plan verification rules and cryptographic certificate guarantees.
+
+### Safety Verification & Epistemic Assurance
+- **Unit & Integration Suite:** 102/102 cargo tests pass.
+- **Fault Injection & Crash Recovery:** 19/19 crash recovery and rollback tests pass under injected disk and process faults (`reliability_1201`).
+- **Torture Suite:** 10/10 passed, `FOOTGUN-100` safe: 100/100.
+- **Terror Bats Hostile Campaign:** Full 15-bat hostile attack pack (`threadmoth-hostile.yaml`) executed against commit `6e3619402787`:
+  - **Verdict:** `NOT OBSERVED: 15 / 15` (0 PROVEN, 0 SUSPECTED, 0 INFRASTRUCTURE ERROR).
+  - Campaign identifier: `campaign:sha256:27493878d3163e93fce72859ad6cb4c018b78b384d7e4d222599f5549e835cfc`.
+- **Correctness:** `wrong_applied = 0` across every run.
+
 
