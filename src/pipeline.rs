@@ -939,9 +939,23 @@ pub fn plan_identity(plan: &PreparedPlan) -> String {
     format!("sha256:{}", compute_sha256(&bytes))
 }
 
+struct ByteCounter(usize);
+
+impl std::io::Write for ByteCounter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0 += buf.len();
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 fn serialized_plan_size(plan: &PreparedPlan) -> usize {
-    serde_json::to_vec(plan)
-        .map(|bytes| bytes.len())
+    let mut counter = ByteCounter(0);
+    serde_json::to_writer(&mut counter, plan)
+        .map(|()| counter.0)
         .unwrap_or(usize::MAX)
 }
 

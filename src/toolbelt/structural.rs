@@ -281,13 +281,9 @@ pub struct FileProposalGroup {
     pub matches: Vec<MatchProposal>,
 }
 
-/// Check if ast-grep is installed and query its version.
-pub fn detect_ast_grep() -> Option<String> {
-    #[cfg(feature = "test-fault-injection")]
-    if fault_injection::is_ast_grep_unavailable_forced() {
-        return None;
-    }
+static DETECTED_AST_GREP: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
 
+fn probe_ast_grep() -> Option<String> {
     let mut cmd = Command::new("ast-grep");
     cmd.arg("--version");
     let output = cmd.output().ok()?;
@@ -303,6 +299,16 @@ pub fn detect_ast_grep() -> Option<String> {
         .unwrap_or(stdout.trim())
         .to_string();
     Some(version)
+}
+
+/// Check if ast-grep is installed and query its version.
+pub fn detect_ast_grep() -> Option<String> {
+    #[cfg(feature = "test-fault-injection")]
+    if fault_injection::is_ast_grep_unavailable_forced() {
+        return None;
+    }
+
+    DETECTED_AST_GREP.get_or_init(probe_ast_grep).clone()
 }
 
 /// Infer ast-grep language from file extension.

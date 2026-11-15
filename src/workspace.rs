@@ -93,7 +93,7 @@ impl Workspace {
                 Ok(mut file) => {
                     let marker = format!("pid={}\n", std::process::id());
                     file.write_all(marker.as_bytes())?;
-                    file.sync_all()?;
+                    file.flush()?;
                     return Ok(MutationLock { path, _file: file });
                 }
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
@@ -381,7 +381,9 @@ impl Workspace {
             if !parent.exists() {
                 fs::create_dir_all(parent)?;
             }
-            self.ensure_parent(parent)?;
+            if !path_is_within(parent, &self.root) {
+                return Err(WorkspaceError::SymlinkEscape(parent.display().to_string()));
+            }
         }
         self.ensure_windows_replaceable(&resolved)?;
         let mut file = AtomicWriteFile::open(&resolved)?;
@@ -399,7 +401,7 @@ impl Workspace {
         bytes: &[u8],
     ) -> Result<(), WorkspaceError> {
         let resolved = self.resolve_path(rel_path)?;
-        self.ensure_file_size(&resolved)?;
+        self.ensure_file_size_and_writeable(&resolved)?;
         let observed = fs::read(&resolved)?;
         let actual = sha256(&observed);
         if actual != expected_hash {
@@ -409,9 +411,10 @@ impl Workspace {
             });
         }
         if let Some(parent) = resolved.parent() {
-            self.ensure_parent(parent)?;
+            if !path_is_within(parent, &self.root) {
+                return Err(WorkspaceError::SymlinkEscape(parent.display().to_string()));
+            }
         }
-        self.ensure_windows_replaceable(&resolved)?;
         let mut file = AtomicWriteFile::open(&resolved)?;
         file.write_all(bytes)?;
         file.flush()?;
@@ -419,16 +422,44 @@ impl Workspace {
         Ok(())
     }
 
-    fn ensure_windows_replaceable(&self, _path: &Path) -> Result<(), WorkspaceError> {
+    fn ensure_file_size_and_writeable(&self, path: &Path) -> Result<(), WorkspaceError> {
+        let metadata = fs::metadata(path)?;
+        let length = metadata.len();
+        if length > MAX_FILE_BYTES as u64 {
+            return Err(WorkspaceError::ResourceLimit {
+                dimension: "max_file_bytes".into(),
+                limit: MAX_FILE_BYTES,
+                actual: length.min(usize::MAX as u64) as usize,
+            });
+        }
         #[cfg(target_os = "windows")]
-        if _path.exists() && fs::metadata(_path)?.permissions().readonly() {
+        if metadata.permissions().readonly() {
             return Err(WorkspaceError::Io(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 format!(
                     "read-only destination cannot be atomically replaced on Windows: {}",
-                    _path.display()
+                    path.display()
                 ),
             )));
+        }
+        Ok(())
+    }
+
+    fn ensure_windows_replaceable(&self, _path: &Path) -> Result<(), WorkspaceError> {
+        #[cfg(target_os = "windows")]
+        match fs::metadata(_path) {
+            Ok(meta) if meta.permissions().readonly() => {
+                return Err(WorkspaceError::Io(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    format!(
+                        "read-only destination cannot be atomically replaced on Windows: {}",
+                        _path.display()
+                    ),
+                )));
+            }
+            Ok(_) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(WorkspaceError::Io(e)),
         }
         Ok(())
     }
@@ -492,9 +523,8 @@ fn canonicalize_candidate(path: &Path) -> Result<PathBuf, WorkspaceError> {
     let mut ancestor = path.to_path_buf();
     let mut suffix = Vec::new();
     loop {
-        match fs::symlink_metadata(&ancestor) {
-            Ok(_) => {
-                let mut resolved = fs::canonicalize(&ancestor)?;
+        match fs::canonicalize(&ancestor) {
+            Ok(mut resolved) => {
                 if !suffix.is_empty() && !fs::metadata(&resolved)?.is_dir() {
                     return Err(WorkspaceError::NotFound(path.display().to_string()));
                 }

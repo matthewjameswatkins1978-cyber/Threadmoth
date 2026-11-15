@@ -130,6 +130,21 @@ The default mutation output is JSON. `--summary` is a compact human view; keep t
 
 Inspect the preview before mutating. Confirm outcome, provider, path, cardinality, changed ranges, effect-budget usage, preservation facts and source identity. Do not treat process exit alone as proof that intended bytes landed.
 
+## Windows & agent performance guidance
+
+Measurements show where time is spent during agent workflows, especially on Windows:
+
+1. **Persistent MCP vs Shell Overhead**:
+   - Spawning a fresh PowerShell 7 session with default profile processing on Windows takes ~2,100 ms per invocation. Spawning with `pwsh -NoProfile -NonInteractive` takes ~330 ms.
+   - Calling Threadmoth directly without a shell takes ~14 ms.
+   - Operating through a **persistent MCP connection** (`threadmoth mcp`) has **near-zero process launch overhead** (~0.1 ms for discovery, ~6 ms for single-file mutations). Where available in the agent harness, persistent MCP is the fastest route by two orders of magnitude.
+2. **Workload Selection**:
+   - **Obvious, routine single-file text edits**: Use `threadmoth edit PATH --search OLD --replace NEW` (or MCP `threadmoth_edit` / `threadmoth_exact_replace`). This single-call route verifies pre-images, applies atomically, and certifies in ~27 ms CLI / ~6 ms MCP.
+   - **Multi-file edits**: Use an edit document `changes.tm` (`threadmoth edit changes.tm`). Applying changes across 20 files in a single document takes ~126 ms total (~6.3 ms/file), compared to ~640 ms+ for 20 separate process launches.
+   - **Consequential, uncertain, or high-blast-radius edits**: Use the two-step prepare/review/apply route (`prepare-text` -> `explain --plan` -> `apply-plan`, or MCP `threadmoth_prepare_text` -> `threadmoth_preview` -> `threadmoth_apply_plan`). It introduces an explicit review boundary (~60 ms CLI / ~14 ms MCP) before commit.
+3. **First-Access vs Warm Runs**:
+   - On Windows, a newly compiled or first-accessed binary triggers Defender real-time scanning (`MsMpEng.exe` / `IoavProtection`), adding ~500 ms on first launch. Subsequent warmed invocations run at steady-state speed.
+
 ## Handle outcomes deliberately
 
 - `APPLIED` means the guarded mutation was committed and certified.
