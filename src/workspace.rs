@@ -512,19 +512,16 @@ fn reject_parent_components(path: &str) -> Result<(), WorkspaceError> {
     Ok(())
 }
 
+#[cfg(windows)]
 fn is_link_or_reparse(meta: &fs::Metadata) -> bool {
-    if meta.file_type().is_symlink() {
-        return true;
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
-        if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-            return true;
-        }
-    }
-    false
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    meta.file_type().is_symlink() || (meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0)
+}
+
+#[cfg(not(windows))]
+fn is_link_or_reparse(meta: &fs::Metadata) -> bool {
+    meta.file_type().is_symlink()
 }
 
 /// Canonicalize an existing target or its deepest existing ancestor, then
