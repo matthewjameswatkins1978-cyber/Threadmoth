@@ -49,3 +49,24 @@ The updater is a separate CLI maintenance boundary. Mutation Core, providers and
 The updater preserves release-flavour selection where supported and still requires the release manifest, the matching archive/checksum asset and executable-version verification before replacement. Package-managed installations are reported rather than overwritten.
 
 The workspace rejects absolute paths, `..` escapes and symlink paths resolving outside the declared root. Commit uses destination-directory staged atomic replacement and reports metadata limits explicitly.
+
+## Process Model: One Long-Lived Connection, Many Verified Operations
+
+For agent harnesses and IDE integrations, Threadmoth defines and follows the approved architectural principle:
+**One long-lived connection, many verified operations.**
+
+### Rationale & Lifecycle
+1. **Eliminating Per-Operation Process Tax:**
+   Spawning a fresh operating system process for each edit incurs image loading, dynamic library resolution, address space allocation, memory mapping, and runtime initialization costs. On Windows, process launch latency alone averages ~13–16 ms for a native binary, and can exceed ~300 ms to ~2,000 ms when invoked through an un-warmed shell environment or PowerShell profile.
+2. **Persistent stdio MCP Transport:**
+   Agents establish a single long-lived connection (`threadmoth mcp`) bound to the workspace root at session initialization. Subsequent discovery, inspection, text preparation, preview, application, and verification operations flow over standard input/output using JSON-RPC 2.0 messages.
+3. **Independent Verification on Every Turn:**
+   Connection persistence **never weakens mutation authority or epistemic verification**:
+   - Each operation independently reads the current on-disk state.
+   - Cryptographic hashes (`pre_hash`, `candidate_hash`, `post_hash`) are computed and checked on every operation.
+   - Stale-state protection, cardinality constraints, effect budgets, and path containment are strictly enforced per turn.
+   - The persistent observation cache holds parsed AST outline summaries for read acceleration, but never confers authority to mutate.
+4. **Crash Safety & Fail-Closed Transport Invariants:**
+   - If the worker process terminates, crashes, or times out during a non-mutating operation (such as `threadmoth_prepare_text`), the connection can be safely re-established.
+   - If worker termination or timeout occurs during the mutation boundary (`threadmoth_apply_plan`), the client **must never silently retry** the operation. Because the mutation may have partially or completely committed to disk, silent retries could corrupt state or trigger conflicting edits. The harness must report an explicit error and require human or agent inspection of disk state.
+
