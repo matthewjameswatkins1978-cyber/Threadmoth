@@ -147,6 +147,12 @@ pub fn write_journal(workspace: &Workspace, journal: &Journal) -> Result<(), Wor
     Ok(())
 }
 
+#[derive(serde::Deserialize)]
+struct JournalPhaseProbe {
+    #[serde(default)]
+    phase: Option<JournalPhase>,
+}
+
 pub fn read_journal_phase(
     workspace: &Workspace,
     transaction_id: &str,
@@ -156,9 +162,9 @@ pub fn read_journal_phase(
         let path = dir.join(&filename);
         if path.exists() {
             let bytes = fs::read(&path)?;
-            let journal: Journal = serde_json::from_slice(&bytes)
+            let probe: JournalPhaseProbe = serde_json::from_slice(&bytes)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-            return Ok(journal.phase);
+            return Ok(probe.phase);
         }
     }
     Ok(None)
@@ -179,10 +185,18 @@ pub fn mark_journal_committed(
         let path = dir.join(&filename);
         if path.exists() {
             let bytes = fs::read(&path)?;
-            let mut journal: Journal = serde_json::from_slice(&bytes)
+            let mut val: serde_json::Value = serde_json::from_slice(&bytes)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-            journal.phase = Some(JournalPhase::Committed);
-            let updated_bytes = serialize_journal(&journal)?;
+            val["phase"] = serde_json::json!("committed");
+            let updated_bytes = serde_json::to_vec(&val)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            if updated_bytes.len() > MAX_JOURNAL_BYTES {
+                return Err(WorkspaceError::ResourceLimit {
+                    dimension: "max_journal_bytes".into(),
+                    limit: MAX_JOURNAL_BYTES,
+                    actual: updated_bytes.len(),
+                });
+            }
 
             #[cfg(feature = "test-fault-injection")]
             if fault_injection::fail_stage_write() {

@@ -1150,8 +1150,16 @@ pub fn apply_prepared_plan(workspace: &Workspace, plan: &PreparedPlan) -> PlanAp
         aggregate.changed_regions += effect.changed_regions;
         aggregate.changed_lines += effect.changed_lines;
         aggregate.changed_bytes += effect.changed_bytes;
+        let candidate_hash = compute_sha256(&candidate);
         overrides.insert(operation.file_path.clone(), candidate.clone());
-        prepared.push((path, original, candidate, stored_edits));
+        prepared.push((
+            path,
+            original,
+            actual_hash,
+            candidate,
+            candidate_hash,
+            stored_edits,
+        ));
     }
     if let Some((dimension, limit, actual)) = budget_violation(&aggregate, &plan.budget) {
         return plan_failure_result(
@@ -1174,13 +1182,15 @@ pub fn apply_prepared_plan(workspace: &Workspace, plan: &PreparedPlan) -> PlanAp
         .unwrap_or_else(|| format!("plan-{}", &plan.plan_id[7..23.min(plan.plan_id.len())]));
     let entries: Vec<JournalEntry> = prepared
         .iter()
-        .map(|(path, original, candidate, _)| JournalEntry {
-            path: path.clone(),
-            pre_hash: compute_sha256(original),
-            candidate_hash: compute_sha256(candidate),
-            original: original.clone(),
-            candidate: candidate.clone(),
-        })
+        .map(
+            |(path, original, pre_hash, candidate, candidate_hash, _)| JournalEntry {
+                path: path.clone(),
+                pre_hash: pre_hash.clone(),
+                candidate_hash: candidate_hash.clone(),
+                original: original.clone(),
+                candidate: candidate.clone(),
+            },
+        )
         .collect();
     let journal = Journal {
         protocol_version: plan.protocol_version.clone(),
@@ -1260,20 +1270,9 @@ fn commit_prepared_plan(
     transaction: &TransactionRequest,
     journal: &Journal,
     aggregate: EffectUsage,
-    prepared: Vec<(String, Vec<u8>, Vec<u8>, Vec<ByteEdit>)>,
+    prepared: Vec<(String, Vec<u8>, String, Vec<u8>, String, Vec<ByteEdit>)>,
     assertions: &[Assertion],
 ) -> Result<(Vec<Certificate>, &'static str, Option<WorkspaceError>), Certificate> {
-    if let Err(error) = recovery::check_journal_size(journal) {
-        return Err(failure(
-            &transaction.requests[0],
-            &journal.entries[0].path,
-            "plan",
-            journal.entries[0].pre_hash.clone(),
-            FailureReason::CommitFailure {
-                message: error.to_string(),
-            },
-        ));
-    }
     if let Err(error) = recovery::write_journal(workspace, journal) {
         return Err(failure(
             &transaction.requests[0],
@@ -1373,7 +1372,9 @@ fn commit_prepared_plan(
             }
         };
     let mut certificates = Vec::new();
-    for (index, (path, original, candidate, edits)) in prepared.into_iter().enumerate() {
+    for (index, (path, original, pre_hash, candidate, candidate_hash, edits)) in
+        prepared.into_iter().enumerate()
+    {
         let request = transaction
             .requests
             .get(index)
@@ -1383,8 +1384,8 @@ fn commit_prepared_plan(
             request,
             &path,
             "plan",
-            compute_sha256(&original),
-            Some(compute_sha256(&candidate)),
+            pre_hash,
+            Some(candidate_hash),
             if original == candidate {
                 Outcome::NoChange
             } else {
@@ -1503,9 +1504,8 @@ pub fn commit_and_cleanup_journal(
     committed: &[&JournalEntry],
 ) -> Result<&'static str, (RollbackReport, String)> {
     let mark_result = recovery::mark_journal_committed(workspace, transaction_id);
-    let disk_phase = recovery::read_journal_phase(workspace, transaction_id);
 
-    if mark_result.is_ok() || matches!(disk_phase, Ok(Some(recovery::JournalPhase::Committed))) {
+    if mark_result.is_ok() {
         // Journal was successfully published to disk as Committed!
         // We MUST NEVER roll back candidate files.
         match recovery::remove_journal(workspace, transaction_id) {
@@ -1513,6 +1513,13 @@ pub fn commit_and_cleanup_journal(
             Err(_) => Ok("recovery_available"),
         }
     } else {
+        let disk_phase = recovery::read_journal_phase(workspace, transaction_id);
+        if matches!(disk_phase, Ok(Some(recovery::JournalPhase::Committed))) {
+            match recovery::remove_journal(workspace, transaction_id) {
+                Ok(()) => Ok("not_required"),
+                Err(_) => Ok("recovery_available"),
+            }
+        } else {
         // Commit decision was NOT established on disk (mark failed and disk phase is not Committed).
         // Threadmoth MUST NOT acknowledge this transaction as Applied even if journal removal succeeds.
         // Roll back all committed files to original, attempt best-effort journal removal,
@@ -1545,6 +1552,7 @@ pub fn commit_and_cleanup_journal(
             Err((rollback, msg))
         }
     }
+}
 }
 
 fn failure_with_rollback(
