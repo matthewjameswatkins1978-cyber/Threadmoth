@@ -665,7 +665,43 @@ class BenchmarkRunner:
                 samples_mcp_ambig.append(dur)
             suite["mcp_ambiguity_refusal"] = compute_stats(samples_mcp_ambig)
 
-            # 7. MCP Repeated 20 files in sequence
+            # 7. MCP Inspect & Outline Cache Verification
+            inspect_rs_path = os.path.join(td, "inspect_target.rs")
+            with open(inspect_rs_path, "w", encoding="utf-8") as f:
+                f.write("fn calculate() -> i32 { 1 + 1 }\npub fn process_data(input: &str) -> String { input.to_uppercase() }\n")
+            samples_inspect_derived = []
+            samples_inspect_hit = []
+            for _ in range(repetitions):
+                # Touch file to force new hash/derivation
+                with open(inspect_rs_path, "w", encoding="utf-8") as f:
+                    f.write(f"fn calculate() -> i32 {{ {time.time()} as i32 }}\npub fn process_data(input: &str) -> String {{ input.to_uppercase() }}\n")
+                dur_der, resp_der = mcp_call("tools/call", {
+                    "name": "threadmoth_inspect",
+                    "arguments": {
+                        "file_path": "inspect_target.rs",
+                        "view": "outline"
+                    }
+                })
+                outline_der = resp_der["result"]["structuredContent"]["outline"]
+                assert outline_der.get("reuse") == "derived"
+                samples_inspect_derived.append(dur_der)
+
+                # Second call on identical file should hit cache
+                dur_hit, resp_hit = mcp_call("tools/call", {
+                    "name": "threadmoth_inspect",
+                    "arguments": {
+                        "file_path": "inspect_target.rs",
+                        "view": "outline"
+                    }
+                })
+                outline_hit = resp_hit["result"]["structuredContent"]["outline"]
+                assert outline_hit.get("reuse") == "cache_hit"
+                samples_inspect_hit.append(dur_hit)
+
+            suite["mcp_inspect_outline_derived"] = compute_stats(samples_inspect_derived)
+            suite["mcp_inspect_outline_cache_hit"] = compute_stats(samples_inspect_hit)
+
+            # 8. MCP Repeated 20 files in sequence
             samples_mcp_20_files = []
             for _ in range(5):
                 for i in range(20):
@@ -697,6 +733,32 @@ class BenchmarkRunner:
 
         self.results["persistent_mcp"] = suite
 
+    def bench_in_process_suite(self):
+        """Runs built-in in-process benchmarks (dry-run engine) and torture safety suite."""
+        suite = {}
+        # 1. Standard / Tough in-process benchmark
+        try:
+            cmd = [self.exe, "benchmark", "--tough", "--json"]
+            out = subprocess.check_output(cmd, text=True)
+            data = json.loads(out)
+            self.wrong_applied += data.get("wrong_applied", 0)
+            suite["tough_report"] = data
+        except Exception as e:
+            suite["tough_error"] = str(e)
+
+        # 2. Torture safety suite
+        try:
+            cmd = [self.exe, "benchmark", "--torture", "--json"]
+            out = subprocess.check_output(cmd, text=True)
+            data = json.loads(out)
+            if data.get("state") != "PASS" or data.get("failed", 0) > 0:
+                self.wrong_applied += 1
+            suite["torture_report"] = data
+        except Exception as e:
+            suite["torture_error"] = str(e)
+
+        self.results["in_process_benchmarks"] = suite
+
     def run_all(self, repetitions=15):
         print(f"Starting benchmark run for: {self.exe}", flush=True)
         print("  Phase 1: Startup & Shell invocations...", flush=True)
@@ -713,6 +775,8 @@ class BenchmarkRunner:
         self.bench_refusals_suite(repetitions)
         print("  Phase 7: Persistent MCP connection & calls...", flush=True)
         self.bench_mcp_suite(repetitions)
+        print("  Phase 8: Built-in in-process benchmarks & torture suite...", flush=True)
+        self.bench_in_process_suite()
         print(f"Completed benchmark run. Wrong applied: {self.wrong_applied}", flush=True)
 
 def main():

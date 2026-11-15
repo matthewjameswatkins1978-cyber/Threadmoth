@@ -53,3 +53,18 @@ compare_section('Large File (1MB)', 'large_file')
 compare_section('Repeated Small Files (20 files)', 'repeated_small_files')
 compare_section('Refusals and Safety', 'refusals_and_safety')
 compare_section('Persistent MCP Connection', 'persistent_mcp')
+
+# In-process comparison display
+if 'in_process_benchmarks' in after['results']:
+    print("\n[ Built-in In-Process Benchmarks vs. External Agent-Visible Latency ]")
+    print(f"  {'Workload':30} | {'In-Process (dry-run)':22} | {'Caller-Visible (CLI)':22}")
+    print("  " + "-" * 78)
+    tough = after['results']['in_process_benchmarks'].get('tough_report', {})
+    cases = {c['name']: c['average_us'] for c in tough.get('cases', [])}
+    if 'tiny' in cases:
+        print(f"  {'tiny (21 bytes)':30} | {cases['tiny']/1000.0:8.3f} ms            | {after['results']['small_file_workflows']['workflow_a_direct_onecall_edit']['median_ms']:8.2f} ms")
+    if 'text_1m' in cases:
+        print(f"  {'text_1m (1 MB)':30} | {cases['text_1m']/1000.0:8.3f} ms            | {after['results']['large_file']['direct_cli_large_1mb_edit']['median_ms']:8.2f} ms")
+    if 'small_files_250' in cases:
+        print(f"  {'small_files (per file)':30} | {cases['small_files_250']/1000.0:8.3f} ms            | {after['results']['repeated_small_files']['repeated_20_files_single_edit_doc']['median_ms']/20.0:8.2f} ms (edit doc)")
+
