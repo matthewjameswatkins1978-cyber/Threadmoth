@@ -369,11 +369,9 @@ Detailed profiling within `apply_prepared_plan()` revealed the primary bottlenec
 5. **Redundant Hashing Passes:** Up to 8 full SHA-256 passes were executed over the 1 MB buffer across the preparation, validation, journal, and certificate generation pipelines.
 
 ### Fast-Path Optimizations Implemented (`6e36194`)
-1. **Lightweight Journal Phase Probing:**
-   - Implemented `JournalPhaseProbe` in [src/recovery.rs](file:///c:/Users/Matmus/Documents/antigravity/proud-hypatia/src/recovery.rs), reading only the `"phase"` enum field without parsing multi-megabyte `original`/`candidate` payloads.
-2. **In-Place JSON Phase Commit:**
-   - Rewrote `mark_journal_committed` to parse into `serde_json::Value` and mutate `val["phase"] = "committed"` directly. This eliminated the expensive base64 transcoding cycle, dropping phase commit latency from **13.5 ms to 2.9 ms**.
-3. **Lazy Journal Recovery Probing:**
+1. **Typed Journal Validation & Staged Commit:**
+   - Restored full typed `Journal` validation across recovery and commit phase transitions, fail-closing any malformed, forged, or incomplete journals while eliminating fragile lightweight parsers.
+2. **Lazy Journal Recovery Probing:**
    - Guarded `read_journal_phase` in `commit_and_cleanup_journal` to execute *only* when `mark_journal_committed` returns an error, bypassing disk re-reads on normal execution paths.
 4. **Eliminated Redundant Serializations & Passes:**
    - Removed duplicate `check_journal_size` calls.

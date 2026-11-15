@@ -147,22 +147,6 @@ pub fn write_journal(workspace: &Workspace, journal: &Journal) -> Result<(), Wor
     Ok(())
 }
 
-#[derive(serde::Deserialize)]
-struct JournalPhaseProbe {
-    transaction_id: String,
-    protocol_version: String,
-    entries: Vec<JournalEntryStub>,
-    #[serde(default)]
-    phase: Option<JournalPhase>,
-}
-
-#[derive(serde::Deserialize)]
-struct JournalEntryStub {
-    path: String,
-    pre_hash: String,
-    candidate_hash: String,
-}
-
 pub fn read_journal_phase(
     workspace: &Workspace,
     transaction_id: &str,
@@ -179,51 +163,39 @@ pub fn read_journal_phase(
                     actual: bytes.len(),
                 });
             }
-            let probe: JournalPhaseProbe = serde_json::from_slice(&bytes)
+            let journal: Journal = serde_json::from_slice(&bytes)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-            if probe.transaction_id.is_empty()
-                || safe_id(&probe.transaction_id) != probe.transaction_id
-                || probe.transaction_id != transaction_id
+            if journal.transaction_id.is_empty()
+                || safe_id(&journal.transaction_id) != journal.transaction_id
+                || journal.transaction_id != transaction_id
             {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     format!(
                         "journal transaction_id mismatch: expected {transaction_id}, found {}",
-                        probe.transaction_id
+                        journal.transaction_id
                     ),
                 )
                 .into());
             }
-            if !SUPPORTED_PROTOCOL_VERSIONS.contains(&probe.protocol_version.as_str()) {
+            if !SUPPORTED_PROTOCOL_VERSIONS.contains(&journal.protocol_version.as_str()) {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     format!(
                         "unsupported journal protocol version: {}",
-                        probe.protocol_version
+                        journal.protocol_version
                     ),
                 )
                 .into());
             }
-            if probe.entries.is_empty() || probe.entries.len() > MAX_JOURNAL_ENTRIES {
+            if journal.entries.is_empty() || journal.entries.len() > MAX_JOURNAL_ENTRIES {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     "invalid journal entry count",
                 )
                 .into());
             }
-            for entry in &probe.entries {
-                if entry.path.is_empty()
-                    || entry.pre_hash.is_empty()
-                    || entry.candidate_hash.is_empty()
-                {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "invalid journal entry: missing required fields",
-                    )
-                    .into());
-                }
-            }
-            return Ok(probe.phase);
+            return Ok(journal.phase);
         }
     }
     Ok(None)
@@ -251,88 +223,37 @@ pub fn mark_journal_committed(
                     actual: bytes.len(),
                 });
             }
-            let mut val: serde_json::Value = serde_json::from_slice(&bytes)
+            let mut journal: Journal = serde_json::from_slice(&bytes)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-            let obj = val.as_object_mut().ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "invalid journal: root must be a JSON object",
-                )
-            })?;
-            let tid = obj
-                .get("transaction_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if tid.is_empty() || safe_id(tid) != tid || tid != transaction_id {
+            if journal.transaction_id.is_empty()
+                || safe_id(&journal.transaction_id) != journal.transaction_id
+                || journal.transaction_id != transaction_id
+            {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     format!("journal transaction_id mismatch: expected {transaction_id}"),
                 )
                 .into());
             }
-            let pv = obj
-                .get("protocol_version")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "invalid journal: missing protocol_version",
-                    )
-                })?;
-            if !SUPPORTED_PROTOCOL_VERSIONS.contains(&pv) {
+            if !SUPPORTED_PROTOCOL_VERSIONS.contains(&journal.protocol_version.as_str()) {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!("unsupported journal protocol version: {pv}"),
+                    format!(
+                        "unsupported journal protocol version: {}",
+                        journal.protocol_version
+                    ),
                 )
                 .into());
             }
-            let entries = obj
-                .get("entries")
-                .and_then(|v| v.as_array())
-                .ok_or_else(|| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "invalid journal: missing entries array",
-                    )
-                })?;
-            if entries.is_empty() || entries.len() > MAX_JOURNAL_ENTRIES {
+            if journal.entries.is_empty() || journal.entries.len() > MAX_JOURNAL_ENTRIES {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     "invalid journal: invalid journal entry count",
                 )
                 .into());
             }
-            for entry in entries {
-                let e_obj = entry.as_object().ok_or_else(|| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "invalid journal: entry must be an object",
-                    )
-                })?;
-                let path = e_obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                let pre = e_obj.get("pre_hash").and_then(|v| v.as_str()).unwrap_or("");
-                let cand = e_obj
-                    .get("candidate_hash")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                if path.is_empty() || pre.is_empty() || cand.is_empty() {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "invalid journal: entry missing required fields",
-                    )
-                    .into());
-                }
-            }
-            obj.insert("phase".to_string(), serde_json::json!("committed"));
-            let updated_bytes = serde_json::to_vec(&val)
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-            if updated_bytes.len() > MAX_JOURNAL_BYTES {
-                return Err(WorkspaceError::ResourceLimit {
-                    dimension: "max_journal_bytes".into(),
-                    limit: MAX_JOURNAL_BYTES,
-                    actual: updated_bytes.len(),
-                });
-            }
+            journal.phase = Some(JournalPhase::Committed);
+            let updated_bytes = serialize_journal(&journal)?;
 
             #[cfg(feature = "test-fault-injection")]
             if fault_injection::fail_stage_write() {
@@ -1113,7 +1034,7 @@ mod tests {
     }
 
     #[test]
-    fn journal_phase_probe_rejects_non_object_json_without_panic() {
+    fn journal_validation_rejects_non_object_json_without_panic() {
         let temp = TempDir::new().unwrap();
         let workspace = Workspace::new(temp.path()).unwrap();
         let recovery_dir = temp.path().join(RECOVERY_DIR);
@@ -1132,7 +1053,7 @@ mod tests {
     }
 
     #[test]
-    fn journal_phase_probe_rejects_phase_only_json() {
+    fn journal_validation_rejects_phase_only_json() {
         let temp = TempDir::new().unwrap();
         let workspace = Workspace::new(temp.path()).unwrap();
         let recovery_dir = temp.path().join(RECOVERY_DIR);
@@ -1151,7 +1072,7 @@ mod tests {
     }
 
     #[test]
-    fn journal_phase_probe_rejects_missing_transaction_id() {
+    fn journal_validation_rejects_missing_transaction_id() {
         let temp = TempDir::new().unwrap();
         let workspace = Workspace::new(temp.path()).unwrap();
         let recovery_dir = temp.path().join(RECOVERY_DIR);
@@ -1161,7 +1082,9 @@ mod tests {
             "entries": [{
                 "path": "file.txt",
                 "pre_hash": "pre",
-                "candidate_hash": "cand"
+                "candidate_hash": "cand",
+                "original": "",
+                "candidate": ""
             }],
             "phase": "prepared"
         });
@@ -1176,7 +1099,7 @@ mod tests {
     }
 
     #[test]
-    fn journal_phase_probe_rejects_missing_protocol_version() {
+    fn journal_validation_rejects_missing_protocol_version() {
         let temp = TempDir::new().unwrap();
         let workspace = Workspace::new(temp.path()).unwrap();
         let recovery_dir = temp.path().join(RECOVERY_DIR);
@@ -1186,7 +1109,9 @@ mod tests {
             "entries": [{
                 "path": "file.txt",
                 "pre_hash": "pre",
-                "candidate_hash": "cand"
+                "candidate_hash": "cand",
+                "original": "",
+                "candidate": ""
             }],
             "phase": "prepared"
         });
@@ -1201,7 +1126,7 @@ mod tests {
     }
 
     #[test]
-    fn journal_phase_probe_rejects_missing_entries() {
+    fn journal_validation_rejects_missing_entries() {
         let temp = TempDir::new().unwrap();
         let workspace = Workspace::new(temp.path()).unwrap();
         let recovery_dir = temp.path().join(RECOVERY_DIR);
@@ -1222,7 +1147,7 @@ mod tests {
     }
 
     #[test]
-    fn journal_phase_probe_rejects_empty_entries() {
+    fn journal_validation_rejects_empty_entries() {
         let temp = TempDir::new().unwrap();
         let workspace = Workspace::new(temp.path()).unwrap();
         let recovery_dir = temp.path().join(RECOVERY_DIR);
@@ -1244,7 +1169,7 @@ mod tests {
     }
 
     #[test]
-    fn journal_phase_probe_rejects_mismatched_transaction_id() {
+    fn journal_validation_rejects_mismatched_transaction_id() {
         let temp = TempDir::new().unwrap();
         let workspace = Workspace::new(temp.path()).unwrap();
         let recovery_dir = temp.path().join(RECOVERY_DIR);
@@ -1255,7 +1180,9 @@ mod tests {
             "entries": [{
                 "path": "file.txt",
                 "pre_hash": "pre",
-                "candidate_hash": "cand"
+                "candidate_hash": "cand",
+                "original": "",
+                "candidate": ""
             }],
             "phase": "prepared"
         });
@@ -1270,7 +1197,7 @@ mod tests {
     }
 
     #[test]
-    fn journal_phase_probe_rejects_invalid_phase_enum() {
+    fn journal_validation_rejects_invalid_phase_enum() {
         let temp = TempDir::new().unwrap();
         let workspace = Workspace::new(temp.path()).unwrap();
         let recovery_dir = temp.path().join(RECOVERY_DIR);
@@ -1281,7 +1208,9 @@ mod tests {
             "entries": [{
                 "path": "file.txt",
                 "pre_hash": "pre",
-                "candidate_hash": "cand"
+                "candidate_hash": "cand",
+                "original": "",
+                "candidate": ""
             }],
             "phase": "corrupt_phase"
         });
@@ -1295,7 +1224,7 @@ mod tests {
     }
 
     #[test]
-    fn journal_phase_probe_handles_missing_phase() {
+    fn journal_validation_handles_missing_phase() {
         let temp = TempDir::new().unwrap();
         let workspace = Workspace::new(temp.path()).unwrap();
         let recovery_dir = temp.path().join(RECOVERY_DIR);
@@ -1306,7 +1235,9 @@ mod tests {
             "entries": [{
                 "path": "file.txt",
                 "pre_hash": "pre",
-                "candidate_hash": "cand"
+                "candidate_hash": "cand",
+                "original": "",
+                "candidate": ""
             }]
         });
         fs::write(
