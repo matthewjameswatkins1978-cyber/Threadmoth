@@ -512,6 +512,21 @@ fn reject_parent_components(path: &str) -> Result<(), WorkspaceError> {
     Ok(())
 }
 
+fn is_link_or_reparse(meta: &fs::Metadata) -> bool {
+    if meta.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return true;
+        }
+    }
+    false
+}
+
 /// Canonicalize an existing target or its deepest existing ancestor, then
 /// append the still-missing leaf components. This resolves symlinks and
 /// Windows reparse points before a create/write path is authorized.
@@ -522,11 +537,12 @@ fn canonicalize_candidate(path: &Path) -> Result<PathBuf, WorkspaceError> {
     loop {
         match fs::symlink_metadata(&ancestor) {
             Ok(meta) => {
-                if meta.file_type().is_symlink() {
+                if is_link_or_reparse(&meta) {
                     let mut resolved = fs::canonicalize(&ancestor).map_err(|_| {
                         WorkspaceError::SymlinkEscape(ancestor.display().to_string())
                     })?;
-                    if !suffix.is_empty() && !fs::metadata(&resolved)?.is_dir() {
+                    let is_dir = fs::metadata(&resolved).map(|m| m.is_dir()).unwrap_or(false);
+                    if !suffix.is_empty() && !is_dir {
                         return Err(WorkspaceError::NotFound(path.display().to_string()));
                     }
                     for component in suffix.iter().rev() {
@@ -534,8 +550,14 @@ fn canonicalize_candidate(path: &Path) -> Result<PathBuf, WorkspaceError> {
                     }
                     return Ok(resolved);
                 } else {
-                    let mut resolved = fs::canonicalize(&ancestor)?;
-                    if !suffix.is_empty() && !fs::metadata(&resolved)?.is_dir() {
+                    let mut resolved = fs::canonicalize(&ancestor).map_err(|e| match e.kind() {
+                        io::ErrorKind::NotFound => {
+                            WorkspaceError::NotFound(ancestor.display().to_string())
+                        }
+                        _ => WorkspaceError::Io(e),
+                    })?;
+                    let is_dir = fs::metadata(&resolved).map(|m| m.is_dir()).unwrap_or(false);
+                    if !suffix.is_empty() && !is_dir {
                         return Err(WorkspaceError::NotFound(path.display().to_string()));
                     }
                     for component in suffix.iter().rev() {
@@ -701,6 +723,32 @@ mod tests {
                 let w = Workspace::new(t.path()).unwrap();
                 assert!(matches!(
                     w.resolve_path("junc_link/target.txt"),
+                    Err(WorkspaceError::SymlinkEscape(_))
+                ));
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_dangling_junction_rejected() {
+        let t = TempDir::new().unwrap();
+        let link = t.path().join("dangling_junc");
+        let nonexistent = t.path().join("missing_outside");
+        let cmd = std::process::Command::new("cmd")
+            .args([
+                "/C",
+                "mklink",
+                "/J",
+                &link.to_string_lossy(),
+                &nonexistent.to_string_lossy(),
+            ])
+            .output();
+        if let Ok(out) = cmd {
+            if out.status.success() {
+                let w = Workspace::new(t.path()).unwrap();
+                assert!(matches!(
+                    w.resolve_path("dangling_junc/target.txt"),
                     Err(WorkspaceError::SymlinkEscape(_))
                 ));
             }
